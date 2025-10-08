@@ -28,11 +28,15 @@
     "turbo": "^2.1.2"
   },
   "workspaces": {
-    "packages": ["packages/*", "packages/core/*", "packages/ts/*"]
+    "packages": [
+      "packages/*",
+      "packages/core/*",
+      "packages/ts/*"
+    ]
   },
-  "packageManager": "pnpm@9.7.0",
+  "packageManager": "pnpm@10.15.1",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "name": "root"
 }
