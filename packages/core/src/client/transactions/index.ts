@@ -1,11 +1,12 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/lib/request";
 import { WompiError } from "@/errors/wompi-error";
 import type { TransactionParameters, TransactionResponse } from "./types";
 import { createYYYYMMDD, isValidYYYYMMDD } from "@/client/utils/date-format";
+import type { RequestClientOptions } from "@/lib/request";
 
 export class Transactions extends WompiRequest {
-  constructor(private readonly authorizationToken: string) {
-    super();
+  constructor(private readonly authorizationToken: string, options?: RequestClientOptions) {
+    super(options);
   }
 
   async getTransaction(id: string) {

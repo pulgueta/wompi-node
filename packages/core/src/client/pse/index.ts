@@ -1,10 +1,11 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/lib/request";
 import { WompiError } from "@/errors/wompi-error";
 import type { FinantialInstitutions } from "./types";
+import type { RequestClientOptions } from "@/lib/request";
 
 export class PSE extends WompiRequest {
-  constructor(private readonly authorizationToken: string) {
-    super();
+  constructor(private readonly authorizationToken: string, options?: RequestClientOptions) {
+    super(options);
   }
 
   async getFinantialInstitutions() {
