@@ -1,7 +1,7 @@
 {
-  "name": "@pulgueta/wompi",
+  "name": "@pulgueta/wompi-react",
   "version": "0.0.0",
-  "description": "El SDK de Wompi para Node.js",
+  "description": "React hooks for Wompi payment integration",
   "author": "Andrés Rodríguez <roariasaf@gmail.com>",
   "license": "MIT",
   "private": false,
@@ -11,7 +11,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pulgueta/wompi-sdk"
+    "url": "https://github.com/pulgueta/wompi-sdk",
+    "directory": "packages/react"
   },
   "bugs": {
     "url": "https://github.com/pulgueta/wompi-sdk/issues"
@@ -33,22 +34,30 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest",
-    "test:cov": "vitest run --coverage",
-    "release": "pnpm publish --no-git-check"
+    "test:cov": "vitest run --coverage"
   },
   "keywords": [
     "wompi",
-    "sdk",
-    "wompi-sdk",
-    "wompi-node-sdk",
+    "react",
+    "hooks",
+    "react-hooks",
+    "payment",
+    "wompi-react",
     "bancolombia",
-    "pagos",
-    "pagos-bancolombia"
+    "pse"
   ],
+  "peerDependencies": {
+    "react": "^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "dependencies": {
+    "@pulgueta/wompi": "workspace:*"
+  },
   "devDependencies": {
     "@pulgueta/wompi-tsconfig": "workspace:*",
     "@types/node": "^22.5.5",
+    "@types/react": "^18.3.12",
     "@vitest/coverage-v8": "^2.1.1",
+    "react": "^18.3.1",
     "tsup": "^8.3.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1"
