@@ -1,0 +1,34 @@
+{
+  "name": "@pulgueta/wompi-web",
+  "version": "0.0.0",
+  "description": "Vanilla JS helpers for Wompi WidgetCheckout",
+  "author": "Andrés Rodríguez <roariasaf@gmail.com>",
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": ["dist"],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "devDependencies": {
+    "@pulgueta/wompi-tsconfig": "workspace:*",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.2"
+  }
+}

@@ -9,15 +9,11 @@ import { WompiError } from "@/internal/wompi-error";
 export class Transactions {
   constructor(
     private readonly http: HttpClient,
-    private readonly bearer?: string,
   ) {}
 
   async getTransaction(id: string) {
     const transaction = await this.http.get<TransactionResponse>(
       `/transactions/${id}`,
-      {
-        headers: this.bearer ? { Authorization: this.bearer } : undefined,
-      },
     );
 
     if (!transaction) {
@@ -32,9 +28,7 @@ export class Transactions {
 
     const queryUrl = this.buildQueryUrl(params);
 
-    const transactions = await this.http.get<TransactionResponse[]>(queryUrl, {
-      headers: this.bearer ? { Authorization: this.bearer } : undefined,
-    });
+    const transactions = await this.http.get<TransactionResponse[]>(queryUrl);
 
     if (transactions.length === 0) {
       return [];

@@ -30,17 +30,23 @@ export class Wompi {
   constructor(options: WompiOptions = {}) {
     const environment: Environment = options.environment ?? "sandbox";
 
-    this.http = new HttpClient(
-      resolveHttpOptions(environment, options.baseUrl),
-    );
+    const authHeader =
+      options.privateKey
+        ? { Authorization: `Bearer ${options.privateKey}` }
+        : options.publicKey
+          ? { Authorization: `Bearer ${options.publicKey}` }
+          : undefined;
+
+    this.http = new HttpClient({
+      ...resolveHttpOptions(environment, options.baseUrl),
+      defaultHeaders: authHeader,
+    });
     this.publicKey = options.publicKey;
     this.privateKey = options.privateKey;
 
-    const bearer = this.publicKey ? `Bearer ${this.publicKey}` : undefined;
-
     this.merchants = new Merchants(this.http, this.publicKey ?? "");
-    this.transactions = new Transactions(this.http, bearer);
-    this.pse = new PSE(this.http, bearer);
+    this.transactions = new Transactions(this.http);
+    this.pse = new PSE(this.http);
   }
 }
 
