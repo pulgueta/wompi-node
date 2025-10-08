@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["../ts/reset.d.ts", "node", "vitest/globals"],
+    "lib": ["ES2022"],
+    "baseUrl": ".",
+    "rootDir": ".",
+    "outDir": "dist",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "./package.json", "tsup.config.ts"]
+}
+
