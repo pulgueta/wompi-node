@@ -1,6 +1,11 @@
 export class WompiError extends Error {
-  constructor(message: string) {
+  readonly status?: number;
+  readonly details?: unknown;
+
+  constructor(message: string, options?: { status?: number; details?: unknown }) {
     super(message);
     this.name = "[WompiError]";
+    this.status = options?.status;
+    this.details = options?.details;
   }
 }

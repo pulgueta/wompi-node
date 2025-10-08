@@ -1,0 +1,10 @@
+{
+  "extends": "../ts/bundler.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+

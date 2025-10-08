@@ -1,17 +1,21 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/lib/request";
 import { WompiError } from "@/errors/wompi-error";
-import type { TransactionParameters, TransactionResponse } from "./types";
+import type {
+  CreateTransactionRequest,
+  CreatedTransactionResponse,
+  TransactionParameters,
+  TransactionResponse,
+} from "./types";
 import { createYYYYMMDD, isValidYYYYMMDD } from "@/client/utils/date-format";
+import type { RequestClientOptions } from "@/lib/request";
 
 export class Transactions extends WompiRequest {
-  constructor(private readonly authorizationToken: string) {
-    super();
+  constructor(private readonly authorizationToken: string, options?: RequestClientOptions) {
+    super(options);
   }
 
   async getTransaction(id: string) {
-    const transaction = await this.get<TransactionResponse>(`/transactions/${id}`, {
-      Authorization: this.authorizationToken,
-    });
+    const transaction = await this.get<TransactionResponse>(`/transactions/${id}`);
 
     if (!transaction) {
       throw new WompiError(`Transaction with id ${id} not found`);
@@ -25,15 +29,23 @@ export class Transactions extends WompiRequest {
 
     const queryUrl = this.buildQueryUrl(params);
 
-    const transactions = await this.get<TransactionResponse[]>(queryUrl, {
-      Authorization: this.authorizationToken,
-    });
+    const transactions = await this.get<TransactionResponse[]>(queryUrl);
 
     if (transactions.length === 0) {
       return [];
     }
 
     return transactions;
+  }
+
+  async createTransaction(payload: CreateTransactionRequest) {
+    const created = await this.post<CreatedTransactionResponse>("/transactions", undefined, payload);
+
+    if (!created) {
+      throw new WompiError("Transaction creation failed");
+    }
+
+    return created;
   }
 
   private validateTransactionParams(params: TransactionParameters) {
