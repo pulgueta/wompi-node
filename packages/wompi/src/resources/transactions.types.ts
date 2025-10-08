@@ -80,7 +80,8 @@ export type ShippingAddress = {
 
 export type Meta = object;
 
-export type YYYYMMDD = `${number}${number}${number}${number}-${number}${number}-${number}${number}`;
+export type YYYYMMDD =
+  `${number}${number}${number}${number}-${number}${number}-${number}${number}`;
 
 export type PaymentProcessor =
   | "CARD"
@@ -91,7 +92,12 @@ export type PaymentProcessor =
   | "BANCOLOMBIA_COLLECT"
   | "BANCOLOMBIA_QR";
 
-export type TransactionStatus = "APPROVED" | "DECLINED" | "PENDING" | "ERROR" | "VOIDED";
+export type TransactionStatus =
+  | "APPROVED"
+  | "DECLINED"
+  | "PENDING"
+  | "ERROR"
+  | "VOIDED";
 
 export type TransactionParameters = {
   readonly reference?: string;
@@ -106,4 +112,3 @@ export type TransactionParameters = {
   readonly order_by?: string;
   readonly order?: "DESC" | "ASC";
 };
-

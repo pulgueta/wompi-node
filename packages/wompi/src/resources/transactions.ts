@@ -1,15 +1,24 @@
 import type { HttpClient } from "@/internal/http-client";
-import type { TransactionParameters, TransactionResponse } from "@/resources/transactions.types";
+import type {
+  TransactionParameters,
+  TransactionResponse,
+} from "@/resources/transactions.types";
 import { createYYYYMMDD, isValidYYYYMMDD } from "@/utils/date-format";
 import { WompiError } from "@/internal/wompi-error";
 
 export class Transactions {
-  constructor(private readonly http: HttpClient, private readonly bearer?: string) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly bearer?: string,
+  ) {}
 
   async getTransaction(id: string) {
-    const transaction = await this.http.get<TransactionResponse>(`/transactions/${id}`, {
-      headers: this.bearer ? { Authorization: this.bearer } : undefined,
-    });
+    const transaction = await this.http.get<TransactionResponse>(
+      `/transactions/${id}`,
+      {
+        headers: this.bearer ? { Authorization: this.bearer } : undefined,
+      },
+    );
 
     if (!transaction) {
       throw new WompiError(`Transaction with id ${id} not found`);
@@ -36,9 +45,16 @@ export class Transactions {
 
   private validateTransactionParams(params: TransactionParameters) {
     const fromYesterday = createYYYYMMDD(new Date(Date.now() - 86400000));
-    const untilAMonthFromYesterday = createYYYYMMDD(new Date(Date.now() + 2592000000));
+    const untilAMonthFromYesterday = createYYYYMMDD(
+      new Date(Date.now() + 2592000000),
+    );
 
-    const { from_date = fromYesterday, until_date = untilAMonthFromYesterday, page = 1, page_size = 30 } = params;
+    const {
+      from_date = fromYesterday,
+      until_date = untilAMonthFromYesterday,
+      page = 1,
+      page_size = 30,
+    } = params;
 
     if (!isValidYYYYMMDD(from_date) || !isValidYYYYMMDD(until_date)) {
       throw new WompiError("Invalid date format, must be of type YYYY-MM-DD");
@@ -78,7 +94,8 @@ export class Transactions {
     if (id) queryParams.append("id", id);
     if (order) queryParams.append("order", order);
     if (order_by) queryParams.append("order_by", order_by);
-    if (payment_method_type) queryParams.append("payment_method_type", payment_method_type);
+    if (payment_method_type)
+      queryParams.append("payment_method_type", payment_method_type);
     if (reference) queryParams.append("reference", reference);
     if (status) queryParams.append("status", status);
     if (customer_email) queryParams.append("customer_email", customer_email);
@@ -86,4 +103,3 @@ export class Transactions {
     return `/transactions?${queryParams.toString()}`;
   }
 }
-

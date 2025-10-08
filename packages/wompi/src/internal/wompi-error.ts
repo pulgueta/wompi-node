@@ -4,4 +4,3 @@ export class WompiError extends Error {
     this.name = "[WompiError]";
   }
 }
-

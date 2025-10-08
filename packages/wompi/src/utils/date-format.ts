@@ -10,4 +10,3 @@ export const createYYYYMMDD = (date: Date): YYYYMMDD => {
 
   return `${year}-${month}-${day}` as YYYYMMDD;
 };
-

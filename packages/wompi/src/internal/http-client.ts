@@ -9,7 +9,11 @@ export class HttpClient {
     this.baseUrl = options.baseUrl;
   }
 
-  private async request<T>(method: "GET" | "POST" | "PATCH", endpoint: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    method: "GET" | "POST" | "PATCH",
+    endpoint: string,
+    init?: RequestInit,
+  ): Promise<T> {
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method,
       headers: {
@@ -35,4 +39,3 @@ export class HttpClient {
     return this.request<T>("PATCH", endpoint, init);
   }
 }
-

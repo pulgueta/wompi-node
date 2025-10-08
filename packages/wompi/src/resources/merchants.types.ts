@@ -39,4 +39,3 @@ export type PresignedAcceptance = {
 };
 
 export type Meta = object;
-

@@ -38,13 +38,7 @@
     "test:cov": "vitest run --coverage",
     "release": "pnpm publish --no-git-check"
   },
-  "keywords": [
-    "wompi",
-    "sdk",
-    "payments",
-    "colombia",
-    "bancolombia"
-  ],
+  "keywords": ["wompi", "sdk", "payments", "colombia", "bancolombia"],
   "devDependencies": {
     "@pulgueta/wompi-tsconfig": "workspace:*",
     "@types/node": "^22.5.5",

@@ -10,4 +10,3 @@ export default defineConfig({
   minify: true,
   outDir: "dist",
 });
-

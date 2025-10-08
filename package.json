@@ -28,11 +28,7 @@
     "turbo": "^2.1.2"
   },
   "workspaces": {
-    "packages": [
-      "packages/*",
-      "packages/core/*",
-      "packages/ts/*"
-    ]
+    "packages": ["packages/*", "packages/core/*", "packages/ts/*"]
   },
   "packageManager": "pnpm@10.15.1",
   "engines": {

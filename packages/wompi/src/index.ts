@@ -30,7 +30,9 @@ export class Wompi {
   constructor(options: WompiOptions = {}) {
     const environment: Environment = options.environment ?? "sandbox";
 
-    this.http = new HttpClient(resolveHttpOptions(environment, options.baseUrl));
+    this.http = new HttpClient(
+      resolveHttpOptions(environment, options.baseUrl),
+    );
     this.publicKey = options.publicKey;
     this.privateKey = options.privateKey;
 
@@ -44,9 +46,15 @@ export class Wompi {
 
 export const WompiServer = { getSignatureKey };
 
-function resolveHttpOptions(environment: Environment, baseUrlOverride?: string): HttpClientOptions {
+function resolveHttpOptions(
+  environment: Environment,
+  baseUrlOverride?: string,
+): HttpClientOptions {
   if (baseUrlOverride) return { baseUrl: baseUrlOverride };
-  const baseUrl = environment === "production" ? "https://production.wompi.co/v1" : "https://sandbox.wompi.co/v1";
+  const baseUrl =
+    environment === "production"
+      ? "https://production.wompi.co/v1"
+      : "https://sandbox.wompi.co/v1";
   return { baseUrl };
 }
 
@@ -59,4 +67,3 @@ export type {
   YYYYMMDD,
 } from "@/resources/transactions.types";
 export type { FinantialInstitutions } from "@/resources/pse.types";
-
