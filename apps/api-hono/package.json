@@ -1,0 +1,22 @@
+{
+  "name": "api-hono",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.1",
+    "hono": "^4.6.9",
+    "zod": "^3.23.8",
+    "@pulgueta/wompi": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.9",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.2"
+  }
+}

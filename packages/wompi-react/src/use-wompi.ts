@@ -1,0 +1,1 @@
+export { useWompi } from './provider';
