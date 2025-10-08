@@ -48,9 +48,12 @@ export class WompiRequest {
 
     if (!response.ok) {
       const message =
-        (typeof data === "object" && data && "error" in (data as any)
-          ? (data as any).error?.reason || (data as any).error?.message
-          : undefined) || response.statusText || "Wompi request failed";
+        (typeof data === "object" && data && "error" in data
+          ? // @ts-expect-error - data.error is not typed
+            data.error?.reason || data.error?.message
+          : undefined) ||
+        response.statusText ||
+        "Wompi request failed";
 
       const error = new Error(message) as Error & {
         status?: number;
@@ -73,7 +76,10 @@ export class WompiRequest {
     headers?: RequestInit["headers"],
     body?: unknown
   ) {
-    return this.request<T>("POST", endpoint, { headers, body: body ? JSON.stringify(body) : undefined });
+    return this.request<T>("POST", endpoint, {
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   }
 
   protected async patch<const T>(
@@ -81,7 +87,9 @@ export class WompiRequest {
     headers?: RequestInit["headers"],
     body?: unknown
   ) {
-    return this.request<T>("PATCH", endpoint, { headers, body: body ? JSON.stringify(body) : undefined });
+    return this.request<T>("PATCH", endpoint, {
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   }
 }
-
