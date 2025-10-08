@@ -23,12 +23,17 @@
     "@commitlint/config-conventional": "^19.5.0",
     "@commitlint/types": "^19.5.0",
     "@pulgueta/wompi-tsconfig": "workspace:*",
+    "@types/node": "^22.5.5",
     "conventional-changelog-atom": "^5.0.0",
     "husky": "^9.1.6",
     "turbo": "^2.1.2"
   },
   "workspaces": {
-    "packages": ["packages/*", "packages/core/*", "packages/ts/*"]
+    "packages": [
+      "packages/*",
+      "packages/core/*",
+      "packages/ts/*"
+    ]
   },
   "packageManager": "pnpm@9.7.0",
   "engines": {

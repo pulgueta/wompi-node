@@ -106,3 +106,23 @@ export type TransactionParameters = {
   readonly order_by?: string;
   readonly order?: "DESC" | "ASC";
 };
+
+export type CreateTransactionRequest = {
+  readonly acceptance_token: string;
+  readonly amount_in_cents: number;
+  readonly currency: string; // e.g., "COP"
+  readonly customer_email: string;
+  readonly reference: string;
+  readonly payment_source_id?: number;
+  readonly redirect_url?: string;
+  readonly payment_method?: Record<string, unknown>;
+  readonly shipping_address?: ShippingAddress;
+  readonly customer_data?: CustomerData;
+  readonly taxes?: unknown[];
+  readonly tip_in_cents?: number;
+};
+
+export type CreatedTransactionResponse = {
+  readonly data: Data;
+  readonly meta: Meta;
+};

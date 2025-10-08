@@ -31,11 +31,7 @@ export class Tokens extends WompiRequest {
   }
 
   async createCardToken(payload: CreateCardTokenRequest) {
-    return this.post<TokenResponse<CardTokenData>>(
-      "/tokens/cards",
-      { Authorization: this.authorizationToken },
-      payload
-    );
+    return this.post<TokenResponse<CardTokenData>>("/tokens/cards", undefined, payload);
   }
 }
 

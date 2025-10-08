@@ -7,16 +7,16 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "dependsOn": ["^build"]
     },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
     "test": {
       "dependsOn": ["^test"]
     },
     "test:cov": {
       "outputs": ["coverage/**"],
       "dependsOn": ["^test:cov"]
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
     },
     "clean": {
       "cache": false

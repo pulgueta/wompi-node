@@ -4,6 +4,7 @@ import { Transactions } from "@/client/transactions";
 import { PSE } from "@/client/pse";
 import { Tokens } from "@/client/tokens";
 import { PaymentSources } from "@/client/payment-sources";
+import { Events } from "@/client/events";
 import type { RequestClientOptions, WompiEnvironment } from "@/lib/request";
 
 type WompiClientOptions = {
@@ -24,6 +25,7 @@ export class WompiClient {
   readonly pse: PSE;
   readonly tokens: Tokens;
   readonly paymentSources: PaymentSources;
+  readonly events: Events;
 
   constructor(private readonly options: WompiClientOptions) {
     if (!options) {
@@ -34,10 +36,18 @@ export class WompiClient {
     this.publicEventsKey = options.publicEventsKey ?? "";
     this.eventsUrl = options.eventsUrl ?? "";
 
+    const authHeaders = { Authorization: `Bearer ${this.publicKey}` } as const;
+    const requestOptions: RequestClientOptions = {
+      environment: options.environment,
+      baseUrl: options.baseUrl,
+      defaultHeaders: authHeaders,
+    };
+
     this.merchants = new Merchants(this.publicKey, { environment: options.environment, baseUrl: options.baseUrl });
-    this.transactions = new Transactions(`Bearer ${this.publicKey}`, { environment: options.environment, baseUrl: options.baseUrl });
-    this.pse = new PSE(`Bearer ${this.publicKey}`, { environment: options.environment, baseUrl: options.baseUrl });
-    this.tokens = new Tokens(`Bearer ${this.publicKey}`, { environment: options.environment, baseUrl: options.baseUrl });
-    this.paymentSources = new PaymentSources(`Bearer ${this.publicKey}`, { environment: options.environment, baseUrl: options.baseUrl });
+    this.transactions = new Transactions(`Bearer ${this.publicKey}`, requestOptions);
+    this.pse = new PSE(`Bearer ${this.publicKey}`, requestOptions);
+    this.tokens = new Tokens(`Bearer ${this.publicKey}`, requestOptions);
+    this.paymentSources = new PaymentSources(`Bearer ${this.publicKey}`, requestOptions);
+    this.events = new Events(`Bearer ${this.publicKey}`, requestOptions);
   }
 }

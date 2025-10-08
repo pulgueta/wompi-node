@@ -9,9 +9,7 @@ export class PSE extends WompiRequest {
   }
 
   async getFinantialInstitutions() {
-    const request = await this.get<FinantialInstitutions>("/pse/financial_institutions", {
-      Authorization: this.authorizationToken,
-    });
+    const request = await this.get<FinantialInstitutions>("/pse/financial_institutions");
 
     if (!request) {
       throw new WompiError("Financial institutions not found");

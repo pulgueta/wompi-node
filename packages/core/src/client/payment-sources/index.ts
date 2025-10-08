@@ -27,11 +27,7 @@ export class PaymentSources extends WompiRequest {
   }
 
   async create(payload: CreatePaymentSourceRequest) {
-    return this.post<PaymentSourceResponse<PaymentSourceData>>(
-      "/payment_sources",
-      { Authorization: this.authorizationToken },
-      payload
-    );
+    return this.post<PaymentSourceResponse<PaymentSourceData>>("/payment_sources", undefined, payload);
   }
 }
 
