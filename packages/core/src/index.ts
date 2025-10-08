@@ -1,50 +1,56 @@
-export class WompiRequest {
-  private readonly baseUrl: string =
-    process.env.NODE_ENV === "development"
-      ? "https://sandbox.wompi.co/v1"
-      : "https://production.wompi.co/v1";
+export { Wompi } from './lib/wompi';
+export { WompiError } from './lib/errors';
 
-  private async request(
-    method: "GET" | "POST" | "PATCH",
-    endpoint: string,
-    requestOptions: Omit<RequestInit, "method"> = {}
-  ) {
-    const r = await fetch(`${this.baseUrl}${endpoint}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...requestOptions.headers,
-      },
-    });
+// Types
+export type { WompiOptions, WompiResponse, ErrorResponse } from './lib/types';
 
-    const data = await r.json();
+// Merchant types
+export type {
+  MerchantData,
+  PaymentMethod,
+  PaymentProcessor,
+  PresignedAcceptance,
+} from './lib/resources/merchants';
 
-    return data;
-  }
+// Transaction types
+export type {
+  TransactionData,
+  TransactionStatus,
+  PaymentMethodType,
+  YYYYMMDD,
+  TransactionPaymentMethod,
+  BillingData,
+  ShippingAddress,
+  CustomerData,
+  Tax,
+  MerchantInfo,
+  GetTransactionsParams,
+  CreateTransactionParams,
+} from './lib/resources/transactions';
 
-  protected async get<const T>(endpoint: string, headers?: RequestInit["headers"]) {
-    const req = await this.request("GET", endpoint, { headers });
+// PSE types
+export type {
+  FinancialInstitution,
+} from './lib/resources/pse';
 
-    return req as T;
-  }
+// Payment Source types
+export type {
+  PaymentSourceData,
+  CreateCardSourceParams,
+  CreateNequiSourceParams,
+  TokenizeCardParams,
+  TokenizeCardResponse,
+  CreatePaymentSourceParams,
+} from './lib/resources/payment-sources';
 
-  protected async post<const T>(
-    endpoint: string,
-    headers?: RequestInit["headers"],
-    body?: unknown
-  ) {
-    const req = await this.request("POST", endpoint, { headers, body: JSON.stringify(body) });
+// Payment Link types
+export type {
+  PaymentLinkData,
+  CreatePaymentLinkParams,
+  UpdatePaymentLinkParams,
+} from './lib/resources/payment-links';
 
-    return req as T;
-  }
-
-  protected async patch<const T>(
-    endpoint: string,
-    headers?: RequestInit["headers"],
-    body?: unknown
-  ) {
-    const req = await this.request("PATCH", endpoint, { headers, body: JSON.stringify(body) });
-
-    return req as T;
-  }
-}
+// Event types
+export type {
+  WebhookEvent,
+} from './lib/resources/events';

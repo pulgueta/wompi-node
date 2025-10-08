@@ -1,73 +1,280 @@
-# Turborepo Design System starter with Changesets
+# Wompi SDK - Monorepo
 
-This is an official React design system starter powered by Turborepo. Versioning and package publishing is handled by [Changesets](https://github.com/changesets/changesets) and fully automated with GitHub Actions.
+A comprehensive TypeScript SDK for the Wompi payment gateway, designed with simplicity, scalability, and type-safety in mind.
 
-## Using this example
+## 📦 Packages
 
-Run the following command:
+### [@pulgueta/wompi](./packages/core)
 
-```sh
-npx create-turbo@latest -e with-changesets
+Core SDK for interacting with the Wompi API in both Node.js and browser environments.
+
+```bash
+npm install @pulgueta/wompi
 ```
 
-## What's inside?
+**Key Features:**
+- 🔐 Complete API coverage (transactions, payment sources, PSE, payment links, webhooks)
+- 📘 Full TypeScript support with comprehensive types
+- 🔄 Works in Node.js and browser environments
+- 🎯 Resend-inspired API design for excellent developer experience
+- ✅ Built-in request/response validation
+- 🔒 Webhook signature verification
 
-This Turborepo includes the following:
+### [@pulgueta/wompi-react](./packages/react)
 
-### Apps and Packages
+React hooks and components for seamless Wompi integration in React applications.
 
-- `docs`: A placeholder documentation site powered by [Next.js](https://nextjs.org/)
-- `@acme/core`: core React components
-- `@acme/utils`: shared React utilities
-- `@acme/tsconfig`: shared `tsconfig.json`s used throughout the monorepo
-- `@acme/eslint-config`: ESLint preset
-
-Each package and app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Useful commands
-
-- `yarn build` - Build all packages and the docs site
-- `yarn dev` - Develop all packages and the docs site
-- `yarn lint` - Lint all packages
-- `yarn changeset` - Generate a changeset
-- `yarn clean` - Clean up all `node_modules` and `dist` folders (runs each package's clean script)
-
-### Changing the npm organization scope
-
-The npm organization scope for this design system starter is `@acme`. To change this, it's a bit manual at the moment, but you'll need to do the following:
-
-- Rename folders in `packages/*` to replace `acme` with your desired scope
-- Search and replace `acme` with your desired scope
-- Re-run `yarn install`
-
-## Versioning and Publishing packages
-
-Package publishing has been configured using [Changesets](https://github.com/changesets/changesets). Please review their [documentation](https://github.com/changesets/changesets#documentation) to familiarize yourself with the workflow.
-
-This example comes with automated npm releases setup in a [GitHub Action](https://github.com/changesets/action). To get this working, you will need to create an `NPM_TOKEN` and `GITHUB_TOKEN` in your repository settings. You should also install the [Changesets bot](https://github.com/apps/changeset-bot) on your GitHub repository as well.
-
-For more information about this automation, refer to the official [changesets documentation](https://github.com/changesets/changesets/blob/main/docs/automating-changesets.md)
-
-### npm
-
-If you want to publish package to the public npm registry and make them publicly available, this is already setup.
-
-To publish packages to a private npm organization scope, **remove** the following from each of the `package.json`'s
-
-```diff
-- "publishConfig": {
--  "access": "public"
-- },
+```bash
+npm install @pulgueta/wompi-react @pulgueta/wompi
 ```
 
-### GitHub Package Registry
+**Key Features:**
+- ⚛️ React 17, 18, and 19 support
+- 🪝 Custom hooks for all Wompi operations
+- 🎨 Context provider for easy setup
+- 📦 Tree-shakeable and optimized
+- 🔄 State management included
 
-See [Working with the npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#publishing-a-package-using-publishconfig-in-the-packagejson-file)
+## 🚀 Quick Start
+
+### Core SDK
+
+```typescript
+import { Wompi } from '@pulgueta/wompi';
+
+const wompi = new Wompi({
+  publicKey: 'pub_test_...',
+  privateKey: 'prv_test_...', // Optional, for private operations
+  environment: 'sandbox' // or 'production'
+});
+
+// Get merchant info
+const merchant = await wompi.merchants.getMerchantInfo();
+
+// Create a transaction
+const transaction = await wompi.transactions.create({
+  amount_in_cents: 5000000,
+  currency: 'COP',
+  customer_email: 'customer@example.com',
+  payment_method: {
+    type: 'CARD',
+    token: 'tok_...',
+    installments: 1
+  },
+  reference: 'ORDER-123'
+});
+```
+
+### React SDK
+
+```tsx
+import { WompiProvider, useWompiTransaction } from '@pulgueta/wompi-react';
+
+function App() {
+  return (
+    <WompiProvider config={{ publicKey: 'pub_test_...', environment: 'sandbox' }}>
+      <PaymentForm />
+    </WompiProvider>
+  );
+}
+
+function PaymentForm() {
+  const { createTransaction, loading, error } = useWompiTransaction();
+
+  const handlePay = async () => {
+    await createTransaction({
+      amount_in_cents: 5000000,
+      currency: 'COP',
+      customer_email: 'customer@example.com',
+      payment_method: { type: 'CARD', token: 'tok_...', installments: 1 },
+      reference: 'ORDER-123'
+    });
+  };
+
+  return <button onClick={handlePay} disabled={loading}>Pay Now</button>;
+}
+```
+
+## 🏗️ Architecture
+
+This monorepo is built with:
+
+- **📦 Turborepo** - High-performance build system
+- **⚡ TypeScript** - Full type safety across all packages
+- **🔧 tsup** - Fast, zero-config bundling
+- **🧪 Vitest** - Lightning-fast unit testing
+- **📝 Changesets** - Version management and publishing
+
+### Project Structure
+
+```
+wompi-sdk/
+├── packages/
+│   ├── core/          # @pulgueta/wompi - Core SDK
+│   ├── react/         # @pulgueta/wompi-react - React hooks
+│   └── ts/            # Shared TypeScript configs
+├── apps/
+│   └── docs/          # Documentation site
+└── examples/          # Usage examples
+```
+
+## 🛠️ Development
+
+### Prerequisites
+
+- Node.js >= 18
+- pnpm >= 9
+
+### Setup
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run tests
+pnpm test
+
+# Lint and format
+pnpm lint
+pnpm format
+```
+
+### Working with Packages
+
+```bash
+# Build specific package
+pnpm --filter @pulgueta/wompi build
+
+# Add dependency to package
+pnpm --filter @pulgueta/wompi add lodash
+
+# Run dev mode
+pnpm dev
+```
+
+## 📚 API Reference
+
+### Core SDK
+
+#### Merchants
+- `getMerchantInfo()` - Get merchant information
+- `getAcceptanceToken()` - Get acceptance token for terms
+
+#### Transactions
+- `getById(id)` - Get transaction by ID
+- `list(params?)` - List transactions with filters
+- `create(params)` - Create new transaction
+
+#### Payment Sources
+- `tokenizeCard(params)` - Tokenize a credit/debit card
+- `create(params)` - Save a payment method
+- `getById(id)` - Get payment source
+- `remove(id)` - Delete payment source
+
+#### PSE
+- `getFinancialInstitutions()` - Get list of banks for PSE
+
+#### Payment Links
+- `create(params)` - Create payment link
+- `getById(id)` - Get payment link
+- `update(id, params)` - Update payment link
+- `activate(id)` / `deactivate(id)` - Toggle payment link status
+
+#### Events (Webhooks)
+- `generateIntegritySignature(reference, amount, secret)` - Generate integrity hash
+- `verifySignature(event, signature)` - Verify webhook signature
+- `constructEvent(payload, signature)` - Parse and verify webhook
+
+### React Hooks
+
+- `useWompiMerchant()` - Merchant info and acceptance token
+- `useWompiTransaction()` - Transaction operations
+- `useWompiPaymentSource()` - Payment source management
+- `useWompiPaymentLink()` - Payment link operations
+- `useWompiPSE()` - PSE financial institutions
+
+## 🔐 Security
+
+### API Keys
+
+- **Public Key** (`pub_test_...` / `pub_prod_...`) - Safe for client-side use
+- **Private Key** (`prv_test_...` / `prv_prod_...`) - Server-side only, never expose
+- **Integrity Secret** - For generating transaction signatures
+- **Events Secret** - For webhook verification
+
+### Best Practices
+
+1. Never commit API keys to version control
+2. Use environment variables for keys
+3. Always verify webhook signatures
+4. Use HTTPS in production
+5. Implement proper error handling
+
+## 🌍 Environments
+
+### Sandbox (Testing)
+
+```typescript
+new Wompi({
+  publicKey: 'pub_test_...',
+  environment: 'sandbox'
+})
+```
+
+### Production
+
+```typescript
+new Wompi({
+  publicKey: 'pub_prod_...',
+  environment: 'production'
+})
+```
+
+## 📄 License
+
+MIT © Andrés Rodríguez
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+
+## 🔗 Resources
+
+- [Wompi Documentation](https://docs.wompi.co/docs/colombia/inicio-rapido)
+- [Wompi API Reference](https://app.swaggerhub.com/apis-docs/waybox/wompi/1.2.0)
+- [GitHub Repository](https://github.com/pulgueta/wompi-sdk)
+
+## 📦 Publishing
+
+```bash
+# Create a changeset
+pnpm changeset
+
+# Version packages
+pnpm version
+
+# Build and publish
+pnpm release
+```
+
+## 💡 Inspiration
+
+This SDK's architecture is inspired by the excellent [Resend SDK](https://github.com/resend/resend-node), prioritizing developer experience and code clarity.
+
+## 🎯 Roadmap
+
+- [ ] Add more comprehensive tests
+- [ ] Add example applications
+- [ ] Add Vue.js package
+- [ ] Add Svelte package
+- [ ] Add detailed migration guide
+- [ ] Add webhook testing utilities
+
+## 📞 Support
+
+For issues and questions:
+- 📧 Email: roariasaf@gmail.com
+- 🐛 GitHub Issues: [Create an issue](https://github.com/pulgueta/wompi-sdk/issues)
