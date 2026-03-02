@@ -24,10 +24,35 @@
   "types": "./dist/index.d.ts",
   "exports": {
     "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
     "./client": {
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js",
       "require": "./dist/client/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.cjs"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js",
+      "require": "./dist/schemas.cjs"
+    },
+    "./errors": {
+      "types": "./dist/errors/wompi-error.d.ts",
+      "import": "./dist/errors/wompi-error.js",
+      "require": "./dist/errors/wompi-error.cjs"
+    },
+    "./server": {
+      "types": "./dist/server/utils/index.d.ts",
+      "import": "./dist/server/utils/index.js",
+      "require": "./dist/server/utils/index.cjs"
     }
   },
   "scripts": {
@@ -59,5 +84,8 @@
     "tsup": "^8.3.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1"
+  },
+  "peerDependencies": {
+    "zod": "^4.3.6"
   }
 }

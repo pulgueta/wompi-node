@@ -8,10 +8,6 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  commitlint:
-    name: Check commit conventions
-    uses: ./.github/workflows/commitlint.yaml
-
   format:
     name: Format and lint
     uses: ./.github/workflows/format.yaml
@@ -24,7 +20,7 @@ jobs:
       pull-requests: write
 
   release:
-    needs: [commitlint, format, test]
+    needs: [format, test]
     name: Release
     runs-on: ubuntu-latest
     permissions:

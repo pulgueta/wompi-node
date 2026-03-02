@@ -1,14 +1,22 @@
 import { WompiRequest } from "@/index";
-import type { AcceptanceTokenResponse } from "./types";
+import { MerchantSchema, wompiResponse } from "@/schemas";
+import type { Merchant, Result, WompiResponse } from "@/types";
+
+const MerchantResponseSchema = wompiResponse(MerchantSchema);
 
 export class Merchants extends WompiRequest {
-  constructor(readonly publicKey: string) {
-    super();
+  constructor(
+    private readonly publicKey: string,
+    sandbox?: boolean
+  ) {
+    super({ sandbox });
   }
 
-  async authenticate() {
-    const query = await this.get<AcceptanceTokenResponse>(`/merchants/${this.publicKey}`);
-
-    return query;
+  /**
+   * Get merchant info and the presigned acceptance token.
+   * No authentication required (public key is used as a path parameter).
+   */
+  async getMerchant(): Promise<Result<WompiResponse<Merchant>>> {
+    return this.get(`/merchants/${this.publicKey}`, MerchantResponseSchema);
   }
 }
