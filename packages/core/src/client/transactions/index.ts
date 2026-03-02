@@ -1,95 +1,142 @@
 import { WompiRequest } from "@/index";
+import {
+  TransactionSchema,
+  TransactionListParamsSchema,
+  CreateTransactionInputSchema,
+  VoidTransactionInputSchema,
+  wompiResponse,
+} from "@/schemas";
 import { WompiError } from "@/errors/wompi-error";
-import type { TransactionParameters, TransactionResponse } from "./types";
-import { createYYYYMMDD, isValidYYYYMMDD } from "@/client/utils/date-format";
+import type { Transaction, Result, WompiResponse } from "@/types";
+
+const TransactionResponseSchema = wompiResponse(TransactionSchema);
+const TransactionListResponseSchema = wompiResponse(TransactionSchema.array());
 
 export class Transactions extends WompiRequest {
-  constructor(private readonly authorizationToken: string) {
-    super();
+  constructor(
+    private readonly publicKey: string,
+    private readonly privateKey: string | undefined,
+    sandbox?: boolean
+  ) {
+    super({ sandbox });
   }
 
-  async getTransaction(id: string) {
-    const transaction = await this.get<TransactionResponse>(`/transactions/${id}`, {
-      Authorization: this.authorizationToken,
+  /**
+   * Get a single transaction by ID.
+   * No authentication required.
+   */
+  async getTransaction(id: string): Promise<Result<WompiResponse<Transaction>>> {
+    return this.get(`/transactions/${id}`, TransactionResponseSchema);
+  }
+
+  /**
+   * List transactions matching filter criteria.
+   * Requires private key (BearerPrivateKey).
+   */
+  async listTransactions(params: unknown = {}): Promise<Result<WompiResponse<Transaction[]>>> {
+    if (!this.privateKey) {
+      return [new WompiError("Private key is required for this operation"), null];
+    }
+
+    const parsed = TransactionListParamsSchema.safeParse(params);
+
+    if (!parsed.success) {
+      return [
+        new WompiError(
+          `Invalid parameters: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+        ),
+        null,
+      ];
+    }
+
+    const queryUrl = this.buildQueryUrl(parsed.data);
+
+    return this.get(queryUrl, TransactionListResponseSchema, {
+      Authorization: `Bearer ${this.privateKey}`,
     });
-
-    if (!transaction) {
-      throw new WompiError(`Transaction with id ${id} not found`);
-    }
-
-    return transaction;
   }
 
-  async getTransactions(params: TransactionParameters) {
-    this.validateTransactionParams(params);
+  /**
+   * Create a new transaction.
+   * Requires public key (BearerPublicKey). If using payment_source_id, use private key instead.
+   */
+  async createTransaction(input: unknown): Promise<Result<WompiResponse<Transaction>>> {
+    const parsed = CreateTransactionInputSchema.safeParse(input);
 
-    const queryUrl = this.buildQueryUrl(params);
+    if (!parsed.success) {
+      return [
+        new WompiError(
+          `Invalid input: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+        ),
+        null,
+      ];
+    }
 
-    const transactions = await this.get<TransactionResponse[]>(queryUrl, {
-      Authorization: this.authorizationToken,
+    const data = parsed.data;
+    const authKey = data.payment_source_id ? this.privateKey : this.publicKey;
+
+    if (data.payment_source_id && !this.privateKey) {
+      return [
+        new WompiError(
+          "Private key is required when creating transactions with a payment_source_id"
+        ),
+        null,
+      ];
+    }
+
+    return this.post("/transactions", TransactionResponseSchema, data, {
+      Authorization: `Bearer ${authKey}`,
     });
-
-    if (transactions.length === 0) {
-      return [];
-    }
-
-    return transactions;
   }
 
-  private validateTransactionParams(params: TransactionParameters) {
-    const fromYesterday = createYYYYMMDD(new Date(Date.now() - 86400000));
-    const untilAMonthFromYesterday = createYYYYMMDD(new Date(Date.now() + 2592000000));
-
-    const {
-      from_date = fromYesterday,
-      until_date = untilAMonthFromYesterday,
-      page = 1,
-      page_size = 30,
-    } = params;
-
-    if (!isValidYYYYMMDD(from_date) || !isValidYYYYMMDD(until_date)) {
-      throw new WompiError("Invalid date format, must be of type YYYY-MM-DD");
+  /**
+   * Void an approved CARD transaction.
+   * Requires private key (BearerPrivateKey).
+   */
+  async voidTransaction(
+    transactionId: string,
+    input?: unknown
+  ): Promise<Result<WompiResponse<Transaction>>> {
+    if (!this.privateKey) {
+      return [new WompiError("Private key is required for this operation"), null];
     }
 
-    if (page < 1 || page > 1000000) {
-      throw new WompiError("Page must be between 1 and 1,000,000");
+    if (input !== undefined) {
+      const parsed = VoidTransactionInputSchema.safeParse(input);
+
+      if (!parsed.success) {
+        return [
+          new WompiError(
+            `Invalid input: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+          ),
+          null,
+        ];
+      }
+
+      return this.post(
+        `/transactions/${transactionId}/void`,
+        TransactionResponseSchema,
+        parsed.data,
+        { Authorization: `Bearer ${this.privateKey}` }
+      );
     }
 
-    if (page_size < 1 || page_size > 200) {
-      throw new WompiError("Page size must be between 1 and 200");
-    }
-  }
-
-  private buildQueryUrl(params: TransactionParameters) {
-    const {
-      customer_email,
-      from_date = createYYYYMMDD(new Date(Date.now() - 86400000)),
-      until_date = createYYYYMMDD(new Date(Date.now() + 2592000000)),
-      id,
-      order,
-      order_by,
-      page = 1,
-      page_size = 15,
-      payment_method_type,
-      reference,
-      status,
-    } = params;
-
-    const queryParams = new URLSearchParams({
-      from_date,
-      until_date,
-      page: page.toString(),
-      page_size: page_size.toString(),
+    return this.post(`/transactions/${transactionId}/void`, TransactionResponseSchema, undefined, {
+      Authorization: `Bearer ${this.privateKey}`,
     });
+  }
 
-    if (id) queryParams.append("id", id);
-    if (order) queryParams.append("order", order);
-    if (order_by) queryParams.append("order_by", order_by);
-    if (payment_method_type) queryParams.append("payment_method_type", payment_method_type);
-    if (reference) queryParams.append("reference", reference);
-    if (status) queryParams.append("status", status);
-    if (customer_email) queryParams.append("customer_email", customer_email);
+  private buildQueryUrl(params: Record<string, unknown>): string {
+    const searchParams = new URLSearchParams();
 
-    return `/transactions?${queryParams.toString()}`;
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) {
+        searchParams.append(key, String(value));
+      }
+    }
+
+    const qs = searchParams.toString();
+
+    return qs ? `/transactions?${qs}` : "/transactions";
   }
 }
