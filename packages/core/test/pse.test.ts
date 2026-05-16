@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PSE } from "../src/client/pse";
+import { okJson } from "./helpers";
 
 describe("PSE", () => {
   const mockFetch = vi.fn();
@@ -16,17 +17,15 @@ describe("PSE", () => {
   describe("getFinancialInstitutions", () => {
     it("should return [null, data] with financial institutions list", async () => {
       const pse = new PSE(PUBLIC_KEY, true);
-      const mockResponse = {
-        data: [
-          { financial_institution_code: "1051", financial_institution_name: "Bancolombia" },
-          { financial_institution_code: "1007", financial_institution_name: "Davivienda" },
-        ],
-      };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: [
+            { financial_institution_code: "1051", financial_institution_name: "Bancolombia" },
+            { financial_institution_code: "1007", financial_institution_name: "Davivienda" },
+          ],
+        })
+      );
 
       const [error, data] = await pse.getFinancialInstitutions();
 
