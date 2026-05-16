@@ -1,16 +1,22 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/request";
 import {
   TransactionSchema,
   TransactionListParamsSchema,
   CreateTransactionInputSchema,
   VoidTransactionInputSchema,
+  VoidTransactionResultSchema,
   wompiResponse,
 } from "@/schemas";
 import { WompiError } from "@/errors/wompi-error";
-import type { Transaction, Result, WompiResponse } from "@/types";
+import type { Transaction, Result, VoidTransactionResult, WompiResponse } from "@/types";
 
 const TransactionResponseSchema = wompiResponse(TransactionSchema);
 const TransactionListResponseSchema = wompiResponse(TransactionSchema.array());
+
+// `POST /transactions/{id}/void` wraps the void outcome under `data` (with the
+// voided transaction nested in `data.transaction`). The schema is also optional
+// so an empty `201` body — which the spec documents — validates as `undefined`.
+const VoidTransactionResponseSchema = wompiResponse(VoidTransactionResultSchema).optional();
 
 export class Transactions extends WompiRequest {
   constructor(
@@ -92,11 +98,14 @@ export class Transactions extends WompiRequest {
   /**
    * Void an approved CARD transaction.
    * Requires private key (BearerPrivateKey).
+   *
+   * On success `data` carries the void outcome, with the voided transaction
+   * under `data.transaction`; it resolves to `undefined` for an empty `201`.
    */
   async voidTransaction(
     transactionId: string,
     input?: unknown
-  ): Promise<Result<WompiResponse<Transaction>>> {
+  ): Promise<Result<WompiResponse<VoidTransactionResult> | undefined>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for this operation"), null];
     }
@@ -115,15 +124,18 @@ export class Transactions extends WompiRequest {
 
       return this.post(
         `/transactions/${transactionId}/void`,
-        TransactionResponseSchema,
+        VoidTransactionResponseSchema,
         parsed.data,
         { Authorization: `Bearer ${this.privateKey}` }
       );
     }
 
-    return this.post(`/transactions/${transactionId}/void`, TransactionResponseSchema, undefined, {
-      Authorization: `Bearer ${this.privateKey}`,
-    });
+    return this.post(
+      `/transactions/${transactionId}/void`,
+      VoidTransactionResponseSchema,
+      undefined,
+      { Authorization: `Bearer ${this.privateKey}` }
+    );
   }
 
   private buildQueryUrl(params: Record<string, unknown>): string {
