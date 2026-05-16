@@ -37,3 +37,7 @@ packages
 ## Contributing
 
 For contributions, read the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+
+## Releasing
+
+Releases are managed with [Changesets](https://github.com/changesets/changesets). Every pull request that changes a published package must include a changeset (run `pnpm changeset`). Merging that PR into `main` opens a "Version Packages" PR; merging the "Version Packages" PR bumps the versions, updates the changelogs, and publishes to npm. See the "Releasing" section of [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow.

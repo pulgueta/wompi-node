@@ -8,11 +8,13 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: ["./test/setup.ts"],
     coverage: {
       clean: true,
       provider: "v8",
       cleanOnRerun: true,
       reporter: ["json", "json-summary", "text"],
+      exclude: ["test/**", "**/*.config.*", "dist/**"],
     },
     globals: true,
   },

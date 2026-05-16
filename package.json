@@ -11,7 +11,7 @@
     "test:cov": "turbo test:cov",
     "clean": "turbo clean && rm -rf node_modules",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version-packages": "changeset version",
     "release": "turbo build && changeset publish"
   },
   "devDependencies": {
