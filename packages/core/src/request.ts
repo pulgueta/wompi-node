@@ -16,13 +16,16 @@ const BASE_URLS = {
 
 export type WompiRequestConfig = {
   sandbox?: boolean;
+  timeoutMs?: number;
 };
 
 export class WompiRequest {
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
 
   constructor(config?: WompiRequestConfig) {
     this.baseUrl = config?.sandbox ? BASE_URLS.sandbox : BASE_URLS.production;
+    this.timeoutMs = config?.timeoutMs ?? 30_000;
   }
 
   private async request<T>(
@@ -38,6 +41,9 @@ export class WompiRequest {
 
     let response: Response;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
     try {
       response = await fetch(`${this.baseUrl}${endpoint}`, {
         method,
@@ -46,9 +52,12 @@ export class WompiRequest {
           ...headers,
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
       });
     } catch (err) {
       return [new WompiRequestError(0, err instanceof Error ? err.message : "Network error"), null];
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!response.ok) {
@@ -78,7 +87,10 @@ export class WompiRequest {
       try {
         raw = JSON.parse(text);
       } catch {
-        raw = undefined;
+        return [
+          new WompiRequestError(response.status, "Invalid JSON in successful response"),
+          null,
+        ];
       }
     }
 

@@ -79,6 +79,9 @@ const wompi = new WompiClient({
 const [merchantError, merchant] = await wompi.merchants.getMerchant();
 if (merchantError) throw merchantError;
 const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+if (!acceptanceToken) {
+  throw new Error("Missing acceptance token in merchant response");
+}
 
 // 2. Tokenize the card.
 const [tokenError, token] = await wompi.tokens.tokenizeCard({

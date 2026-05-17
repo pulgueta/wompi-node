@@ -15,9 +15,7 @@ describe("getSignatureKey", () => {
     });
 
     // SHA-256 of "ref-1232490000COPtest_integrity_key"
-    expect(signature).toBe(
-      "3020531ed7879230f3ed79e981eda23c5efcd8ce2da4576876ca16f783224e54"
-    );
+    expect(signature).toBe("3020531ed7879230f3ed79e981eda23c5efcd8ce2da4576876ca16f783224e54");
   });
 
   it("inserts expirationTime before the integrity key when provided", async () => {
@@ -29,9 +27,7 @@ describe("getSignatureKey", () => {
     });
 
     // SHA-256 of "ref-1232490000COP2025-01-01T00:00:00.000Ztest_integrity_key"
-    expect(signature).toBe(
-      "e03cb492e50b9497abd14c0e99a9d677401d9fafce3ed8d6296c68e7fa3304b9"
-    );
+    expect(signature).toBe("e03cb492e50b9497abd14c0e99a9d677401d9fafce3ed8d6296c68e7fa3304b9");
   });
 
   it("matches Wompi's documented signature concatenation", async () => {
@@ -42,9 +38,7 @@ describe("getSignatureKey", () => {
     });
 
     // SHA-256 of the concatenation Wompi's OpenAPI spec documents.
-    expect(signature).toBe(
-      "37c8407747e595535433ef8f6a811d853cd943046624a0ec04662b17bbf33bf5"
-    );
+    expect(signature).toBe("37c8407747e595535433ef8f6a811d853cd943046624a0ec04662b17bbf33bf5");
   });
 
   it("hashes amountInCents as-is, never multiplying it", async () => {
@@ -72,9 +66,7 @@ describe("getSignatureKey", () => {
     });
 
     // SHA-256 of "order-10COPk"
-    expect(signature).toBe(
-      "df9981b4922d84265572a27a7b11a15c16ce1a334f2744c2f82961bb2f83f81e"
-    );
+    expect(signature).toBe("df9981b4922d84265572a27a7b11a15c16ce1a334f2744c2f82961bb2f83f81e");
   });
 
   it("produces a different signature with and without expirationTime", async () => {

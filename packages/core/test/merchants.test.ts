@@ -63,12 +63,7 @@ describe("Merchants", () => {
         okJson({
           data: {
             ...MERCHANT_RESPONSE.data,
-            accepted_payment_methods: [
-              "DAVIPLATA",
-              "BANCOLOMBIA_BNPL",
-              "SU_PLUS",
-              "CARD_POS",
-            ],
+            accepted_payment_methods: ["DAVIPLATA", "BANCOLOMBIA_BNPL", "SU_PLUS", "CARD_POS"],
           },
         })
       );
@@ -82,9 +77,7 @@ describe("Merchants", () => {
     it("should accept a partial merchant body without a false error", async () => {
       const merchants = new Merchants(PUBLIC_KEY, true);
 
-      mockFetch.mockResolvedValueOnce(
-        okJson({ data: { id: 11000, public_key: "pub_test_123" } })
-      );
+      mockFetch.mockResolvedValueOnce(okJson({ data: { id: 11000, public_key: "pub_test_123" } }));
 
       const [error, data] = await merchants.getMerchant();
 
