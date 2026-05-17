@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Tokens } from "../src/client/tokens";
 import { WompiError } from "../src/errors/wompi-error";
+import { okJson } from "./helpers";
 
 describe("Tokens", () => {
   const mockFetch = vi.fn();
@@ -39,10 +40,7 @@ describe("Tokens", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(mockResponse));
 
       const [error, data] = await tokens.tokenizeCard(input);
 
@@ -73,10 +71,7 @@ describe("Tokens", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(mockResponse));
 
       const [error, data] = await tokens.tokenizeNequi({ phone_number: "3107654321" });
 
@@ -106,10 +101,7 @@ describe("Tokens", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(mockResponse));
 
       const [error, data] = await tokens.getNequiToken("nequi_test_123");
 

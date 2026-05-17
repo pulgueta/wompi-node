@@ -1,4 +1,4 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/request";
 import { WompiError } from "@/errors/wompi-error";
 import {
   PaymentLinkSchema,

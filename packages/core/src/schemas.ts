@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Maximum amount Wompi accepts, in cents (spec: `amount_in_cents` `maximum: 1E12`). */
+const MAX_AMOUNT_IN_CENTS = 1_000_000_000_000;
+
 export const CurrencySchema = z.literal("COP");
 
 export const PaymentMethodTypeSchema = z.enum([
@@ -10,6 +13,10 @@ export const PaymentMethodTypeSchema = z.enum([
   "BANCOLOMBIA_TRANSFER",
   "BANCOLOMBIA_COLLECT",
   "BANCOLOMBIA_QR",
+  "BANCOLOMBIA_BNPL",
+  "DAVIPLATA",
+  "SU_PLUS",
+  "CARD_POS",
 ]);
 
 export const TransactionStatusSchema = z.enum([
@@ -60,35 +67,53 @@ export const TransactionPaymentMethodSchema = z
   })
   .loose();
 
-export const CreateTransactionInputSchema = z.object({
-  acceptance_token: z.string(),
-  amount_in_cents: z.number().int().min(1),
-  currency: CurrencySchema,
-  signature: z.string(),
-  customer_email: z.string().email(),
-  payment_method: TransactionPaymentMethodSchema.optional(),
-  payment_source_id: z.number().int().optional(),
-  redirect_url: z.string().url().optional(),
-  reference: z.string(),
-  expiration_time: z.string().optional(),
-  customer_data: CustomerDataSchema.optional(),
-  shipping_address: ShippingAddressSchema.optional(),
-});
+export const CreateTransactionInputSchema = z
+  .object({
+    acceptance_token: z.string(),
+    amount_in_cents: z.number().int().min(1).max(MAX_AMOUNT_IN_CENTS),
+    currency: CurrencySchema,
+    signature: z.string(),
+    customer_email: z.email(),
+    payment_method: TransactionPaymentMethodSchema.optional(),
+    payment_source_id: z.number().int().positive().optional(),
+    redirect_url: z.url().optional(),
+    reference: z.string(),
+    expiration_time: z.string().optional(),
+    customer_data: CustomerDataSchema.optional(),
+    shipping_address: ShippingAddressSchema.optional(),
+  })
+  .refine(
+    (data) => (data.payment_method === undefined) !== (data.payment_source_id === undefined),
+    {
+      message: "Provide exactly one of payment_method or payment_source_id",
+    }
+  );
 
-export const TransactionSchema = z.object({
-  id: z.string(),
-  created_at: z.string(),
-  amount_in_cents: z.number().int(),
-  status: TransactionStatusSchema,
-  reference: z.string(),
-  customer_email: z.string(),
-  currency: CurrencySchema,
-  payment_method_type: PaymentMethodTypeSchema,
-  payment_method: TransactionPaymentMethodSchema,
-  shipping_address: ShippingAddressSchema.nullable(),
-  redirect_url: z.string().nullable(),
-  payment_link_id: z.string().nullable(),
-});
+/**
+ * Response shape of a transaction.
+ *
+ * Wompi's spec marks no response field as required, so every non-identity field is
+ * optional/nullish and unknown fields pass through — a successful API call must never
+ * be reported as a validation error. Only `id`, `status` and `reference` are kept
+ * required, as the stable identifiers consumers rely on.
+ */
+export const TransactionSchema = z
+  .object({
+    id: z.string(),
+    status: TransactionStatusSchema,
+    reference: z.string(),
+    created_at: z.string().optional(),
+    amount_in_cents: z.number().int().optional(),
+    customer_email: z.string().optional(),
+    currency: CurrencySchema.optional(),
+    payment_method_type: z.string().optional(),
+    payment_method: TransactionPaymentMethodSchema.optional(),
+    status_message: z.string().nullish(),
+    shipping_address: ShippingAddressSchema.nullish(),
+    redirect_url: z.string().nullish(),
+    payment_link_id: z.string().nullish(),
+  })
+  .loose();
 
 export const TransactionListParamsSchema = z.object({
   reference: z.string().optional(),
@@ -100,19 +125,34 @@ export const TransactionListParamsSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD format")
     .optional(),
-  page: z.number().int().min(1).optional(),
+  page: z.number().int().min(1).max(1_000_000).optional(),
   page_size: z.number().int().min(1).max(200).optional(),
   id: z.string().optional(),
   payment_method_type: PaymentMethodTypeSchema.optional(),
   status: TransactionStatusSchema.optional(),
-  customer_email: z.string().email().optional(),
+  customer_email: z.email().optional(),
   order_by: z.string().optional(),
   order: OrderDirectionSchema.optional(),
 });
 
 export const VoidTransactionInputSchema = z.object({
-  amount_in_cents: z.number().int().min(1).optional(),
+  amount_in_cents: z.number().int().min(1).max(MAX_AMOUNT_IN_CENTS).optional(),
 });
+
+/**
+ * Response payload of `POST /transactions/{id}/void`.
+ *
+ * Wompi's spec documents an empty `201`, but the API actually answers with a
+ * body wrapping the void outcome: a top-level `status` plus the voided
+ * transaction nested under `transaction`. Lenient, like every response schema.
+ */
+export const VoidTransactionResultSchema = z
+  .object({
+    status: z.string().optional(),
+    status_message: z.string().nullish(),
+    transaction: TransactionSchema.optional(),
+  })
+  .loose();
 
 export const TokenizeCardInputSchema = z.object({
   number: z.string(),
@@ -126,45 +166,51 @@ export const TokenizeNequiInputSchema = z.object({
   phone_number: z.string(),
 });
 
-export const CardTokenSchema = z.object({
-  id: z.string(),
-  created_at: z.string(),
-  brand: z.string(),
-  name: z.string(),
-  last_four: z.string(),
-  bin: z.string(),
-  exp_year: z.string(),
-  exp_month: z.string(),
-  card_holder: z.string(),
-  expires_at: z.string(),
-});
+export const CardTokenSchema = z
+  .object({
+    id: z.string(),
+    created_at: z.string().optional(),
+    brand: z.string().optional(),
+    name: z.string().optional(),
+    last_four: z.string().optional(),
+    bin: z.string().optional(),
+    exp_year: z.string().optional(),
+    exp_month: z.string().optional(),
+    card_holder: z.string().optional(),
+    expires_at: z.string().optional(),
+  })
+  .loose();
 
-export const NequiTokenSchema = z.object({
-  id: z.string(),
-  status: NequiTokenStatusSchema,
-  phone_number: z.string(),
-  name: z.string(),
-});
+export const NequiTokenSchema = z
+  .object({
+    id: z.string(),
+    status: NequiTokenStatusSchema,
+    phone_number: z.string().optional(),
+    name: z.string().optional(),
+  })
+  .loose();
 
 export const PaymentSourcePublicDataSchema = z.object({
   type: PaymentSourceTypeSchema,
   phone_number: z.string().optional(),
 });
 
-export const PaymentSourceSchema = z.object({
-  id: z.number().int(),
-  type: PaymentSourceTypeSchema,
-  token: z.string(),
-  status: PaymentSourceStatusSchema,
-  customer_email: z.string(),
-  public_data: PaymentSourcePublicDataSchema,
-});
+export const PaymentSourceSchema = z
+  .object({
+    id: z.number().int(),
+    status: PaymentSourceStatusSchema,
+    type: PaymentSourceTypeSchema.optional(),
+    token: z.string().optional(),
+    customer_email: z.string().optional(),
+    public_data: PaymentSourcePublicDataSchema.optional(),
+  })
+  .loose();
 
 export const CreatePaymentSourceInputSchema = z.object({
   type: PaymentSourceTypeSchema,
   token: z.string(),
   acceptance_token: z.string(),
-  customer_email: z.string().email(),
+  customer_email: z.email(),
 });
 
 export const CustomerReferenceSchema = z.object({
@@ -178,7 +224,7 @@ export const PaymentLinkCustomerDataSchema = z.object({
 
 export const TaxByAmountSchema = z.object({
   type: TaxTypeSchema,
-  amount_in_cents: z.number().int().min(1),
+  amount_in_cents: z.number().int().min(1).max(MAX_AMOUNT_IN_CENTS),
 });
 
 export const TaxByPercentageSchema = z.object({
@@ -194,7 +240,7 @@ export const CreatePaymentLinkInputSchema = z.object({
   single_use: z.boolean(),
   collect_shipping: z.boolean(),
   collect_customer_legal_id: z.boolean().optional(),
-  amount_in_cents: z.number().int().min(1).optional(),
+  amount_in_cents: z.number().int().min(1).max(MAX_AMOUNT_IN_CENTS).optional(),
   currency: CurrencySchema.optional(),
   signature: z.string().optional(),
   reference: z.string().optional(),
@@ -207,12 +253,14 @@ export const CreatePaymentLinkInputSchema = z.object({
   taxes: z.array(TaxSchema).optional(),
 });
 
-export const PaymentLinkSchema = CreatePaymentLinkInputSchema.extend({
-  id: z.string(),
-  active: z.boolean(),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
+export const PaymentLinkSchema = CreatePaymentLinkInputSchema.partial()
+  .extend({
+    id: z.string(),
+    active: z.boolean().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+  })
+  .loose();
 
 export const UpdatePaymentLinkInputSchema = z.object({
   active: z.boolean(),
@@ -224,27 +272,31 @@ export const PresignedAcceptanceSchema = z.object({
   type: AcceptanceTypeSchema,
 });
 
-export const MerchantSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  legal_name: z.string(),
-  legal_id: z.string(),
-  legal_id_type: MerchantLegalIdTypeSchema,
-  phone_number: z.string(),
-  active: z.boolean(),
-  logo_url: z.string().nullable(),
-  email: z.string(),
-  contact_name: z.string(),
-  public_key: z.string(),
-  accepted_payment_methods: z.array(PaymentMethodTypeSchema),
-  accepted_currencies: z.array(CurrencySchema),
-  presigned_acceptance: PresignedAcceptanceSchema,
-});
+export const MerchantSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().optional(),
+    legal_name: z.string().optional(),
+    legal_id: z.string().optional(),
+    legal_id_type: z.string().optional(),
+    phone_number: z.string().optional(),
+    active: z.boolean().optional(),
+    logo_url: z.string().nullish(),
+    email: z.string().optional(),
+    contact_name: z.string().optional(),
+    public_key: z.string().optional(),
+    accepted_payment_methods: z.array(z.string()).optional(),
+    accepted_currencies: z.array(CurrencySchema).optional(),
+    presigned_acceptance: PresignedAcceptanceSchema.optional(),
+  })
+  .loose();
 
-export const FinancialInstitutionSchema = z.object({
-  financial_institution_code: z.string(),
-  financial_institution_name: z.string(),
-});
+export const FinancialInstitutionSchema = z
+  .object({
+    financial_institution_code: z.string(),
+    financial_institution_name: z.string().optional(),
+  })
+  .loose();
 
 export const wompiResponse = <T extends z.ZodType>(dataSchema: T) =>
   z.object({

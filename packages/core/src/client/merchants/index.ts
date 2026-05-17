@@ -1,4 +1,4 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/request";
 import { MerchantSchema, wompiResponse } from "@/schemas";
 import type { Merchant, Result, WompiResponse } from "@/types";
 

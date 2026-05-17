@@ -7,9 +7,8 @@
     }
   ],
   "commit": false,
-  "fixed": [["@pulgueta/*"]],
   "linked": [],
-  "access": "restricted",
+  "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": []

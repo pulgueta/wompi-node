@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PaymentLinks } from "../src/client/payment-links";
 import { WompiError } from "../src/errors/wompi-error";
+import { okJson } from "./helpers";
 
 const PAYMENT_LINK_RESPONSE = {
   data: {
@@ -31,10 +32,7 @@ describe("PaymentLinks", () => {
     it("should return [null, data] for a valid link", async () => {
       const links = new PaymentLinks(PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => PAYMENT_LINK_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
 
       const [error, data] = await links.getPaymentLink("link_123");
 
@@ -50,15 +48,23 @@ describe("PaymentLinks", () => {
     it("should work without private key for read operations", async () => {
       const links = new PaymentLinks(undefined, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => PAYMENT_LINK_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
 
       const [error, data] = await links.getPaymentLink("link_123");
 
       expect(error).toBeNull();
       expect(data!.data.id).toBe("link_123");
+    });
+
+    it("should accept a partial payment link body without a false error", async () => {
+      const links = new PaymentLinks(PRIVATE_KEY, true);
+
+      mockFetch.mockResolvedValueOnce(okJson({ data: { id: "link_partial" } }));
+
+      const [error, data] = await links.getPaymentLink("link_partial");
+
+      expect(error).toBeNull();
+      expect(data!.data.id).toBe("link_partial");
     });
   });
 
@@ -74,9 +80,8 @@ describe("PaymentLinks", () => {
         currency: "COP",
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      mockFetch.mockResolvedValueOnce(
+        okJson({
           data: {
             id: "link_new",
             active: true,
@@ -84,8 +89,8 @@ describe("PaymentLinks", () => {
             created_at: "2024-01-01",
             updated_at: "2024-01-01",
           },
-        }),
-      });
+        })
+      );
 
       const [error, data] = await links.createPaymentLink(input);
 
@@ -138,9 +143,8 @@ describe("PaymentLinks", () => {
         taxes: [{ type: "VAT", percentage: 19 }],
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      mockFetch.mockResolvedValueOnce(
+        okJson({
           data: {
             id: "link_tax",
             active: true,
@@ -148,8 +152,8 @@ describe("PaymentLinks", () => {
             created_at: "2024-01-01",
             updated_at: "2024-01-01",
           },
-        }),
-      });
+        })
+      );
 
       const [error] = await links.createPaymentLink(input);
 
@@ -165,12 +169,9 @@ describe("PaymentLinks", () => {
     it("should return [null, data] on successful update", async () => {
       const links = new PaymentLinks(PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: { ...PAYMENT_LINK_RESPONSE.data, active: false },
-        }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        okJson({ data: { ...PAYMENT_LINK_RESPONSE.data, active: false } })
+      );
 
       const [error, data] = await links.updatePaymentLink("link_123", { active: false });
 

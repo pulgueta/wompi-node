@@ -19,6 +19,7 @@ import type {
   TransactionSchema,
   TransactionListParamsSchema,
   VoidTransactionInputSchema,
+  VoidTransactionResultSchema,
   TokenizeCardInputSchema,
   TokenizeNequiInputSchema,
   CardTokenSchema,
@@ -42,6 +43,15 @@ import type {
   WompiClientOptionsSchema,
 } from "@/schemas";
 
+import type {
+  WompiError,
+  WompiNotFoundError,
+  WompiRequestError,
+  WompiValidationError,
+} from "@/errors/wompi-error";
+
+export type { WompiError, WompiNotFoundError, WompiRequestError, WompiValidationError };
+
 export type Currency = z.output<typeof CurrencySchema>;
 export type PaymentMethodType = z.output<typeof PaymentMethodTypeSchema>;
 export type TransactionStatus = z.output<typeof TransactionStatusSchema>;
@@ -62,6 +72,7 @@ export type CreateTransactionInput = z.output<typeof CreateTransactionInputSchem
 export type Transaction = z.output<typeof TransactionSchema>;
 export type TransactionListParams = z.output<typeof TransactionListParamsSchema>;
 export type VoidTransactionInput = z.output<typeof VoidTransactionInputSchema>;
+export type VoidTransactionResult = z.output<typeof VoidTransactionResultSchema>;
 
 export type TokenizeCardInput = z.output<typeof TokenizeCardInputSchema>;
 export type TokenizeNequiInput = z.output<typeof TokenizeNequiInputSchema>;
@@ -89,7 +100,7 @@ export type FinancialInstitution = z.output<typeof FinancialInstitutionSchema>;
 export type NotFoundErrorResponse = z.output<typeof NotFoundErrorResponseSchema>;
 export type InputValidationErrorResponse = z.output<typeof InputValidationErrorResponseSchema>;
 
-export type WompiClientOptions = z.output<typeof WompiClientOptionsSchema>;
+export type WompiClientOptions = z.input<typeof WompiClientOptionsSchema>;
 
 // ─── API Response Wrappers ──────────────────────────────────────────────────
 
@@ -103,7 +114,16 @@ export type WompiListResponse<T> = {
   meta?: Record<string, unknown>;
 };
 
-export type WompiError = import("@/errors/wompi-error").WompiError;
+/**
+ * Every error a {@link Result} can carry. The subclasses expose discriminants
+ * (`.type` on not-found / validation errors, `.statusCode` on request errors), so
+ * consumers can branch without `instanceof`.
+ */
+export type WompiErrorResult =
+  | WompiError
+  | WompiNotFoundError
+  | WompiRequestError
+  | WompiValidationError;
 
 /**
  * Discriminated result tuple for error-first handling.
@@ -112,10 +132,10 @@ export type WompiError = import("@/errors/wompi-error").WompiError;
  * ```ts
  * const [error, data] = await wompi.transactions.getTransaction("id");
  * if (error) {
- *   // error is WompiError
+ *   // error is a WompiError (or one of its subclasses)
  *   return;
  * }
  * // data is fully typed
  * ```
  */
-export type Result<T> = [error: WompiError, data: null] | [error: null, data: T];
+export type Result<T> = [error: WompiErrorResult, data: null] | [error: null, data: T];

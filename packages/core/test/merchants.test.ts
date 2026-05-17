@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Merchants } from "../src/client/merchants";
+import { okJson } from "./helpers";
 
 const MERCHANT_RESPONSE = {
   data: {
@@ -40,10 +41,7 @@ describe("Merchants", () => {
     it("should return [null, data] with merchant info", async () => {
       const merchants = new Merchants(PUBLIC_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => MERCHANT_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 
       const [error, data] = await merchants.getMerchant();
 
@@ -57,13 +55,40 @@ describe("Merchants", () => {
       expect(options.method).toBe("GET");
     });
 
+    it("should accept payment methods outside the strict enum", async () => {
+      const merchants = new Merchants(PUBLIC_KEY, true);
+
+      // The live sandbox returns these for real merchants — they must not fail validation.
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            ...MERCHANT_RESPONSE.data,
+            accepted_payment_methods: ["DAVIPLATA", "BANCOLOMBIA_BNPL", "SU_PLUS", "CARD_POS"],
+          },
+        })
+      );
+
+      const [error, data] = await merchants.getMerchant();
+
+      expect(error).toBeNull();
+      expect(data!.data.accepted_payment_methods).toContain("DAVIPLATA");
+    });
+
+    it("should accept a partial merchant body without a false error", async () => {
+      const merchants = new Merchants(PUBLIC_KEY, true);
+
+      mockFetch.mockResolvedValueOnce(okJson({ data: { id: 11000, public_key: "pub_test_123" } }));
+
+      const [error, data] = await merchants.getMerchant();
+
+      expect(error).toBeNull();
+      expect(data!.data.id).toBe(11000);
+    });
+
     it("should use sandbox URL when sandbox is enabled", async () => {
       const merchants = new Merchants(PUBLIC_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => MERCHANT_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 
       await merchants.getMerchant();
 
@@ -74,10 +99,7 @@ describe("Merchants", () => {
     it("should use production URL when sandbox is disabled", async () => {
       const merchants = new Merchants(PUBLIC_KEY, false);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => MERCHANT_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 
       await merchants.getMerchant();
 

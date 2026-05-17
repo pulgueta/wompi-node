@@ -1,4 +1,4 @@
-import { WompiRequest } from "@/index";
+import { WompiRequest } from "@/request";
 import {
   TokenizeCardInputSchema,
   TokenizeNequiInputSchema,

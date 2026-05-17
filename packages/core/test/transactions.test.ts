@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Transactions } from "../src/client/transactions";
 import { WompiError } from "../src/errors/wompi-error";
+import { okJson, okEmpty } from "./helpers";
 
 const TRANSACTION_RESPONSE = {
   data: {
@@ -36,10 +37,7 @@ describe("Transactions", () => {
     it("should return [null, data] for a valid transaction", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => TRANSACTION_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(TRANSACTION_RESPONSE));
 
       const [error, data] = await transactions.getTransaction("txn-123");
 
@@ -47,16 +45,39 @@ describe("Transactions", () => {
       expect(data!.data.id).toBe("txn-123");
       expect(data!.data.status).toBe("APPROVED");
     });
+
+    it("should accept a partial transaction body without a false error", async () => {
+      const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
+
+      // A status-style response: no created_at, customer_email or payment_method,
+      // and an unknown payment_method_type — none of which should fail validation.
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            id: "txn-789",
+            status: "APPROVED",
+            reference: "ref-789",
+            amount_in_cents: 2490000,
+            currency: "COP",
+            payment_method_type: "SU_PLUS",
+            status_message: "Aprobada",
+          },
+        })
+      );
+
+      const [error, data] = await transactions.getTransaction("txn-789");
+
+      expect(error).toBeNull();
+      expect(data!.data.id).toBe("txn-789");
+      expect(data!.data.payment_method).toBeUndefined();
+    });
   });
 
   describe("listTransactions", () => {
     it("should return [null, data] with valid params", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [TRANSACTION_RESPONSE.data] }),
-      });
+      mockFetch.mockResolvedValueOnce(okJson({ data: [TRANSACTION_RESPONSE.data] }));
 
       const [error, data] = await transactions.listTransactions({
         from_date: "2024-01-01",
@@ -112,10 +133,7 @@ describe("Transactions", () => {
     it("should include optional query parameters", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      });
+      mockFetch.mockResolvedValueOnce(okJson({ data: [] }));
 
       const [error] = await transactions.listTransactions({
         reference: "ref-123",
@@ -147,10 +165,7 @@ describe("Transactions", () => {
         payment_method: { type: "CARD", token: "tok_123", installments: 2 },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => TRANSACTION_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(TRANSACTION_RESPONSE));
 
       const [error, data] = await transactions.createTransaction(input);
 
@@ -163,10 +178,7 @@ describe("Transactions", () => {
     it("should use private key when payment_source_id is provided", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => TRANSACTION_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(TRANSACTION_RESPONSE));
 
       const [error] = await transactions.createTransaction({
         acceptance_token: "eyJhb...",
@@ -200,6 +212,42 @@ describe("Transactions", () => {
       expect(error!.message).toContain("Private key is required");
     });
 
+    it("should reject input that provides neither payment_method nor payment_source_id", async () => {
+      const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
+
+      const [error, data] = await transactions.createTransaction({
+        acceptance_token: "eyJhb...",
+        amount_in_cents: 3000000,
+        currency: "COP",
+        signature: "sig_123",
+        customer_email: "test@example.com",
+        reference: "ref-123",
+      });
+
+      expect(data).toBeNull();
+      expect(error).toBeInstanceOf(WompiError);
+      expect(error!.message).toContain("Invalid input");
+    });
+
+    it("should reject input that provides both payment_method and payment_source_id", async () => {
+      const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
+
+      const [error, data] = await transactions.createTransaction({
+        acceptance_token: "eyJhb...",
+        amount_in_cents: 3000000,
+        currency: "COP",
+        signature: "sig_123",
+        customer_email: "test@example.com",
+        reference: "ref-123",
+        payment_method: { type: "CARD" },
+        payment_source_id: 1234,
+      });
+
+      expect(data).toBeNull();
+      expect(error).toBeInstanceOf(WompiError);
+      expect(error!.message).toContain("Invalid input");
+    });
+
     it("should return [error, null] on invalid input", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
@@ -214,23 +262,40 @@ describe("Transactions", () => {
   });
 
   describe("voidTransaction", () => {
-    it("should return [null, data] on successful void", async () => {
+    it("should return [null, data] wrapping the voided transaction", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          ...TRANSACTION_RESPONSE,
-          data: { ...TRANSACTION_RESPONSE.data, status: "VOIDED" },
-        }),
-      });
+      // Wompi wraps the void outcome: a top-level `status` plus the voided
+      // transaction nested under `data.transaction`.
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            status: "APPROVED",
+            status_message: null,
+            transaction: { ...TRANSACTION_RESPONSE.data, status: "VOIDED" },
+          },
+          meta: {},
+        })
+      );
 
       const [error, data] = await transactions.voidTransaction("txn-123", {
         amount_in_cents: 3000000,
       });
 
       expect(error).toBeNull();
-      expect(data!.data.status).toBe("VOIDED");
+      expect(data!.data.transaction?.id).toBe("txn-123");
+      expect(data!.data.transaction?.status).toBe("VOIDED");
+    });
+
+    it("should return [null, undefined] on an empty 201 void response", async () => {
+      const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
+
+      mockFetch.mockResolvedValueOnce(okEmpty());
+
+      const [error, data] = await transactions.voidTransaction("txn-123");
+
+      expect(error).toBeNull();
+      expect(data).toBeUndefined();
     });
 
     it("should return [error, null] without private key", async () => {
@@ -245,13 +310,7 @@ describe("Transactions", () => {
     it("should allow void without body", async () => {
       const transactions = new Transactions(PUBLIC_KEY, PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          ...TRANSACTION_RESPONSE,
-          data: { ...TRANSACTION_RESPONSE.data, status: "VOIDED" },
-        }),
-      });
+      mockFetch.mockResolvedValueOnce(okEmpty());
 
       const [error] = await transactions.voidTransaction("txn-123");
 

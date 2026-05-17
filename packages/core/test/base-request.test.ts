@@ -7,6 +7,7 @@ import {
   WompiRequestError,
   WompiError,
 } from "../src/errors/wompi-error";
+import { okJson, okEmpty, errorJson } from "./helpers";
 
 const TestSchema = z.object({ data: z.string() });
 
@@ -49,10 +50,7 @@ describe("WompiRequest", () => {
   it("should use production URL by default", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "test" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "test" }));
 
     await request.testGet("/test", TestSchema);
 
@@ -65,10 +63,7 @@ describe("WompiRequest", () => {
   it("should use sandbox URL when sandbox is true", async () => {
     const request = new TestableWompiRequest({ sandbox: true });
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "test" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "test" }));
 
     await request.testGet("/test", TestSchema);
 
@@ -81,10 +76,7 @@ describe("WompiRequest", () => {
   it("should return [null, data] on successful GET", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "result" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "result" }));
 
     const [error, data] = await request.testGet("/endpoint", TestSchema, {
       Authorization: "Bearer test-key",
@@ -98,10 +90,7 @@ describe("WompiRequest", () => {
     const request = new TestableWompiRequest();
     const body = { amount: 100000 };
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "created" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "created" }));
 
     const [error, data] = await request.testPost("/transactions", TestSchema, body, {
       Authorization: "Bearer test-key",
@@ -121,10 +110,7 @@ describe("WompiRequest", () => {
   it("should return [null, data] on successful PATCH", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "patched" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "patched" }));
 
     const [error, data] = await request.testPatch("/resource/1", TestSchema, { active: false });
 
@@ -132,19 +118,29 @@ describe("WompiRequest", () => {
     expect(data).toEqual({ data: "patched" });
   });
 
+  it("should resolve an empty 2xx body to undefined", async () => {
+    const request = new TestableWompiRequest();
+    const OptionalSchema = z.object({ data: z.string() }).optional();
+
+    mockFetch.mockResolvedValueOnce(okEmpty());
+
+    const [error, data] = await request.testPost("/transactions/txn-1/void", OptionalSchema);
+
+    expect(error).toBeNull();
+    expect(data).toBeUndefined();
+  });
+
   it("should return [WompiNotFoundError, null] on 404", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-      json: async () => ({
+    mockFetch.mockResolvedValueOnce(
+      errorJson(404, {
         error: {
           type: "NOT_FOUND_ERROR",
           reason: "La entidad solicitada no existe",
         },
-      }),
-    });
+      })
+    );
 
     const [error, data] = await request.testGet("/transactions/invalid", TestSchema);
 
@@ -155,16 +151,14 @@ describe("WompiRequest", () => {
   it("should return [WompiValidationError, null] on 422", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 422,
-      json: async () => ({
+    mockFetch.mockResolvedValueOnce(
+      errorJson(422, {
         error: {
           type: "INPUT_VALIDATION_ERROR",
           messages: { amount_in_cents: ["No está presente"] },
         },
-      }),
-    });
+      })
+    );
 
     const [error, data] = await request.testPost("/transactions", TestSchema, {});
 
@@ -175,11 +169,7 @@ describe("WompiRequest", () => {
   it("should return [WompiRequestError, null] on other error statuses", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      json: async () => null,
-    });
+    mockFetch.mockResolvedValueOnce(errorJson(500, null));
 
     const [error, data] = await request.testGet("/test", TestSchema);
 
@@ -203,10 +193,7 @@ describe("WompiRequest", () => {
     const request = new TestableWompiRequest();
     const StrictSchema = z.object({ data: z.number() });
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "not-a-number" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "not-a-number" }));
 
     const [error, data] = await request.testGet("/test", StrictSchema);
 
@@ -218,10 +205,7 @@ describe("WompiRequest", () => {
   it("should not send body for GET requests", async () => {
     const request = new TestableWompiRequest();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: "ok" }),
-    });
+    mockFetch.mockResolvedValueOnce(okJson({ data: "ok" }));
 
     await request.testGet("/test", TestSchema);
 

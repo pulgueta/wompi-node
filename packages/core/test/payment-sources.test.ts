@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PaymentSources } from "../src/client/payment-sources";
 import { WompiError } from "../src/errors/wompi-error";
+import { okJson } from "./helpers";
 
 const PAYMENT_SOURCE_RESPONSE = {
   data: {
@@ -29,10 +30,7 @@ describe("PaymentSources", () => {
     it("should return [null, data] with private key", async () => {
       const sources = new PaymentSources(PRIVATE_KEY, true);
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => PAYMENT_SOURCE_RESPONSE,
-      });
+      mockFetch.mockResolvedValueOnce(okJson(PAYMENT_SOURCE_RESPONSE));
 
       const [error, data] = await sources.getPaymentSource(543);
 
@@ -67,9 +65,8 @@ describe("PaymentSources", () => {
         customer_email: "test@example.com",
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      mockFetch.mockResolvedValueOnce(
+        okJson({
           data: {
             id: 999,
             type: "CARD",
@@ -78,8 +75,8 @@ describe("PaymentSources", () => {
             customer_email: "test@example.com",
             public_data: { type: "CARD" },
           },
-        }),
-      });
+        })
+      );
 
       const [error, data] = await sources.createPaymentSource(input);
 

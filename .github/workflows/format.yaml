@@ -24,8 +24,5 @@ jobs:
       - name: Setup environment
         uses: ./.github/setup
 
-      - name: Run lint
-        run: pnpm lint
-
-      - name: Run format
-        run: pnpm format
+      - name: Run Biome CI
+        run: pnpm exec biome ci .
