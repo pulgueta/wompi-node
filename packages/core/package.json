@@ -11,13 +11,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pulgueta/wompi-sdk"
+    "url": "https://github.com/pulgueta/wompi-node"
   },
   "bugs": {
-    "url": "https://github.com/pulgueta/wompi-sdk/issues"
+    "url": "https://github.com/pulgueta/wompi-node/issues"
   },
-  "homepage": "https://github.com/pulgueta/wompi-sdk",
-  "files": ["dist"],
+  "homepage": "https://github.com/pulgueta/wompi-node",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
