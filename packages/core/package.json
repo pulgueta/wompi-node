@@ -1,6 +1,6 @@
 {
   "name": "@pulgueta/wompi",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "El SDK de Wompi para Node.js",
   "author": "Andrés Rodríguez <roariasaf@gmail.com>",
   "license": "MIT",
@@ -17,7 +17,9 @@
     "url": "https://github.com/pulgueta/wompi-sdk/issues"
   },
   "homepage": "https://github.com/pulgueta/wompi-sdk",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
