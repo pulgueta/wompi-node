@@ -137,25 +137,25 @@ const signature = await getSignatureKey({
 
 ### Available operations
 
-| Namespace | Methods |
-| --- | --- |
-| `wompi.merchants` | `getMerchant()` |
-| `wompi.transactions` | `getTransaction(id)`, `listTransactions(params)`, `createTransaction(input)`, `voidTransaction(id, input?)` |
-| `wompi.tokens` | `tokenizeCard(input)`, `tokenizeNequi(input)`, `getNequiToken(id)` |
-| `wompi.paymentSources` | `getPaymentSource(id)`, `createPaymentSource(input)` |
-| `wompi.paymentLinks` | `getPaymentLink(id)`, `createPaymentLink(input)`, `updatePaymentLink(id, input)` |
-| `wompi.pse` | `getFinancialInstitutions()` |
+| Namespace              | Methods                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `wompi.merchants`      | `getMerchant()`                                                                                             |
+| `wompi.transactions`   | `getTransaction(id)`, `listTransactions(params)`, `createTransaction(input)`, `voidTransaction(id, input?)` |
+| `wompi.tokens`         | `tokenizeCard(input)`, `tokenizeNequi(input)`, `getNequiToken(id)`                                          |
+| `wompi.paymentSources` | `getPaymentSource(id)`, `createPaymentSource(input)`                                                        |
+| `wompi.paymentLinks`   | `getPaymentLink(id)`, `createPaymentLink(input)`, `updatePaymentLink(id, input)`                            |
+| `wompi.pse`            | `getFinancialInstitutions()`                                                                                |
 
 `listTransactions`, `voidTransaction`, and every `paymentSources` / `paymentLinks`
 write requires a `privateKey`.
 
 ### Subpath exports
 
-| Import | Contents |
-| --- | --- |
-| `@pulgueta/wompi` | `WompiClient`, `WompiRequest` |
-| `@pulgueta/wompi/client` | `WompiClient` |
-| `@pulgueta/wompi/server` | `getSignatureKey` |
-| `@pulgueta/wompi/errors` | `WompiError` and its subclasses |
-| `@pulgueta/wompi/types` | The inferred TypeScript types |
-| `@pulgueta/wompi/schemas` | The Zod schemas |
+| Import                    | Contents                        |
+| ------------------------- | ------------------------------- |
+| `@pulgueta/wompi`         | `WompiClient`, `WompiRequest`   |
+| `@pulgueta/wompi/client`  | `WompiClient`                   |
+| `@pulgueta/wompi/server`  | `getSignatureKey`               |
+| `@pulgueta/wompi/errors`  | `WompiError` and its subclasses |
+| `@pulgueta/wompi/types`   | The inferred TypeScript types   |
+| `@pulgueta/wompi/schemas` | The Zod schemas                 |
