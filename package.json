@@ -19,7 +19,8 @@
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
     "@pulgueta/wompi-tsconfig": "workspace:*",
-    "turbo": "^2.9.14"
+    "turbo": "^2.9.14",
+    "typescript": "^5.9.3"
   },
   "workspaces": {
     "packages": ["packages/*", "packages/core/*", "packages/ts/*"]
