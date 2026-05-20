@@ -2,6 +2,16 @@
 
 This is the **unofficial** Wompi SDK. This package features a simpler abstraction for the Wompi API, making it easier to interact as a developer and to integrate into your projects.
 
+## AI Agent Skills
+
+If you use an AI coding agent (Claude Code, Cursor, Copilot, etc.), run:
+
+```bash
+pnpx @tanstack/intent@latest install
+```
+
+This installs focused skill files covering client setup, transactions, payment sources, payment links, server integration, and a go-to-production checklist — so your agent produces correct Wompi code without hallucinating APIs.
+
 ## Installation
 
 To install this package, you can use NPM, Yarn, or PNPM:
