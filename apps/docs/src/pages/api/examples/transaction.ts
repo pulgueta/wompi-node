@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { WOMPI_PUBLIC_KEY } from "astro:env/server";
+import { checkRateLimit } from "@/lib/ratelimit";
 
 export const prerender = false;
 
@@ -11,7 +12,10 @@ const json = (data: unknown, status = 200) =>
   });
 
 /** Looks up a single transaction by id — used to poll a pending status. */
-export const GET: APIRoute = async ({ url }) => {
+export const GET: APIRoute = async ({ request, url }) => {
+  const rateLimited = await checkRateLimit(request, "transaction");
+  if (rateLimited) return rateLimited;
+
   if (!WOMPI_PUBLIC_KEY) {
     return json({
       configured: false,

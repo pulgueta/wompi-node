@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { getSignatureKey } from "@pulgueta/wompi/server";
 import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY, WOMPI_INTEGRITY_KEY } from "astro:env/server";
+import { checkRateLimit } from "@/lib/ratelimit";
 
 // Live endpoint — opt out of prerendering so it runs on every request.
 export const prerender = false;
@@ -20,6 +21,9 @@ const json = (data: unknown, status = 200) =>
  *   4. create the transaction
  */
 export const POST: APIRoute = async ({ request }) => {
+  const rateLimited = await checkRateLimit(request, "checkout");
+  if (rateLimited) return rateLimited;
+
   if (!WOMPI_PUBLIC_KEY || !WOMPI_INTEGRITY_KEY) {
     return json({
       configured: false,

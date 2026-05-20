@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY } from "astro:env/server";
+import { checkRateLimit } from "@/lib/ratelimit";
 
 export const prerender = false;
 
@@ -12,6 +13,9 @@ const json = (data: unknown, status = 200) =>
 
 /** Creates a hosted Wompi payment link and returns its public checkout URL. */
 export const POST: APIRoute = async ({ request }) => {
+  const rateLimited = await checkRateLimit(request, "payment-link");
+  if (rateLimited) return rateLimited;
+
   if (!WOMPI_PUBLIC_KEY || !WOMPI_PRIVATE_KEY) {
     return json({
       configured: false,
