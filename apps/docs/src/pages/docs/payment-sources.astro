@@ -1,0 +1,113 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const createSnippet = `// 1. Tokenize the card (or Nequi account) up-front.
+const [tokenError, token] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (tokenError) throw tokenError;
+
+// 2. Fetch a fresh acceptance token from the merchant resource.
+const [merchantError, merchant] = await wompi.merchants.getMerchant();
+if (merchantError) throw merchantError;
+
+// 3. Convert the card token into a long-lived payment source.
+const [error, response] = await wompi.paymentSources.createPaymentSource({
+  type: "CARD",
+  token: token.data.id,
+  acceptance_token: merchant.data.presigned_acceptance!.acceptance_token,
+  customer_email: "buyer@example.com",
+});
+if (error) throw error;
+
+response.data.id; // numeric id — store this against your user`;
+
+const getSnippet = `const [error, response] = await wompi.paymentSources.getPaymentSource(12_345);
+if (error) throw error;
+
+response.data.id;
+response.data.status; // "AVAILABLE" | "PENDING"
+response.data.type;   // "CARD" | "NEQUI"`;
+
+const chargeSnippet = `const [error, response] = await wompi.transactions.createTransaction({
+  acceptance_token,
+  amount_in_cents: 990_000,
+  currency: "COP",
+  signature,
+  customer_email: "buyer@example.com",
+  reference: \`recur-\${Date.now()}\`,
+  payment_source_id: 12_345, // ← reusing the stored source
+});`;
+---
+
+<DocsLayout
+  section="API Reference"
+  title="Payment sources"
+  description="Turn a card or Nequi token into a long-lived payment source you can re-charge."
+>
+  <p>
+    A payment source is Wompi's way of storing a tokenized card or Nequi account against a
+    customer. Once created, you can re-charge it by passing its numeric id into
+    <code>createTransaction</code> — no further tokenization or acceptance handshake needed.
+  </p>
+
+  <Callout type="warning" title="Private key only">
+    Both methods on this resource require the private key. The SDK returns a
+    <code>WompiError</code> before the request fires when the key is missing.
+  </Callout>
+
+  <h2 id="create">createPaymentSource(input)</h2>
+  <p>
+    Promote a one-time token into a reusable source. You'll need a fresh acceptance token from
+    <a href="/docs/merchants"><code>merchants.getMerchant()</code></a> — Wompi treats this as a
+    separate customer consent.
+  </p>
+
+  <CodeBlock code={createSnippet} lang="ts" />
+
+  <h3 id="input">Input</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>type</code></td><td><code>"CARD" | "NEQUI"</code></td><td>The token's source kind.</td></tr>
+      <tr><td><code>token</code></td><td><code>string</code></td><td>Output of <code>tokens.tokenizeCard</code> / <code>tokenizeNequi</code>.</td></tr>
+      <tr><td><code>acceptance_token</code></td><td><code>string</code></td><td>Fresh value from the merchant resource.</td></tr>
+      <tr><td><code>customer_email</code></td><td><code>email</code></td><td>The customer this source belongs to.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="get">getPaymentSource(id)</h2>
+  <p>
+    Look a payment source up by its numeric id.
+  </p>
+
+  <CodeBlock code={getSnippet} lang="ts" />
+
+  <h3 id="response">Response</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>number</code></td><td>Stable, persist this against your user.</td></tr>
+      <tr><td><code>status</code></td><td><code>"AVAILABLE" | "PENDING"</code></td><td><code>PENDING</code> for Nequi until the customer approves.</td></tr>
+      <tr><td><code>type</code></td><td><code>"CARD" | "NEQUI" | undefined</code></td><td>Source kind.</td></tr>
+      <tr><td><code>token</code></td><td><code>string?</code></td><td>The underlying token.</td></tr>
+      <tr><td><code>customer_email</code></td><td><code>string?</code></td><td>Owning customer.</td></tr>
+      <tr><td><code>public_data</code></td><td><code>object?</code></td><td><code>&#123; type, phone_number? &#125;</code> — safe to surface in the UI.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="charging">Charging a stored source</h2>
+  <p>
+    Drop the <code>id</code> into <code>createTransaction</code> as
+    <code>payment_source_id</code>. Note the change in auth — using
+    <code>payment_source_id</code> requires the private key, not the public one.
+  </p>
+
+  <CodeBlock code={chargeSnippet} lang="ts" />
+</DocsLayout>
