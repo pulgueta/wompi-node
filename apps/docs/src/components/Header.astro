@@ -1,0 +1,108 @@
+---
+import { buttonVariants } from "@/components/ui/button";
+import { site } from "../config/site";
+import Icon from "./Icon.astro";
+import Logo from "./Logo.astro";
+
+interface Props {
+  /** Render the hamburger button that opens the docs sidebar drawer. */
+  showSidebarToggle?: boolean;
+}
+
+const { showSidebarToggle = false } = Astro.props;
+const pathname = Astro.url.pathname;
+
+const navLinks = [
+  { label: "Documentation", href: "/docs/introduction", match: "/docs/" },
+  { label: "Examples", href: "/docs/examples/card-checkout", match: "/docs/examples/" },
+];
+---
+
+<header
+  class="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+>
+  <div class="mx-auto flex h-14 max-w-[90rem] items-center gap-3 px-4 sm:px-6">
+    {
+      showSidebarToggle && (
+        <button
+          type="button"
+          data-sidebar-toggle
+          aria-label="Open navigation"
+          aria-expanded="false"
+          class={buttonVariants({ variant: 'ghost', size: 'icon', class: 'lg:hidden' })}
+        >
+          <Icon name="menu" class="size-5" />
+        </button>
+      )
+    }
+
+    <a href="/" class="rounded-md focus-visible:outline-2 focus-visible:outline-ring">
+      <Logo />
+    </a>
+
+    <nav class="ml-4 hidden items-center gap-1 md:flex" aria-label="Primary">
+      {
+        navLinks.map((link) => {
+          const active =
+            link.match === '/docs/examples/'
+              ? pathname.startsWith(link.match)
+              : pathname.startsWith(link.match) && !pathname.startsWith('/docs/examples/');
+          return (
+            <a
+              href={link.href}
+              class:list={[
+                'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
+                active
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              ]}
+            >
+              {link.label}
+            </a>
+          );
+        })
+      }
+    </nav>
+
+    <div class="ml-auto flex items-center gap-1">
+      <a
+        href={site.npm}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="mr-1 hidden rounded-md px-2.5 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground sm:block"
+      >
+        v{site.version}
+      </a>
+
+      <button
+        type="button"
+        id="theme-toggle"
+        aria-label="Toggle color theme"
+        class={buttonVariants({ variant: 'ghost', size: 'icon' })}
+      >
+        <Icon name="sun" class="hidden size-[18px] dark:block" />
+        <Icon name="moon" class="size-[18px] dark:hidden" />
+      </button>
+
+      <a
+        href={site.repo}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="GitHub repository"
+        class={buttonVariants({ variant: 'ghost', size: 'icon' })}
+      >
+        <Icon name="github" class="size-[18px]" />
+      </a>
+    </div>
+  </div>
+</header>
+
+<script>
+  const toggle = document.getElementById('theme-toggle');
+  toggle?.addEventListener('click', () => {
+    const isDark = document.documentElement.classList.toggle('dark');
+    try {
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    } catch {}
+  });
+</script>

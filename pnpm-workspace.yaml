@@ -4,4 +4,5 @@ packages:
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
+  msw: true
   sharp: true

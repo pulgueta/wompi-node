@@ -1,0 +1,135 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const createSnippet = `const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Order #1024",
+  description: "Thank you for shopping.",
+  single_use: true,
+  collect_shipping: false,
+  amount_in_cents: 99_000,
+  currency: "COP",
+});
+if (error) throw error;
+
+const link = response.data;
+const checkoutUrl = \`https://checkout.wompi.co/l/\${link.id}\`;`;
+
+const variableAmountSnippet = `// Omit amount_in_cents for "donation" / open-amount links — the customer
+// fills in the amount at checkout.
+const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Tip jar",
+  description: "Pay what you want",
+  single_use: false,
+  collect_shipping: false,
+});`;
+
+const getSnippet = `const [error, response] = await wompi.paymentLinks.getPaymentLink(linkId);
+if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") return null;
+  throw error;
+}
+
+response.data.active;        // boolean — has it been deactivated?
+response.data.amount_in_cents;
+response.data.single_use;`;
+
+const updateSnippet = `// Deactivate a link so the URL stops accepting payments.
+const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, { active: false });
+
+// Re-activate the same link later.
+const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, { active: true });`;
+
+const taxesSnippet = `// Add VAT and a consumption tax to the link.
+const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Restaurant tab",
+  description: "Dinner for two",
+  single_use: true,
+  collect_shipping: false,
+  amount_in_cents: 150_000,
+  taxes: [
+    { type: "VAT", amount_in_cents: 24_000 },
+    { type: "CONSUMPTION", percentage: 8 },
+  ],
+});`;
+---
+
+<DocsLayout
+  section="API Reference"
+  title="Payment links"
+  description="Hosted checkout links — create one, share the URL, get notified on success."
+>
+  <p>
+    Payment links are the fastest way to take a Wompi payment without integrating the full
+    checkout. The SDK creates the link record; Wompi serves the checkout UI at
+    <code>https://checkout.wompi.co/l/&#123;id&#125;</code>.
+  </p>
+
+  <h2 id="auth">Authentication</h2>
+  <table>
+    <thead><tr><th>Method</th><th>HTTP</th><th>Auth</th></tr></thead>
+    <tbody>
+      <tr><td><code>getPaymentLink</code></td><td><code>GET /payment_links/&#123;id&#125;</code></td><td>None</td></tr>
+      <tr><td><code>createPaymentLink</code></td><td><code>POST /payment_links</code></td><td>Private key</td></tr>
+      <tr><td><code>updatePaymentLink</code></td><td><code>PATCH /payment_links/&#123;id&#125;</code></td><td>Private key</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="create">createPaymentLink(input)</h2>
+  <p>
+    Create a hosted checkout link with a fixed amount.
+  </p>
+
+  <CodeBlock code={createSnippet} lang="ts" />
+
+  <h3 id="create-input">Input fields</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>name</code></td><td><code>string</code></td><td>Shown on the checkout page.</td></tr>
+      <tr><td><code>description</code></td><td><code>string</code></td><td>Sub-line on the checkout page.</td></tr>
+      <tr><td><code>single_use</code></td><td><code>boolean</code></td><td>If <code>true</code>, the link burns after first paid transaction.</td></tr>
+      <tr><td><code>collect_shipping</code></td><td><code>boolean</code></td><td>Show a shipping address form.</td></tr>
+      <tr><td><code>collect_customer_legal_id</code></td><td><code>boolean?</code></td><td>Ask for the customer's legal id.</td></tr>
+      <tr><td><code>amount_in_cents</code></td><td><code>integer?</code></td><td>Omit for open-amount links.</td></tr>
+      <tr><td><code>currency</code></td><td><code>"COP"?</code></td><td>Inferred from the merchant.</td></tr>
+      <tr><td><code>reference</code></td><td><code>string?</code></td><td>Your merchant reference.</td></tr>
+      <tr><td><code>signature</code></td><td><code>string?</code></td><td>Optional — Wompi can compute it.</td></tr>
+      <tr><td><code>sku</code></td><td><code>string?</code></td><td>Max 36 chars.</td></tr>
+      <tr><td><code>expires_at</code> / <code>expiration_time</code></td><td><code>string?</code></td><td>ISO-8601 expiry timestamps.</td></tr>
+      <tr><td><code>redirect_url</code></td><td><code>string?</code></td><td>Where to send the customer after payment.</td></tr>
+      <tr><td><code>image_url</code></td><td><code>string?</code></td><td>Product image displayed on checkout.</td></tr>
+      <tr><td><code>customer_data</code></td><td><code>object?</code></td><td>Up to 2 extra references — e.g. order id, table number.</td></tr>
+      <tr><td><code>taxes</code></td><td><code>array?</code></td><td>VAT / CONSUMPTION; per-amount or per-percentage.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="open-amount">Open-amount links</h3>
+  <p>Drop <code>amount_in_cents</code> to let the customer enter the amount at checkout.</p>
+  <CodeBlock code={variableAmountSnippet} lang="ts" />
+
+  <h3 id="taxes">Taxes</h3>
+  <p>Each tax entry is either <code>amount_in_cents</code> or <code>percentage</code>-shaped.</p>
+  <CodeBlock code={taxesSnippet} lang="ts" />
+
+  <h2 id="get">getPaymentLink(id)</h2>
+  <p>
+    Fetch a link by id — public endpoint, no auth header. Useful for status pages that link to a
+    checkout.
+  </p>
+  <CodeBlock code={getSnippet} lang="ts" />
+
+  <h2 id="update">updatePaymentLink(id, input)</h2>
+  <p>
+    The update endpoint only flips the <code>active</code> flag — there is no way to mutate other
+    fields of an existing link. Create a new link if the amount or description changes.
+  </p>
+  <CodeBlock code={updateSnippet} lang="ts" />
+
+  <Callout type="tip" title="Watch a link with webhooks">
+    Configure Wompi's webhook to listen for <code>transaction.updated</code>; the resulting
+    transaction carries <code>payment_link_id</code>, so you can correlate the payment back to the
+    link you created.
+  </Callout>
+</DocsLayout>

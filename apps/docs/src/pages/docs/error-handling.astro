@@ -1,0 +1,173 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const tupleSnippet = `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({ publicKey: process.env.WOMPI_PUBLIC_KEY!, sandbox: true });
+
+const [error, response] = await wompi.transactions.getTransaction("txn_does_not_exist");
+
+if (error) {
+  // Inside this branch, response is typed as null.
+  return;
+}
+
+// And inside this branch, response is fully typed.
+response.data.status;`;
+
+const typeBranchSnippet = `if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") {
+    return ctx.text("Transaction not found", 404);
+  }
+
+  if ("type" in error && error.type === "INPUT_VALIDATION_ERROR") {
+    return ctx.json({ messages: error.messages }, 400);
+  }
+
+  if ("statusCode" in error) {
+    // WompiRequestError — anything else the API replied with.
+    return ctx.json({ statusCode: error.statusCode, body: error.body }, 502);
+  }
+
+  // Generic WompiError — usually means a bad payload before we sent it.
+  return ctx.text(error.message, 422);
+}`;
+
+const instanceofSnippet = `import {
+  WompiError,
+  WompiNotFoundError,
+  WompiRequestError,
+  WompiValidationError,
+} from "@pulgueta/wompi/errors";
+
+if (error instanceof WompiValidationError) {
+  // error.messages is Record<string, string[]>
+}
+if (error instanceof WompiNotFoundError) {
+  // error.reason is the human-readable reason string
+}
+if (error instanceof WompiRequestError) {
+  // error.statusCode and error.body
+}
+if (error instanceof WompiError) {
+  // base class — every error above is also a WompiError
+}`;
+
+const inputValidationSnippet = `const [error] = await wompi.transactions.createTransaction({
+  // amount_in_cents missing on purpose
+  acceptance_token: "...",
+  currency: "COP",
+  signature: "...",
+  customer_email: "buyer@example.com",
+  reference: "ref-1",
+  payment_method: { type: "CARD", token: "tok_x", installments: 1 },
+});
+
+// error.message:
+// "Invalid input: amount_in_cents: Required"`;
+---
+
+<DocsLayout
+  section="Core Concepts"
+  title="Error handling"
+  description="The error-first result tuple, how to narrow on error.type, and when each error subclass is returned."
+>
+  <p>
+    Every method on the client returns a <code>Result&lt;T&gt;</code> — a discriminated tuple of
+    either <code>[error, null]</code> or <code>[null, data]</code>. This makes failure a value, not
+    a thrown exception, and narrows the types automatically.
+  </p>
+
+  <h2 id="the-tuple">The tuple</h2>
+  <CodeBlock code={tupleSnippet} lang="ts" />
+
+  <Callout type="tip" title="Why a tuple and not { error, data }?">
+    Tuples let TypeScript infer that <code>response</code> is non-null after the
+    <code>if&nbsp;(error)</code> guard. Object destructuring with optional fields would need extra
+    narrowing on every access — the tuple gets it for free.
+  </Callout>
+
+  <h2 id="error-shapes">Error shapes</h2>
+  <p>
+    Errors are one of four subclasses, all of which extend the base <code>WompiError</code>:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Class</th>
+        <th>Discriminant</th>
+        <th>Returned when</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>WompiError</code></td>
+        <td>—</td>
+        <td>Local validation, missing key, anything before the request fires.</td>
+      </tr>
+      <tr>
+        <td><code>WompiValidationError</code></td>
+        <td><code>type === "INPUT_VALIDATION_ERROR"</code></td>
+        <td>Wompi rejected the body (HTTP 422). <code>messages</code> carries field-level errors.</td>
+      </tr>
+      <tr>
+        <td><code>WompiNotFoundError</code></td>
+        <td><code>type === "NOT_FOUND_ERROR"</code></td>
+        <td>Wompi answered HTTP 404. <code>reason</code> is the human-readable cause.</td>
+      </tr>
+      <tr>
+        <td><code>WompiRequestError</code></td>
+        <td><code>statusCode</code></td>
+        <td>Any other non-2xx response. <code>body</code> is the raw response body.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="branching-on-type">Branching on <code>type</code></h2>
+  <p>
+    The simplest pattern is to switch on the discriminant — no class import needed.
+  </p>
+  <CodeBlock code={typeBranchSnippet} lang="ts" />
+
+  <h2 id="branching-with-instanceof">Or with <code>instanceof</code></h2>
+  <p>
+    If you prefer class-based branching, import the error classes from the
+    <code>/errors</code> subpath.
+  </p>
+  <CodeBlock code={instanceofSnippet} lang="ts" />
+
+  <h2 id="input-validation">Pre-flight input validation</h2>
+  <p>
+    Every method parses its arguments with Zod before sending them. A bad input never reaches the
+    network — you get a <code>WompiError</code> with a flattened message instead, listing each bad
+    field.
+  </p>
+  <CodeBlock code={inputValidationSnippet} lang="ts" />
+
+  <Callout type="note" title="Auth errors">
+    Methods that need a private key (<code>listTransactions</code>, <code>voidTransaction</code>,
+    payment sources, mutating payment links) return a <code>WompiError</code>
+    <em>before</em> the request fires if you haven't provided one. There's no separate
+    <code>WompiAuthError</code> to import.
+  </Callout>
+
+  <h2 id="never-throws">The SDK never throws (almost)</h2>
+  <p>
+    Two exceptions:
+  </p>
+  <ul>
+    <li>
+      <code>new WompiClient(options)</code> throws if the options fail Zod validation — usually
+      missing or empty <code>publicKey</code>.
+    </li>
+    <li>
+      <code>getSignatureKey</code> from <code>/server</code> throws if <code>amountInCents</code>
+      isn't a non-negative integer.
+    </li>
+  </ul>
+  <p>
+    Everywhere else, failure travels through the tuple.
+  </p>
+</DocsLayout>

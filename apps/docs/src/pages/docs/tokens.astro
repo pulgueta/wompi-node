@@ -1,0 +1,99 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const tokenizeCardSnippet = `const [error, response] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (error) throw error;
+
+const token = response.data;
+
+token.id;        // tok_test_xxxx — pass into payment_method.token
+token.brand;     // "VISA" | "MASTERCARD" | ...
+token.last_four; // "4242"
+token.expires_at;`;
+
+const tokenizeNequiSnippet = `const [error, response] = await wompi.tokens.tokenizeNequi({
+  phone_number: "3001234567",
+});
+if (error) throw error;
+
+const token = response.data;
+token.id;     // nequi_xxx
+token.status; // "PENDING" — the customer must approve in the Nequi app
+
+// Poll until APPROVED or DECLINED.
+const [pollError, pollResponse] = await wompi.tokens.getNequiToken(token.id);`;
+
+const getNequiSnippet = `const [error, response] = await wompi.tokens.getNequiToken("nequi_token_id");
+
+response?.data.status; // "PENDING" | "APPROVED" | "DECLINED"`;
+---
+
+<DocsLayout
+  section="API Reference"
+  title="Tokens"
+  description="Tokenize credit cards and Nequi accounts so raw payment details never touch the transaction call."
+>
+  <p>
+    Wompi tokens turn sensitive details (a PAN, a Nequi phone number) into opaque short-lived ids
+    your server can pass into <code>createTransaction</code> or <code>createPaymentSource</code>.
+    All token methods authenticate with the public key.
+  </p>
+
+  <h2 id="tokenize-card">tokenizeCard(input)</h2>
+  <p>
+    Exchange raw card details for a token id. Most teams tokenize cards from the browser using
+    Wompi's drop-in widget — but this SDK works fine from the server too, e.g. for back-office
+    flows.
+  </p>
+
+  <CodeBlock code={tokenizeCardSnippet} lang="ts" />
+
+  <h3 id="card-input">Input</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th></tr></thead>
+    <tbody>
+      <tr><td><code>number</code></td><td><code>string</code> — the PAN, digits only.</td></tr>
+      <tr><td><code>cvc</code></td><td><code>string</code> — security code.</td></tr>
+      <tr><td><code>exp_month</code></td><td><code>string</code> — <code>"01"</code>…<code>"12"</code>.</td></tr>
+      <tr><td><code>exp_year</code></td><td><code>string</code> — two digits.</td></tr>
+      <tr><td><code>card_holder</code></td><td><code>string</code> — cardholder name.</td></tr>
+    </tbody>
+  </table>
+
+  <Callout type="warning" title="PCI scope">
+    Calling <code>tokenizeCard</code> from your own server means the PAN passes through your
+    runtime — that puts you in PCI DSS scope. If you can avoid it, tokenize in the browser with
+    Wompi's drop-in widget instead.
+  </Callout>
+
+  <h2 id="tokenize-nequi">tokenizeNequi(input)</h2>
+  <p>
+    Tokenize a Nequi account by phone number. The resulting token starts as <code>PENDING</code>;
+    the customer approves it in their Nequi app, after which it transitions to
+    <code>APPROVED</code> (or <code>DECLINED</code>).
+  </p>
+
+  <CodeBlock code={tokenizeNequiSnippet} lang="ts" />
+
+  <h2 id="get-nequi">getNequiToken(id)</h2>
+  <p>
+    Poll a Nequi token until its status resolves. There's no public webhook for this — polling
+    every few seconds (with backoff) is the recommended pattern.
+  </p>
+
+  <CodeBlock code={getNequiSnippet} lang="ts" />
+
+  <Callout type="tip" title="No getCardToken">
+    Card tokens are single-use unless you persist them as a payment source. Once you've used a
+    card token in <code>createTransaction</code> or <code>createPaymentSource</code>, it can't be
+    fetched back — there's intentionally no <code>getCardToken</code> method.
+  </Callout>
+</DocsLayout>

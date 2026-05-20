@@ -1,0 +1,112 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+import InstallTabs from "../../components/InstallTabs.astro";
+
+const envExample = `# Required everywhere.
+WOMPI_PUBLIC_KEY=pub_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Required for write operations (list/void transactions, payment sources,
+# create/update payment links).
+WOMPI_PRIVATE_KEY=prv_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Required only when you sign transactions yourself.
+WOMPI_INTEGRITY_KEY=test_integrity_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`;
+
+const tsConfigSnippet = `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true
+  }
+}`;
+---
+
+<DocsLayout
+  section="Getting Started"
+  title="Installation"
+  description="Add @pulgueta/wompi to your project, set your environment variables and verify the install."
+>
+  <h2 id="install">Install the package</h2>
+  <p>
+    The SDK has zero runtime dependencies and one peer dependency: <code>zod ^4</code>. Install
+    both with your package manager of choice.
+  </p>
+
+  <InstallTabs pkg="@pulgueta/wompi zod" />
+
+  <Callout type="note" title="Node version">
+    The SDK targets Node 22+ and any runtime with global <code>fetch</code> and Web Crypto
+    (<code>crypto.subtle</code>). All Wompi calls go over the platform fetch — no <code>node-fetch</code>,
+    no Axios.
+  </Callout>
+
+  <h2 id="get-your-api-keys">Get your API keys</h2>
+  <p>
+    Sign in to your <a
+      href="https://comercios.wompi.co"
+      target="_blank"
+      rel="noopener noreferrer">Wompi merchant dashboard</a
+    > and copy:
+  </p>
+  <ul>
+    <li>
+      <strong>Public key.</strong> Prefixed <code>pub_test_</code> in sandbox,
+      <code>pub_prod_</code> in production. Required for every request.
+    </li>
+    <li>
+      <strong>Private key.</strong> Prefixed <code>prv_test_</code> / <code>prv_prod_</code>.
+      Optional, only needed for write operations.
+    </li>
+    <li>
+      <strong>Integrity key.</strong> Only needed if you sign transactions yourself
+      (see <a href="/docs/integrity-signature">Integrity signature</a>).
+    </li>
+  </ul>
+
+  <CodeBlock code={envExample} lang="bash" filename=".env" />
+
+  <Callout type="warning" title="Never ship your private key">
+    The <code>privateKey</code> and <code>integrityKey</code> stay on the server. Public key is
+    safe to expose in client code if you tokenize cards from the browser.
+  </Callout>
+
+  <h2 id="typescript">TypeScript</h2>
+  <p>
+    The package ships its own types — no <code>@types/</code> install required. A minimum-viable
+    <code>tsconfig.json</code> looks like this:
+  </p>
+
+  <CodeBlock code={tsConfigSnippet} lang="json" filename="tsconfig.json" />
+
+  <h2 id="verify">Verify the install</h2>
+  <p>
+    Drop the snippet below into <code>verify.ts</code> and run it with
+    <code>node --experimental-strip-types verify.ts</code> (or your favorite TS runner). A
+    successful response confirms the SDK can reach Wompi and parse the merchant response.
+  </p>
+
+  <CodeBlock
+    code={`import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) throw error;
+
+console.log("Merchant:", response.data.name);
+console.log("Acceptance token:", response.data.presigned_acceptance?.acceptance_token);`}
+    lang="ts"
+    filename="verify.ts"
+  />
+
+  <h2 id="next">Next</h2>
+  <p>
+    Head over to the <a href="/docs/quickstart">Quickstart</a> to charge a sandbox card end-to-end.
+  </p>
+</DocsLayout>

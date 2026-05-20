@@ -1,0 +1,17 @@
+---
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<span class:list={['flex items-center gap-2', className]}>
+  <span
+    class="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground"
+    style="font-family: var(--font-heading)"
+    aria-hidden="true">W</span
+  >
+  <span class="font-heading text-[15px] font-semibold tracking-tight">
+    Wompi <span class="text-muted-foreground">SDK</span>
+  </span>
+</span>

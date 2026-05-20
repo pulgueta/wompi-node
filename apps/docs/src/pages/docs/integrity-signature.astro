@@ -1,0 +1,111 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const usageSnippet = `import { getSignatureKey } from "@pulgueta/wompi/server";
+
+const signature = await getSignatureKey({
+  reference: "order-12345",
+  amountInCents: 2_490_000,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});`;
+
+const withExpirationSnippet = `// When the transaction sets expiration_time, hash the same value here.
+const expirationTime = "2026-12-31T23:59:59Z";
+
+const signature = await getSignatureKey({
+  reference: "order-12345",
+  amountInCents: 2_490_000,
+  currency: "COP",
+  expirationTime,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+
+const [error] = await wompi.transactions.createTransaction({
+  // ... other fields
+  signature,
+  expiration_time: expirationTime,
+});`;
+
+const formulaSnippet = `<reference><amountInCents><currency><expirationTime?><integrityKey>
+
+// hashed as utf-8 with SHA-256, then expressed as lowercase hex.`;
+---
+
+<DocsLayout
+  section="Core Concepts"
+  title="Integrity signature"
+  description="What the Wompi integrity signature is, how getSignatureKey computes it, and the rules to follow."
+>
+  <p>
+    Wompi requires every <code>createTransaction</code> call to include a <code>signature</code>
+    field — an SHA-256 hex digest over the transaction's reference, amount, currency and (when
+    applicable) expiration, salted with your merchant integrity key. This proves the request was
+    built server-side and prevents tampering with the amount in transit.
+  </p>
+
+  <h2 id="usage">Usage</h2>
+  <p>
+    Import <code>getSignatureKey</code> from the <code>/server</code> subpath. It uses Web Crypto
+    (<code>crypto.subtle.digest</code>) so it runs unchanged on Node, edge runtimes and modern
+    serverless platforms.
+  </p>
+
+  <CodeBlock code={usageSnippet} lang="ts" filename="lib/sign.ts" />
+
+  <h2 id="the-formula">The formula</h2>
+  <p>The hashed string is the concatenation of:</p>
+
+  <CodeBlock code={formulaSnippet} lang="text" bare />
+
+  <ul>
+    <li>
+      <code>reference</code> — must match the same string you pass to
+      <code>createTransaction(&#123; reference &#125;)</code>.
+    </li>
+    <li>
+      <code>amountInCents</code> — the integer in cents, exactly as you'll send it. Never multiply
+      by 100 here; the amount is already in cents.
+    </li>
+    <li>
+      <code>currency</code> — defaults to <code>"COP"</code>. Only <code>COP</code> is currently
+      accepted by Wompi, but the field is hashed so it has to match the body.
+    </li>
+    <li>
+      <code>expirationTime</code> — include it <em>only</em> if the transaction sets
+      <code>expiration_time</code>. Omit otherwise; the hash uses an empty string in its place.
+    </li>
+    <li>
+      <code>integrityKey</code> — your merchant integrity secret. Read it from a server-only env
+      var; never expose it to the browser.
+    </li>
+  </ul>
+
+  <Callout type="warning" title="Mismatch = HTTP 422">
+    Wompi rejects the transaction with <code>INPUT_VALIDATION_ERROR</code> when any byte of the
+    signed payload differs from the request body. The most common cause is multiplying
+    <code>amountInCents</code> by 100 twice — once when computing the signature, once in the
+    transaction body.
+  </Callout>
+
+  <h2 id="with-expiration-time">With <code>expiration_time</code></h2>
+  <p>
+    If the transaction carries an <code>expiration_time</code>, the signature must hash the same
+    value, right before the integrity key.
+  </p>
+
+  <CodeBlock code={withExpirationSnippet} lang="ts" />
+
+  <h2 id="validation">Validation</h2>
+  <p>
+    <code>getSignatureKey</code> throws a <code>WompiError</code> if <code>amountInCents</code> is
+    negative or not an integer. Every other field is passed through as-is.
+  </p>
+
+  <Callout type="tip" title="When you don't need to sign yourself">
+    Hosted payment links (see <a href="/docs/payment-links">Payment links</a>) accept a
+    <code>signature</code> field too, but Wompi will compute it for you if you omit it. The
+    integrity signature is only required when you call <code>createTransaction</code> directly.
+  </Callout>
+</DocsLayout>

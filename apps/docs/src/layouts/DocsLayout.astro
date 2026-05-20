@@ -1,0 +1,142 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import Header from "../components/Header.astro";
+import Sidebar from "../components/Sidebar.astro";
+import SidebarNav from "../components/SidebarNav.astro";
+import OnThisPage from "../components/OnThisPage.astro";
+import Pagination from "../components/Pagination.astro";
+import Icon from "../components/Icon.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Kicker label shown above the page title, e.g. "API Reference". */
+  section?: string;
+}
+
+const { title, description, section } = Astro.props;
+---
+
+<BaseLayout title={title} description={description}>
+  <Header showSidebarToggle />
+
+  <div class="mx-auto w-full max-w-360 px-4 sm:px-6">
+    <div
+      class="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-9 xl:grid-cols-[15rem_minmax(0,1fr)_14rem]"
+    >
+      <Sidebar />
+
+      <main class="min-w-0 py-8 lg:py-12">
+        <article class="prose mx-auto max-w-3xl">
+          <header class="mb-10">
+            {
+              section && (
+                <p class="font-heading text-sm font-semibold text-primary">{section}</p>
+              )
+            }
+            <h1 class="mt-1.5 text-3xl font-bold tracking-tight sm:text-[2.5rem] sm:leading-[1.1]">
+              {title}
+            </h1>
+            <p class="mt-4 text-base text-muted-foreground sm:text-lg">{description}</p>
+          </header>
+          <slot />
+        </article>
+
+        <div class="mx-auto max-w-3xl">
+          <Pagination />
+        </div>
+      </main>
+
+      <OnThisPage />
+    </div>
+  </div>
+
+  <dialog id="mobile-nav" class="mobile-nav">
+    <div class="flex h-full flex-col">
+      <div class="flex h-14 items-center justify-between border-b border-border px-4">
+        <span class="font-heading font-semibold">Navigation</span>
+        <button
+          type="button"
+          data-close-nav
+          aria-label="Close navigation"
+          class="inline-grid size-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Icon name="x" class="size-5" />
+        </button>
+      </div>
+      <div class="no-scrollbar flex-1 overflow-y-auto p-5">
+        <SidebarNav />
+      </div>
+    </div>
+  </dialog>
+</BaseLayout>
+
+<script>
+  const dialog = document.getElementById('mobile-nav') as HTMLDialogElement | null;
+  const openButton = document.querySelector<HTMLButtonElement>('[data-sidebar-toggle]');
+
+  const setExpanded = (value: boolean) =>
+    openButton?.setAttribute('aria-expanded', String(value));
+
+  openButton?.addEventListener('click', () => {
+    dialog?.showModal();
+    setExpanded(true);
+  });
+
+  dialog?.querySelector('[data-close-nav]')?.addEventListener('click', () => dialog.close());
+
+  // Clicking the dialog element itself means the backdrop was clicked.
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  dialog?.addEventListener('close', () => setExpanded(false));
+
+  // Following a link should dismiss the drawer.
+  for (const link of dialog?.querySelectorAll('a') ?? []) {
+    link.addEventListener('click', () => dialog?.close());
+  }
+
+  // Never leave the drawer open when the layout switches to desktop.
+  window.matchMedia('(min-width: 1024px)').addEventListener('change', (event) => {
+    if (event.matches && dialog?.open) dialog.close();
+  });
+</script>
+
+<style>
+  .mobile-nav {
+    margin: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    width: 18rem;
+    max-width: 85vw;
+    padding: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    translate: -100% 0;
+    transition:
+      translate 0.22s ease,
+      overlay 0.22s ease allow-discrete,
+      display 0.22s ease allow-discrete;
+  }
+  .mobile-nav[open] {
+    translate: 0 0;
+  }
+  @starting-style {
+    .mobile-nav[open] {
+      translate: -100% 0;
+    }
+  }
+  .mobile-nav::backdrop {
+    background: rgb(0 0 0 / 0);
+    transition:
+      background 0.22s ease,
+      overlay 0.22s ease allow-discrete,
+      display 0.22s ease allow-discrete;
+  }
+  .mobile-nav[open]::backdrop {
+    background: rgb(0 0 0 / 0.5);
+  }
+</style>

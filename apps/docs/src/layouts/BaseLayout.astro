@@ -1,0 +1,90 @@
+---
+import "../styles/global.css";
+import { site } from "../config/site";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** When true the title is used verbatim instead of being suffixed with the site name. */
+  exactTitle?: boolean;
+  noindex?: boolean;
+}
+
+const { title, description = site.description, exactTitle = false, noindex = false } = Astro.props;
+
+const pageTitle = exactTitle ? title : `${title} — ${site.shortName}`;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? site.url).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c1118" media="(prefers-color-scheme: dark)" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.shortName} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+
+    <!-- Apply the persisted theme before paint to avoid a flash of the wrong theme. -->
+    <script is:inline>
+      (() => {
+        try {
+          const stored = localStorage.getItem('theme');
+          const dark = stored
+            ? stored === 'dark'
+            : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.classList.toggle('dark', dark);
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body class="min-h-dvh bg-background text-foreground antialiased">
+    <slot />
+
+    <!-- Delegated copy-to-clipboard handler for every `.copy-btn` on the page. -->
+    <script>
+      document.addEventListener('click', async (event) => {
+        const button = (event.target as HTMLElement).closest('.copy-btn');
+        if (!button) return;
+
+        const block = button.closest('.code-block');
+        const text = block?.querySelector('.astro-code')?.textContent ?? '';
+        if (!text) return;
+
+        try {
+          await navigator.clipboard.writeText(text);
+          const copyIcon = button.querySelector('.copy-icon');
+          const checkIcon = button.querySelector('.check-icon');
+          copyIcon?.classList.add('hidden');
+          checkIcon?.classList.remove('hidden');
+          setTimeout(() => {
+            copyIcon?.classList.remove('hidden');
+            checkIcon?.classList.add('hidden');
+          }, 1600);
+        } catch {
+          /* Clipboard unavailable — silently ignore. */
+        }
+      });
+    </script>
+  </body>
+</html>

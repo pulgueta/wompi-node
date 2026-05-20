@@ -1,0 +1,64 @@
+---
+/**
+ * Right-rail table of contents. The list is built from the rendered
+ * `<h2 id>` / `<h3 id>` headings on load, so doc pages stay free of any
+ * heading bookkeeping. Scroll-spy highlights the section in view.
+ */
+---
+
+<aside id="on-this-page" class="hidden xl:block">
+  <div class="no-scrollbar sticky top-14 max-h-[calc(100dvh-3.5rem)] overflow-y-auto py-8 pl-3">
+    <p class="mb-3 font-heading text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+      On this page
+    </p>
+    <nav aria-label="Table of contents">
+      <ul id="toc-list" class="flex flex-col border-l border-border text-sm"></ul>
+    </nav>
+  </div>
+</aside>
+
+<script>
+  const list = document.getElementById('toc-list');
+  const aside = document.getElementById('on-this-page');
+  const headings = [
+    ...document.querySelectorAll('article :is(h2, h3)[id]'),
+  ] as HTMLElement[];
+
+  if (!list || headings.length === 0) {
+    aside?.remove();
+  } else {
+    for (const heading of headings) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = `#${heading.id}`;
+      a.textContent = heading.textContent;
+      a.dataset.tocLink = heading.id;
+      a.className = [
+        '-ml-px block border-l border-transparent py-1 transition-colors',
+        'text-muted-foreground hover:text-foreground',
+        heading.tagName === 'H3' ? 'pl-6' : 'pl-3',
+      ].join(' ');
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+
+    const links = [...list.querySelectorAll('a')];
+    const setActive = (id: string) => {
+      for (const link of links) {
+        const on = link.dataset.tocLink === id;
+        link.classList.toggle('text-primary', on);
+        link.classList.toggle('border-primary', on);
+        link.classList.toggle('font-medium', on);
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting);
+        if (visible.length > 0) setActive(visible[0].target.id);
+      },
+      { rootMargin: '-80px 0px -70% 0px' }
+    );
+    for (const heading of headings) observer.observe(heading);
+  }
+</script>

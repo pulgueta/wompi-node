@@ -1,0 +1,115 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Callout from "../../components/Callout.astro";
+
+const overviewSnippet = `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true, // hits sandbox.wompi.co; flip to false for production
+});
+
+// Every method returns [error, data] — no try/catch boilerplate.
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) {
+  console.error(error.message);
+  return;
+}
+
+response.data.presigned_acceptance?.acceptance_token;`;
+---
+
+<DocsLayout
+  section="Getting Started"
+  title="Introduction"
+  description="An overview of @pulgueta/wompi — what it is, what it covers, and how it's shaped."
+>
+  <p>
+    <code>@pulgueta/wompi</code> is an unofficial SDK for the
+    <a href="https://docs.wompi.co" rel="noopener noreferrer" target="_blank">Wompi payments API</a>,
+    written in TypeScript and built around a few opinions that make payments code
+    pleasant to write and review.
+  </p>
+
+  <h2 id="design-goals">Design goals</h2>
+  <ul>
+    <li>
+      <strong>Error-first results.</strong> Every method returns a
+      <code>[error, data]</code> tuple, so the caller has to confront failure before reaching the
+      data. No surprise exceptions.
+    </li>
+    <li>
+      <strong>Validated inputs and lenient responses.</strong> Inputs are checked with Zod before
+      they hit the wire. Responses are parsed leniently — only stable identifiers are required, and
+      unknown fields pass through so a Wompi API addition never breaks your client.
+    </li>
+    <li>
+      <strong>Tree-shakeable subpaths.</strong> Import the client, schemas, types, errors and the
+      server helpers separately — pay only for the surface you actually use.
+    </li>
+    <li>
+      <strong>No runtime dependencies.</strong> The package uses the platform <code>fetch</code>
+      and Web Crypto, so it runs unchanged on Node 22+, edge runtimes and modern serverless platforms.
+    </li>
+  </ul>
+
+  <h2 id="what-it-covers">What it covers</h2>
+  <p>The SDK is one client with focused sub-resources:</p>
+  <ul>
+    <li>
+      <a href="/docs/merchants"><code>wompi.merchants</code></a> — fetch merchant info and the
+      presigned acceptance token.
+    </li>
+    <li>
+      <a href="/docs/transactions"><code>wompi.transactions</code></a> — create, get, list and void
+      transactions.
+    </li>
+    <li>
+      <a href="/docs/tokens"><code>wompi.tokens</code></a> — tokenize cards and Nequi accounts.
+    </li>
+    <li>
+      <a href="/docs/payment-sources"><code>wompi.paymentSources</code></a> — store reusable
+      tokens as payment sources.
+    </li>
+    <li>
+      <a href="/docs/payment-links"><code>wompi.paymentLinks</code></a> — create and manage hosted
+      checkout links.
+    </li>
+    <li>
+      <a href="/docs/pse"><code>wompi.pse</code></a> — list PSE financial institutions.
+    </li>
+  </ul>
+
+  <h2 id="a-tiny-example">A tiny example</h2>
+  <p>
+    Here's the same shape every other page uses — instantiate the client once, then await methods
+    that return a typed tuple.
+  </p>
+
+  <CodeBlock code={overviewSnippet} lang="ts" filename="example.ts" />
+
+  <Callout type="tip" title="The discriminated tuple">
+    Narrowing on <code>error</code> is enough: when <code>error</code> is <code>null</code>,
+    TypeScript knows <code>response</code> is the success payload, and vice versa.
+  </Callout>
+
+  <h2 id="when-to-use-it">When to use it</h2>
+  <p>
+    Reach for this SDK when you're calling Wompi from a Node or edge runtime — Astro endpoints,
+    Next.js route handlers, NestJS controllers, Vercel/Cloudflare functions, BullMQ workers — and
+    want the input parsing, error narrowing and types to happen for you instead of by hand.
+  </p>
+  <p>
+    Reach for the raw HTTP API directly if you need a feature the SDK hasn't surfaced yet (or
+    you're not on a JavaScript runtime). The SDK never hides the URL, headers or body shape — it
+    just gives you a typed door to walk through.
+  </p>
+
+  <h2 id="next">Next</h2>
+  <p>
+    <a href="/docs/installation">Install the package</a>, then follow the
+    <a href="/docs/quickstart">quickstart</a> to charge a sandbox card end-to-end.
+  </p>
+</DocsLayout>

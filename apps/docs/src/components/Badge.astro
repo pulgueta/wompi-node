@@ -1,0 +1,12 @@
+---
+import { badgeVariants } from "@/components/ui/badge";
+
+interface Props {
+  variant?: "default" | "secondary" | "destructive" | "outline" | "ghost";
+  class?: string;
+}
+
+const { variant = "secondary", class: className } = Astro.props;
+---
+
+<span class:list={[badgeVariants({ variant }), className]}><slot /></span>
