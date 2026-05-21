@@ -14,7 +14,7 @@ const createSnippet = `const [error, response] = await wompi.paymentLinks.create
 if (error) throw error;
 
 const link = response.data;
-const checkoutUrl = \`https://checkout.wompi.co/l/\${link.id}\`;`;
+const checkoutUrl = link.checkout_url;`;
 
 const variableAmountSnippet = `// Omit amount_in_cents for "donation" / open-amount links — the customer
 // fills in the amount at checkout.
@@ -33,7 +33,8 @@ if (error) {
 
 response.data.active;        // boolean — has it been deactivated?
 response.data.amount_in_cents;
-response.data.single_use;`;
+response.data.single_use;
+response.data.checkout_url;  // hosted checkout URL`;
 
 const updateSnippet = `// Deactivate a link so the URL stops accepting payments.
 const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, { active: false });
@@ -62,8 +63,8 @@ const [error, response] = await wompi.paymentLinks.createPaymentLink({
 >
   <p>
     Payment links are the fastest way to take a Wompi payment without integrating the full
-    checkout. The SDK creates the link record; Wompi serves the checkout UI at
-    <code>https://checkout.wompi.co/l/&#123;id&#125;</code>.
+    checkout. The SDK creates the link record and returns the checkout URL (accessible via
+    <code>response.data.checkout_url</code>); Wompi serves the checkout UI at that URL.
   </p>
 
   <h2 id="auth">Authentication</h2>

@@ -102,18 +102,6 @@ export type InputValidationErrorResponse = z.output<typeof InputValidationErrorR
 
 export type WompiClientOptions = z.input<typeof WompiClientOptionsSchema>;
 
-// ─── API Response Wrappers ──────────────────────────────────────────────────
-
-export type WompiResponse<T> = {
-  data: T;
-  meta?: Record<string, unknown>;
-};
-
-export type WompiListResponse<T> = {
-  data: T[];
-  meta?: Record<string, unknown>;
-};
-
 /**
  * Every error a {@link Result} can carry. The subclasses expose discriminants
  * (`.type` on not-found / validation errors, `.statusCode` on request errors), so

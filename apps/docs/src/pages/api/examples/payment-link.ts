@@ -67,7 +67,7 @@ export const POST: APIRoute = async ({ request }) => {
     configured: true,
     paymentLink: {
       id: link.id,
-      url: `https://checkout.wompi.co/l/${link.id}`,
+      url: link.checkout_url,
       name: link.name ?? name,
       amountInCents: link.amount_in_cents ?? amountInCents,
       singleUse: link.single_use ?? singleUse,

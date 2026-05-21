@@ -8,7 +8,19 @@ import {
 } from "@/schemas";
 import type { PaymentLink, Result, WompiResponse } from "@/types";
 
+const CHECKOUT_BASE_URL = "https://checkout.wompi.co";
+
 const PaymentLinkResponseSchema = wompiResponse(PaymentLinkSchema);
+
+function withCheckoutUrl(response: WompiResponse<PaymentLink>): WompiResponse<PaymentLink> {
+  return {
+    ...response,
+    data: {
+      ...response.data,
+      checkout_url: `${CHECKOUT_BASE_URL}/l/${response.data.id}`,
+    },
+  };
+}
 
 export class PaymentLinks extends WompiRequest {
   constructor(
@@ -23,7 +35,9 @@ export class PaymentLinks extends WompiRequest {
    * No authentication required.
    */
   async getPaymentLink(id: string): Promise<Result<WompiResponse<PaymentLink>>> {
-    return this.get(`/payment_links/${id}`, PaymentLinkResponseSchema);
+    const [error, response] = await this.get(`/payment_links/${id}`, PaymentLinkResponseSchema);
+    if (error) return [error, null];
+    return [null, withCheckoutUrl(response)];
   }
 
   /**
@@ -46,9 +60,16 @@ export class PaymentLinks extends WompiRequest {
       ];
     }
 
-    return this.post("/payment_links", PaymentLinkResponseSchema, parsed.data, {
-      Authorization: `Bearer ${this.privateKey}`,
-    });
+    const [error, response] = await this.post(
+      "/payment_links",
+      PaymentLinkResponseSchema,
+      parsed.data,
+      {
+        Authorization: `Bearer ${this.privateKey}`,
+      }
+    );
+    if (error) return [error, null];
+    return [null, withCheckoutUrl(response)];
   }
 
   /**
@@ -71,8 +92,15 @@ export class PaymentLinks extends WompiRequest {
       ];
     }
 
-    return this.patch(`/payment_links/${id}`, PaymentLinkResponseSchema, parsed.data, {
-      Authorization: `Bearer ${this.privateKey}`,
-    });
+    const [error, response] = await this.patch(
+      `/payment_links/${id}`,
+      PaymentLinkResponseSchema,
+      parsed.data,
+      {
+        Authorization: `Bearer ${this.privateKey}`,
+      }
+    );
+    if (error) return [error, null];
+    return [null, withCheckoutUrl(response)];
   }
 }

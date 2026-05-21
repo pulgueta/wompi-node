@@ -21,7 +21,7 @@ type Response =
 const defaults = {
   name: "Order #1024",
   description: "Thank you for shopping with us.",
-  amountInCents: "99000",
+  amountInCents: "200000",
 };
 
 export function PaymentLinkForm() {

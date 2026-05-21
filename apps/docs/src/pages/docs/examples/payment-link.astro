@@ -35,7 +35,7 @@ export const POST: APIRoute = async ({ request }) => {
   return Response.json({
     paymentLink: {
       id: link.id,
-      url: \`https://checkout.wompi.co/l/\${link.id}\`,
+      url: link.checkout_url,
       name: link.name ?? name,
       amountInCents: link.amount_in_cents ?? amountInCents,
       singleUse: link.single_use ?? singleUse,
@@ -60,14 +60,15 @@ const paidByLink = response?.data.filter((t) => t.payment_link_id === link.id) ?
 >
   <p>
     <Badge variant="default">Live</Badge>
-    Generate a hosted checkout link without ever touching card details. Submit the form to call
+    Generate a hosted checkout link without ever touching card details. Submit the
+    form to call
     <code>POST /api/examples/payment-link</code>, which proxies to
     <code>wompi.paymentLinks.createPaymentLink</code> and returns the public URL.
   </p>
 
   <Callout type="note" title="Try the URL right away">
-    The link the demo returns is a real sandbox link — you can open it and run through the hosted
-    checkout end-to-end.
+    The link the demo returns is a real sandbox link — you can open it and run
+    through the hosted checkout end-to-end.
   </Callout>
 
   <h2 id="try-it">Try it</h2>
@@ -77,17 +78,23 @@ const paidByLink = response?.data.filter((t) => t.payment_link_id === link.id) ?
 
   <h2 id="api-route">The API route</h2>
   <p>
-    The route is intentionally tiny: a single SDK call, two branches, no integrity signature
-    handshake. Wompi computes the signature server-side when you create the link.
+    The route is intentionally tiny: a single SDK call, two branches, no
+    integrity signature handshake. Wompi computes the signature server-side when
+    you create the link.
   </p>
 
-  <CodeBlock code={apiRoute} lang="ts" filename="src/pages/api/examples/payment-link.ts" />
+  <CodeBlock
+    code={apiRoute}
+    lang="ts"
+    filename="src/pages/api/examples/payment-link.ts"
+  />
 
   <h2 id="following-up">Reconciling paid links</h2>
   <p>
-    Each transaction Wompi creates against a hosted link carries the link's id under
-    <code>payment_link_id</code>. List or filter transactions to reconcile the link against the
-    payment.
+    Each transaction Wompi creates against a hosted link carries the link's id
+    under
+    <code>payment_link_id</code>. List or filter transactions to reconcile the
+    link against the payment.
   </p>
 
   <CodeBlock code={followUpSnippet} lang="ts" />

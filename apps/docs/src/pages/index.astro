@@ -39,7 +39,7 @@ const [error, response] = await wompi.paymentLinks.createPaymentLink({
 });
 
 if (error) return new Response(error.message, { status: 422 });
-return Response.json({ url: \`https://checkout.wompi.co/l/\${response.data.id}\` });`;
+return Response.json({ url: response.data.checkout_url });`;
 
 const features = [
   {

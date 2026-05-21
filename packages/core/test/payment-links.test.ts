@@ -66,6 +66,48 @@ describe("PaymentLinks", () => {
       expect(error).toBeNull();
       expect(data!.data.id).toBe("link_partial");
     });
+
+    it("should accept null-valued fields in response", async () => {
+      const links = new PaymentLinks(PRIVATE_KEY, true);
+
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            id: "link_123",
+            name: "Test",
+            description: "Test description",
+            single_use: false,
+            collect_shipping: false,
+            active: true,
+            created_at: "2024-01-01",
+            updated_at: "2024-01-01",
+            sku: null,
+            expires_at: null,
+            redirect_url: null,
+            image_url: null,
+            customer_data: null,
+          },
+        })
+      );
+
+      const [error, data] = await links.getPaymentLink("link_123");
+
+      expect(error).toBeNull();
+      expect(data!.data.id).toBe("link_123");
+      expect(data!.data.sku).toBeNull();
+      expect(data!.data.expires_at).toBeNull();
+    });
+
+    it("should populate checkout_url in response", async () => {
+      const links = new PaymentLinks(PRIVATE_KEY, true);
+
+      mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
+
+      const [error, data] = await links.getPaymentLink("link_123");
+
+      expect(error).toBeNull();
+      expect(data!.data.checkout_url).toBe("https://checkout.wompi.co/l/link_123");
+    });
   });
 
   describe("createPaymentLink", () => {
@@ -162,6 +204,35 @@ describe("PaymentLinks", () => {
       const [, options] = mockFetch.mock.calls[0]!;
       const parsedBody = JSON.parse(options.body);
       expect(parsedBody.taxes).toEqual([{ type: "VAT", percentage: 19 }]);
+    });
+
+    it("should populate checkout_url after creation", async () => {
+      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const input = {
+        name: "Test Link",
+        description: "A test payment link",
+        single_use: true,
+        collect_shipping: false,
+        amount_in_cents: 1000000,
+        currency: "COP",
+      };
+
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            id: "link_new",
+            active: true,
+            ...input,
+            created_at: "2024-01-01",
+            updated_at: "2024-01-01",
+          },
+        })
+      );
+
+      const [error, data] = await links.createPaymentLink(input);
+
+      expect(error).toBeNull();
+      expect(data!.data.checkout_url).toBe("https://checkout.wompi.co/l/link_new");
     });
   });
 

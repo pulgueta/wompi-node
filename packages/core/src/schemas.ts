@@ -253,12 +253,37 @@ export const CreatePaymentLinkInputSchema = z.object({
   taxes: z.array(TaxSchema).optional(),
 });
 
-export const PaymentLinkSchema = CreatePaymentLinkInputSchema.partial()
-  .extend({
+/**
+ * Response shape of a payment link.
+ *
+ * Wompi returns `null` (not absent) for every optional field the merchant did not set,
+ * so all such fields are `.nullish()` — a successful API call must never be reported as
+ * a validation error. `checkout_url` is injected by the SDK after parsing, so callers
+ * don't have to build `https://checkout.wompi.co/l/{id}` themselves.
+ */
+export const PaymentLinkSchema = z
+  .object({
     id: z.string(),
+    name: z.string().nullish(),
+    description: z.string().nullish(),
+    single_use: z.boolean().nullish(),
+    collect_shipping: z.boolean().nullish(),
+    collect_customer_legal_id: z.boolean().nullish(),
+    amount_in_cents: z.number().int().nullish(),
+    currency: CurrencySchema.nullish(),
+    signature: z.string().nullish(),
+    reference: z.string().nullish(),
+    expiration_time: z.string().nullish(),
+    sku: z.string().nullish(),
+    expires_at: z.string().nullish(),
+    redirect_url: z.string().nullish(),
+    image_url: z.string().nullish(),
+    customer_data: PaymentLinkCustomerDataSchema.nullish(),
+    taxes: z.array(TaxSchema).nullish(),
     active: z.boolean().optional(),
     created_at: z.string().optional(),
     updated_at: z.string().optional(),
+    checkout_url: z.string().optional(),
   })
   .loose();
 
@@ -298,17 +323,27 @@ export const FinancialInstitutionSchema = z
   })
   .loose();
 
+/**
+ * Wraps a data schema in Wompi's `{ data, meta? }` envelope and immediately
+ * unwraps to `data` after parsing. The wire format is preserved for validation,
+ * but callers receive the payload directly — `response.X` instead of
+ * `response.data.X`. The `meta` channel (only carries pagination) is dropped.
+ */
 export const wompiResponse = <T extends z.ZodType>(dataSchema: T) =>
-  z.object({
-    data: dataSchema,
-    meta: z.record(z.string(), z.unknown()).optional(),
-  });
+  z
+    .object({
+      data: dataSchema,
+      meta: z.record(z.string(), z.unknown()).optional(),
+    })
+    .transform((parsed) => parsed.data as z.output<T>);
 
 export const wompiListResponse = <T extends z.ZodType>(itemSchema: T) =>
-  z.object({
-    data: z.array(itemSchema),
-    meta: z.record(z.string(), z.unknown()).optional(),
-  });
+  z
+    .object({
+      data: z.array(itemSchema),
+      meta: z.record(z.string(), z.unknown()).optional(),
+    })
+    .transform((parsed) => parsed.data);
 
 export const NotFoundErrorResponseSchema = z.object({
   error: z.object({
