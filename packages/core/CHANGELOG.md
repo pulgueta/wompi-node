@@ -1,3 +1,31 @@
+## 3.0.0
+
+### Major Changes
+
+- [#16](https://github.com/pulgueta/wompi-node/pull/16) [`23008dd`](https://github.com/pulgueta/wompi-node/commit/23008dd1c1925cb0498f1ad73c481341f6ab31ce) Thanks [@pulgueta](https://github.com/pulgueta)! - **Breaking changes**
+
+  - The package root (`@pulgueta/wompi`) now exports only `WompiClient`. The integrity-signature helper `getSignatureKey` (and its `GetSignatureKeyOptions` type) moved to a new `@pulgueta/wompi/server` subpath, keeping the signing/crypto logic out of client bundles. Zod schemas, inferred types and error classes all live under `@pulgueta/wompi/schemas`.
+  - Client methods now resolve to the entity directly instead of Wompi's `{ data, meta }` envelope. Read `response.status`, not `response.data.status`.
+
+  Migration:
+
+  ```diff
+  - import { WompiClient, getSignatureKey } from "@pulgueta/wompi";
+  + import { WompiClient } from "@pulgueta/wompi";
+  + import { getSignatureKey } from "@pulgueta/wompi/server";
+
+  - const [error, res] = await wompi.transactions.getTransaction(id);
+  - res.data.status;
+  + const [error, transaction] = await wompi.transactions.getTransaction(id);
+  + transaction.status;
+  ```
+
+### Patch Changes
+
+- [#16](https://github.com/pulgueta/wompi-node/pull/16) [`23008dd`](https://github.com/pulgueta/wompi-node/commit/23008dd1c1925cb0498f1ad73c481341f6ab31ce) Thanks [@pulgueta](https://github.com/pulgueta)! - fix: accept `null` values in payment-link response fields (`sku`, `expires_at`, `redirect_url`, `image_url`, `customer_data`)
+
+  feat: SDK now returns `checkout_url` on payment-link responses, so callers don't have to build the URL manually
+
 ## 2.0.0
 
 ### Major Changes
@@ -5,10 +33,12 @@
 - [#7](https://github.com/pulgueta/wompi-node/pull/7) [`f3e011d`](https://github.com/pulgueta/wompi-node/commit/f3e011d9d5f5afefe7ef73307b8b08759bd28353) Thanks [@pulgueta](https://github.com/pulgueta)! - Overhaul the SDK for type-safety and correctness. This is a breaking release.
 
   **Breaking changes**
+
   - `getSignatureKey` now takes an options object — `{ reference, amountInCents, integrityKey, currency?, expirationTime? }` — instead of positional arguments. It hashes `amountInCents` exactly as given (the previous build multiplied it by 100, producing wrong signatures) and throws a `WompiError` when the amount is not a non-negative integer.
   - `voidTransaction` resolves to the wrapped void outcome — the voided transaction is nested under `data.transaction` — or to `undefined` for an empty `201`. Code that read the transaction directly off `data` must be updated.
 
   **Fixes & improvements**
+
   - Response schemas are lenient: a successful Wompi response is never reported as a validation error. Non-identity fields are optional, unknown fields pass through, and drift-prone enums (`payment_method_type`, `accepted_payment_methods`, merchant `legal_id_type`) accept any string.
   - Empty `2xx` bodies are handled — they resolve to `undefined` instead of failing JSON parsing.
   - `PaymentMethodType` gains `BANCOLOMBIA_BNPL`, `DAVIPLATA`, `SU_PLUS` and `CARD_POS`.
