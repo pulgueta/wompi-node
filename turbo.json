@@ -3,9 +3,17 @@
   "ui": "tui",
   "tasks": {
     "build": {
-      "inputs": ["$TURBO_DEFAULT", ".env*"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": [
+        "WOMPI_PUBLIC_KEY",
+        "WOMPI_PRIVATE_KEY",
+        "WOMPI_EVENTS_KEY",
+        "WOMPI_INTEGRITY_KEY",
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN"
+      ]
     },
     "test": {
       "dependsOn": ["^test"]
