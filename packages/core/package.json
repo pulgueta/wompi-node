@@ -17,7 +17,10 @@
     "url": "https://github.com/pulgueta/wompi-node/issues"
   },
   "homepage": "https://github.com/pulgueta/wompi-node",
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "skills"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
