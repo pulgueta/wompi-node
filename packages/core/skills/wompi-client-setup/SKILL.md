@@ -5,16 +5,16 @@ description: >
   sandbox flag, the error-first Result<T> tuple [error, data] that every
   SDK method returns, WompiError subclass narrowing (.type on NOT_FOUND_ERROR /
   INPUT_VALIDATION_ERROR, .statusCode on request errors), and subpath exports
-  (/client, /server, /errors, /types, /schemas). Load when setting up the SDK,
+  (/server, /schemas). Load when setting up the SDK,
   configuring API keys, or writing error-handling code.
 type: core
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 sources:
   - "pulgueta/wompi-node:packages/core/src/client/index.ts"
   - "pulgueta/wompi-node:packages/core/src/request.ts"
-  - "pulgueta/wompi-node:packages/core/src/errors/wompi-error.ts"
-  - "pulgueta/wompi-node:packages/core/src/types.ts"
+  - "pulgueta/wompi-node:packages/core/src/schemas.ts"
+  - "pulgueta/wompi-node:packages/core/src/server.ts"
   - "pulgueta/wompi-node:packages/core/README.md"
 ---
 
@@ -47,7 +47,7 @@ if (error) {
 }
 
 // data is fully typed here
-console.log(merchant.data.name);
+console.log(merchant.name);
 ```
 
 ### Narrow error types without instanceof
@@ -55,7 +55,7 @@ console.log(merchant.data.name);
 `WompiNotFoundError` and `WompiValidationError` carry a `.type` discriminant. `WompiRequestError` carries `.statusCode`. Use these to branch without `instanceof`.
 
 ```typescript
-import type { WompiErrorResult } from '@pulgueta/wompi/types';
+import type { WompiErrorResult } from '@pulgueta/wompi/schemas';
 
 function handleError(error: WompiErrorResult) {
   if ('type' in error && error.type === 'NOT_FOUND_ERROR') {
@@ -77,11 +77,10 @@ function handleError(error: WompiErrorResult) {
 ### Import from the correct subpath
 
 ```typescript
-import { WompiClient } from '@pulgueta/wompi';          // WompiClient + WompiRequest
-import { WompiClient } from '@pulgueta/wompi/client';   // WompiClient only
+import { WompiClient } from '@pulgueta/wompi';            // the client (only root export)
 import { getSignatureKey } from '@pulgueta/wompi/server'; // server-side signature util
-import { WompiError } from '@pulgueta/wompi/errors';    // error classes
-import type { Transaction } from '@pulgueta/wompi/types'; // TypeScript types
+import { WompiError } from '@pulgueta/wompi/schemas';    // error classes
+import type { Transaction } from '@pulgueta/wompi/schemas'; // TypeScript types
 import { CreateTransactionInputSchema } from '@pulgueta/wompi/schemas'; // Zod schemas
 ```
 
@@ -162,7 +161,7 @@ Wrong:
 
 ```typescript
 const [, data] = await wompi.merchants.getMerchant();
-console.log(data.data.name); // TypeError: Cannot read properties of null
+console.log(data.name); // TypeError: Cannot read properties of null
 ```
 
 Correct:
@@ -173,12 +172,12 @@ if (error) {
   console.error(error.message);
   return;
 }
-console.log(data.data.name); // safe — data is typed and non-null
+console.log(data.name); // safe — data is typed and non-null
 ```
 
 The SDK never throws on API errors. When the request fails, `data` is `null` and accessing it throws a null-dereference — the only signal that something went wrong.
 
-Source: `packages/core/src/types.ts`
+Source: `packages/core/src/schemas.ts`
 
 ---
 

@@ -10,7 +10,7 @@ description: >
   Load before deploying a Wompi integration or reviewing production readiness.
 type: lifecycle
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 requires:
   - wompi-client-setup
   - wompi-transactions
@@ -138,9 +138,9 @@ const [error, txn] = await wompi.transactions.createTransaction(input);
 if (error) {
   return res.status(400).json({ error: error.message });
 }
-// Only access txn.data after confirming error is null
-await db.save({ wompiId: txn.data.id, status: txn.data.status });
-return res.json({ id: txn.data.id });
+// Only access txn after confirming error is null
+await db.save({ wompiId: txn.id, status: txn.status });
+return res.json({ id: txn.id });
 ```
 
 Fail condition: `data` is accessed without checking `error` first, or calls are wrapped in `try/catch` only.
@@ -158,8 +158,8 @@ const [error, txn] = await wompi.transactions.createTransaction(input);
 if (error) return res.status(400).json({ error: error.message });
 
 // Persist FIRST — respond AFTER
-await db.insert(transactions).values({ wompiId: txn.data.id, status: txn.data.status, ... });
-return res.json({ id: txn.data.id, status: txn.data.status });
+await db.insert(transactions).values({ wompiId: txn.id, status: txn.status, ... });
+return res.json({ id: txn.id, status: txn.status });
 ```
 
 Fail condition: `res.json(...)` is called before `await db.insert(...)`.
@@ -194,7 +194,7 @@ app.post('/pay', async (c) => {
   // Fresh acceptance token per transaction
   const [merchantErr, merchant] = await wompi.merchants.getMerchant();
   if (merchantErr) return c.json({ error: merchantErr.message }, 500);
-  const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+  const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
   if (!acceptanceToken) return c.json({ error: 'Could not get acceptance token' }, 500);
 
   // Tokenize card
@@ -223,20 +223,20 @@ app.post('/pay', async (c) => {
     signature,
     customer_email: email,
     reference,
-    payment_method: { type: 'CARD', token: token.data.id, installments: 1 },
+    payment_method: { type: 'CARD', token: token.id, installments: 1 },
   });
   if (txnErr) return c.json({ error: txnErr.message }, 400);
 
   // Persist before responding
   await db.insert(payments).values({
-    wompiId: txn.data.id,
-    status: txn.data.status,
-    reference: txn.data.reference,
-    amountInCents: txn.data.amount_in_cents,
+    wompiId: txn.id,
+    status: txn.status,
+    reference: txn.reference,
+    amountInCents: txn.amount_in_cents,
     email,
   });
 
-  return c.json({ id: txn.data.id, status: txn.data.status });
+  return c.json({ id: txn.id, status: txn.status });
 });
 ```
 

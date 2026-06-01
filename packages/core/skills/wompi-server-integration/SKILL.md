@@ -10,7 +10,7 @@ description: >
   endpoints to an existing backend.
 type: composition
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 requires:
   - wompi-client-setup
   - wompi-transactions
@@ -47,7 +47,7 @@ app.post('/checkout', zValidator('json', TokenizeCardInputSchema), async (c) => 
   // 1. Acceptance token
   const [merchantErr, merchant] = await wompi.merchants.getMerchant();
   if (merchantErr) return c.json({ error: merchantErr.message }, 500);
-  const acceptanceToken = merchant.data.presigned_acceptance!.acceptance_token;
+  const acceptanceToken = merchant.presigned_acceptance!.acceptance_token;
 
   // 2. Tokenize
   const [tokenErr, token] = await wompi.tokens.tokenizeCard(cardInput);
@@ -70,19 +70,19 @@ app.post('/checkout', zValidator('json', TokenizeCardInputSchema), async (c) => 
     signature,
     customer_email: 'buyer@example.com',
     reference,
-    payment_method: { type: 'CARD', token: token.data.id, installments: 1 },
+    payment_method: { type: 'CARD', token: token.id, installments: 1 },
   });
   if (txnErr) return c.json({ error: txnErr.message }, 400);
 
   // 5. Persist before responding
   await db.insert(transactions).values({
-    wompiId: txn.data.id,
-    status: txn.data.status,
-    reference: txn.data.reference,
-    amountInCents: txn.data.amount_in_cents,
+    wompiId: txn.id,
+    status: txn.status,
+    reference: txn.reference,
+    amountInCents: txn.amount_in_cents,
   });
 
-  return c.json({ id: txn.data.id, status: txn.data.status });
+  return c.json({ id: txn.id, status: txn.status });
 });
 ```
 
@@ -103,7 +103,7 @@ new Elysia()
   .post('/checkout', async ({ body, error }) => {
     const [merchantErr, merchant] = await wompi.merchants.getMerchant();
     if (merchantErr) return error(500, merchantErr.message);
-    const acceptanceToken = merchant.data.presigned_acceptance!.acceptance_token;
+    const acceptanceToken = merchant.presigned_acceptance!.acceptance_token;
 
     const [tokenErr, token] = await wompi.tokens.tokenizeCard(body);
     if (tokenErr) return error(422, tokenErr.message);
@@ -123,18 +123,18 @@ new Elysia()
       signature,
       customer_email: body.card_holder,
       reference,
-      payment_method: { type: 'CARD', token: token.data.id, installments: 1 },
+      payment_method: { type: 'CARD', token: token.id, installments: 1 },
     });
     if (txnErr) return error(400, txnErr.message);
 
     await db.insert(transactions).values({
-      wompiId: txn.data.id,
-      status: txn.data.status,
-      reference: txn.data.reference,
-      amountInCents: txn.data.amount_in_cents,
+      wompiId: txn.id,
+      status: txn.status,
+      reference: txn.reference,
+      amountInCents: txn.amount_in_cents,
     });
 
-    return { id: txn.data.id, status: txn.data.status };
+    return { id: txn.id, status: txn.status };
   }, {
     body: t.Object({
       number: t.String(),
@@ -152,7 +152,7 @@ new Elysia()
 ### Map WompiError subclasses to HTTP status codes
 
 ```typescript
-import type { WompiErrorResult } from '@pulgueta/wompi/types';
+import type { WompiErrorResult } from '@pulgueta/wompi/schemas';
 
 function wompiErrorToStatus(error: WompiErrorResult): number {
   if ('type' in error && error.type === 'NOT_FOUND_ERROR') return 404;
@@ -185,7 +185,7 @@ Wrong:
 
 ```typescript
 import { TokenizeCardInputSchema } from '@pulgueta/wompi'; // not exported here
-import { CreateTransactionInputSchema } from '@pulgueta/wompi/client'; // wrong subpath
+import { CreateTransactionInputSchema } from '@pulgueta/wompi/server'; // wrong subpath
 ```
 
 Correct:
@@ -195,7 +195,7 @@ import { TokenizeCardInputSchema } from '@pulgueta/wompi/schemas';
 import { CreateTransactionInputSchema } from '@pulgueta/wompi/schemas';
 ```
 
-The root export (`@pulgueta/wompi`) only exports `WompiClient` and `WompiRequest`. All schemas are under the `/schemas` subpath.
+The root export (`@pulgueta/wompi`) only exports `WompiClient`. All schemas are under the `/schemas` subpath.
 
 Source: `packages/core/package.json` — exports map
 
@@ -220,7 +220,7 @@ const signature = await getSignatureKey({ reference, amountInCents, integrityKey
 
 `getSignatureKey` uses `crypto.subtle.digest` which is async.
 
-Source: `packages/core/src/server/utils/get-signature-key.ts`
+Source: `packages/core/src/server.ts`
 
 ---
 
@@ -232,7 +232,7 @@ Wrong:
 const [error, txn] = await wompi.transactions.createTransaction(input);
 if (error) return c.json({ error: error.message }, 400);
 
-return c.json({ id: txn.data.id }); // responded before DB write
+return c.json({ id: txn.id }); // responded before DB write
 
 await db.insert(transactions).values({ ... }); // unreachable
 ```
@@ -245,13 +245,13 @@ if (error) return c.json({ error: error.message }, 400);
 
 // Persist first — if this throws, the client gets a 500 but you still have the Wompi record
 await db.insert(transactions).values({
-  wompiId: txn.data.id,
-  status: txn.data.status,
-  reference: txn.data.reference,
-  amountInCents: txn.data.amount_in_cents,
+  wompiId: txn.id,
+  status: txn.status,
+  reference: txn.reference,
+  amountInCents: txn.amount_in_cents,
 });
 
-return c.json({ id: txn.data.id, status: txn.data.status });
+return c.json({ id: txn.id, status: txn.status });
 ```
 
 If the response is sent before the DB write and the write fails, the payment is charged but not recorded in your system.
