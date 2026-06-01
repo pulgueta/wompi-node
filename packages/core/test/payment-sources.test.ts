@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PaymentSources } from "../src/client/payment-sources";
-import { WompiError } from "../src/errors/wompi-error";
+import { WompiClient } from "../src";
+import { WompiError } from "../src/schemas";
 import { okJson } from "./helpers";
 
 const PAYMENT_SOURCE_RESPONSE = {
@@ -16,7 +16,11 @@ const PAYMENT_SOURCE_RESPONSE = {
 
 describe("PaymentSources", () => {
   const mockFetch = vi.fn();
+  const PUBLIC_KEY = "pub_test_123";
   const PRIVATE_KEY = "prv_test_456";
+
+  const makeClient = (privateKey: string | undefined) =>
+    new WompiClient({ publicKey: PUBLIC_KEY, privateKey, sandbox: true }).paymentSources;
 
   beforeEach(() => {
     vi.stubGlobal("fetch", mockFetch);
@@ -28,15 +32,15 @@ describe("PaymentSources", () => {
 
   describe("getPaymentSource", () => {
     it("should return [null, data] with private key", async () => {
-      const sources = new PaymentSources(PRIVATE_KEY, true);
+      const sources = makeClient(PRIVATE_KEY);
 
       mockFetch.mockResolvedValueOnce(okJson(PAYMENT_SOURCE_RESPONSE));
 
       const [error, data] = await sources.getPaymentSource(543);
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe(543);
-      expect(data!.data.type).toBe("CARD");
+      expect(data!.id).toBe(543);
+      expect(data!.type).toBe("CARD");
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/payment_sources/543");
@@ -45,7 +49,7 @@ describe("PaymentSources", () => {
     });
 
     it("should return [error, null] when private key is missing", async () => {
-      const sources = new PaymentSources(undefined, true);
+      const sources = makeClient(undefined);
 
       const [error, data] = await sources.getPaymentSource(543);
 
@@ -57,7 +61,7 @@ describe("PaymentSources", () => {
 
   describe("createPaymentSource", () => {
     it("should return [null, data] with valid input", async () => {
-      const sources = new PaymentSources(PRIVATE_KEY, true);
+      const sources = makeClient(PRIVATE_KEY);
       const input = {
         type: "CARD",
         token: "tok_test_abc",
@@ -81,7 +85,7 @@ describe("PaymentSources", () => {
       const [error, data] = await sources.createPaymentSource(input);
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe(999);
+      expect(data!.id).toBe(999);
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/payment_sources");
@@ -90,7 +94,7 @@ describe("PaymentSources", () => {
     });
 
     it("should return [error, null] when private key is missing", async () => {
-      const sources = new PaymentSources(undefined, true);
+      const sources = makeClient(undefined);
 
       const [error, data] = await sources.createPaymentSource({
         type: "NEQUI",
@@ -105,7 +109,7 @@ describe("PaymentSources", () => {
     });
 
     it("should return [error, null] on invalid input", async () => {
-      const sources = new PaymentSources(PRIVATE_KEY, true);
+      const sources = makeClient(PRIVATE_KEY);
 
       const [error, data] = await sources.createPaymentSource({
         type: "INVALID_TYPE",

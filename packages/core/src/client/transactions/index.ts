@@ -1,14 +1,14 @@
 import { WompiRequest } from "@/request";
 import {
-  TransactionSchema,
-  TransactionListParamsSchema,
   CreateTransactionInputSchema,
+  TransactionListParamsSchema,
+  TransactionSchema,
   VoidTransactionInputSchema,
   VoidTransactionResultSchema,
+  WompiError,
   wompiResponse,
 } from "@/schemas";
-import { WompiError } from "@/errors/wompi-error";
-import type { Transaction, Result, VoidTransactionResult, WompiResponse } from "@/types";
+import type { Result, Transaction, VoidTransactionResult } from "@/schemas";
 
 const TransactionResponseSchema = wompiResponse(TransactionSchema);
 const TransactionListResponseSchema = wompiResponse(TransactionSchema.array());
@@ -31,7 +31,7 @@ export class Transactions extends WompiRequest {
    * Get a single transaction by ID.
    * No authentication required.
    */
-  async getTransaction(id: string): Promise<Result<WompiResponse<Transaction>>> {
+  async getTransaction(id: string): Promise<Result<Transaction>> {
     return this.get(`/transactions/${id}`, TransactionResponseSchema);
   }
 
@@ -39,7 +39,7 @@ export class Transactions extends WompiRequest {
    * List transactions matching filter criteria.
    * Requires private key (BearerPrivateKey).
    */
-  async listTransactions(params: unknown = {}): Promise<Result<WompiResponse<Transaction[]>>> {
+  async listTransactions(params: unknown = {}): Promise<Result<Transaction[]>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for this operation"), null];
     }
@@ -66,7 +66,7 @@ export class Transactions extends WompiRequest {
    * Create a new transaction.
    * Requires public key (BearerPublicKey). If using payment_source_id, use private key instead.
    */
-  async createTransaction(input: unknown): Promise<Result<WompiResponse<Transaction>>> {
+  async createTransaction(input: unknown): Promise<Result<Transaction>> {
     const parsed = CreateTransactionInputSchema.safeParse(input);
 
     if (!parsed.success) {
@@ -99,13 +99,13 @@ export class Transactions extends WompiRequest {
    * Void an approved CARD transaction.
    * Requires private key (BearerPrivateKey).
    *
-   * On success `data` carries the void outcome, with the voided transaction
-   * under `data.transaction`; it resolves to `undefined` for an empty `201`.
+   * On success the result carries the void outcome, with the voided transaction
+   * under `.transaction`; it resolves to `undefined` for an empty `201`.
    */
   async voidTransaction(
     transactionId: string,
     input?: unknown
-  ): Promise<Result<WompiResponse<VoidTransactionResult> | undefined>> {
+  ): Promise<Result<VoidTransactionResult | undefined>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for this operation"), null];
     }

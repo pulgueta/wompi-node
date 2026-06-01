@@ -1,7 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { credentialHeaders } from "@/lib/wompi-credentials";
+import { useWompiCredentials } from "@/components/examples/use-wompi-credentials";
 
 type Response =
   | {
@@ -21,10 +24,11 @@ type Response =
 const defaults = {
   name: "Order #1024",
   description: "Thank you for shopping with us.",
-  amountInCents: "99000",
+  amountInCents: "200000",
 };
 
 export function PaymentLinkForm() {
+  const { credentials, hasCredentials } = useWompiCredentials();
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<Response | null>(null);
 
@@ -32,13 +36,21 @@ export function PaymentLinkForm() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
 
+    if (!credentials) {
+      setResult({
+        configured: false,
+        message: "Add your Wompi sandbox keys above to run this example.",
+      });
+      return;
+    }
+
     setPending(true);
     setResult(null);
 
     try {
       const res = await fetch("/api/examples/payment-link", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...credentialHeaders(credentials) },
         body: JSON.stringify({
           name: form.get("name"),
           description: form.get("description"),
@@ -102,12 +114,14 @@ export function PaymentLinkForm() {
           </label>
         </div>
 
-        <Button type="submit" disabled={pending} className="mt-1 w-full">
+        <Button type="submit" disabled={pending || !hasCredentials} className="mt-1 w-full">
           {pending ? "Creating…" : "Create payment link"}
         </Button>
 
         <p className="text-xs text-muted-foreground">
-          Submits to <code>POST /api/examples/payment-link</code>. Uses your sandbox keys.
+          Submits to <code>POST /api/examples/payment-link</code> with the sandbox keys you saved
+          above.
+          {!hasCredentials && " Add your keys to enable this form."}
         </p>
       </form>
 

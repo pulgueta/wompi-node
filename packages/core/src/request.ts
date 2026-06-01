@@ -1,13 +1,14 @@
 import type { z } from "zod";
 
 import {
+  InputValidationErrorResponseSchema,
+  NotFoundErrorResponseSchema,
   WompiError,
   WompiNotFoundError,
   WompiRequestError,
   WompiValidationError,
-} from "@/errors/wompi-error";
-import { NotFoundErrorResponseSchema, InputValidationErrorResponseSchema } from "@/schemas";
-import type { Result } from "@/types";
+} from "@/schemas";
+import type { Result } from "@/schemas";
 
 const BASE_URLS = {
   production: "https://production.wompi.co/v1",

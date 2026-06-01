@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PSE } from "../src/client/pse";
+import { WompiClient } from "../src";
 import { okJson } from "./helpers";
 
 describe("PSE", () => {
   const mockFetch = vi.fn();
   const PUBLIC_KEY = "pub_test_123";
+
+  const makeClient = () => new WompiClient({ publicKey: PUBLIC_KEY, sandbox: true }).pse;
 
   beforeEach(() => {
     vi.stubGlobal("fetch", mockFetch);
@@ -16,7 +18,7 @@ describe("PSE", () => {
 
   describe("getFinancialInstitutions", () => {
     it("should return [null, data] with financial institutions list", async () => {
-      const pse = new PSE(PUBLIC_KEY, true);
+      const pse = makeClient();
 
       mockFetch.mockResolvedValueOnce(
         okJson({
@@ -30,8 +32,8 @@ describe("PSE", () => {
       const [error, data] = await pse.getFinancialInstitutions();
 
       expect(error).toBeNull();
-      expect(data!.data).toHaveLength(2);
-      expect(data!.data[0]!.financial_institution_name).toBe("Bancolombia");
+      expect(data).toHaveLength(2);
+      expect(data![0]!.financial_institution_name).toBe("Bancolombia");
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/pse/financial_institutions");

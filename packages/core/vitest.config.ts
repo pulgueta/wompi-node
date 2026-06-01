@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     setupFiles: ["./test/setup.ts"],
+    clearMocks: true,
     coverage: {
       clean: true,
       provider: "v8",

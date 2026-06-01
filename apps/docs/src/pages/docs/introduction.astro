@@ -18,7 +18,7 @@ if (error) {
   return;
 }
 
-response.data.presigned_acceptance?.acceptance_token;`;
+response.presigned_acceptance?.acceptance_token;`;
 ---
 
 <DocsLayout
@@ -46,8 +46,9 @@ response.data.presigned_acceptance?.acceptance_token;`;
       unknown fields pass through so a Wompi API addition never breaks your client.
     </li>
     <li>
-      <strong>Tree-shakeable subpaths.</strong> Import the client, schemas, types, errors and the
-      server helpers separately — pay only for the surface you actually use.
+      <strong>Tree-shakeable subpaths.</strong> The client lives at the root, the integrity-signature
+      helper at <code>/server</code>, and every schema, type and error class at <code>/schemas</code> —
+      pay only for the surface you actually use.
     </li>
     <li>
       <strong>No runtime dependencies.</strong> The package uses the platform <code>fetch</code>

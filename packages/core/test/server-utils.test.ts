@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getSignatureKey } from "../src/server/utils";
-import { WompiError } from "../src/errors/wompi-error";
+import { getSignatureKey } from "../src/server";
+import { WompiError } from "../src/schemas";
 
 /**
  * Vectors below are SHA-256 hex digests computed independently of the SDK:

@@ -99,8 +99,8 @@ const wompi = new WompiClient({
 const [error, response] = await wompi.merchants.getMerchant();
 if (error) throw error;
 
-console.log("Merchant:", response.data.name);
-console.log("Acceptance token:", response.data.presigned_acceptance?.acceptance_token);`}
+console.log("Merchant:", response.name);
+console.log("Acceptance token:", response.presigned_acceptance?.acceptance_token);`}
     lang="ts"
     filename="verify.ts"
   />

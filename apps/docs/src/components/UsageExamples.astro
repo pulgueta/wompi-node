@@ -1,0 +1,251 @@
+---
+import { Code } from "astro:components";
+import Icon from "./Icon.astro";
+
+/**
+ * Vertical-tabbed gallery of real, copy-pasteable SDK snippets for the landing
+ * page. Tabs sit on the left (a horizontal scroller on small screens); the
+ * selected example renders on the right. Every snippet is accurate against the
+ * current SDK surface — error-first tuples, unwrapped responses, `/server` for
+ * the signature helper.
+ */
+const examples = [
+  {
+    id: "transaction",
+    label: "Charge a card",
+    blurb: "Tokenize, sign and create",
+    filename: "transaction.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});
+
+const [merchantError, merchant] = await wompi.merchants.getMerchant();
+if (merchantError) throw merchantError;
+
+const [tokenError, token] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (tokenError) throw tokenError;
+
+const reference = \`order-\${Date.now()}\`;
+const signature = await getSignatureKey({
+  reference,
+  amountInCents: 2_490_000,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+
+const [error, transaction] = await wompi.transactions.createTransaction({
+  acceptance_token: merchant.presigned_acceptance?.acceptance_token,
+  amount_in_cents: 2_490_000,
+  currency: "COP",
+  signature,
+  customer_email: "buyer@example.com",
+  reference,
+  payment_method: { type: "CARD", token: token.id, installments: 1 },
+});
+if (error) throw error;
+
+transaction.status; // "PENDING" | "APPROVED" | "DECLINED" | ...`,
+  },
+  {
+    id: "payment-link",
+    label: "Payment link",
+    blurb: "Hosted checkout URL",
+    filename: "payment-link.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});
+
+const [error, link] = await wompi.paymentLinks.createPaymentLink({
+  name: "Order #1024",
+  description: "Thanks for shopping with us.",
+  single_use: true,
+  collect_shipping: false,
+  amount_in_cents: 99_000,
+  currency: "COP",
+});
+if (error) throw error;
+
+link.checkout_url; // hand this URL to your customer`,
+  },
+  {
+    id: "tokenize",
+    label: "Tokenize a card",
+    blurb: "Raw PAN never hits a charge",
+    filename: "tokenize.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+const [error, token] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (error) throw error;
+
+token.id;        // tok_test_xxx — pass into payment_method.token
+token.brand;     // "VISA" | "MASTERCARD" | ...
+token.last_four; // "4242"`,
+  },
+  {
+    id: "pse",
+    label: "PSE banks",
+    blurb: "List Colombian institutions",
+    filename: "pse.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+const [error, banks] = await wompi.pse.getFinancialInstitutions();
+if (error) throw error;
+
+// Render a <select> of banks on your checkout page.
+const options = banks.map((bank) => ({
+  value: bank.financial_institution_code,
+  label: bank.financial_institution_name,
+}));`,
+  },
+  {
+    id: "errors",
+    label: "Handle errors",
+    blurb: "Failure is a value, not a throw",
+    filename: "errors.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+// Every call returns a [error, data] tuple — you can't forget to handle failure.
+const [error, transaction] = await wompi.transactions.getTransaction("txn_123");
+
+if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") return notFound();
+  throw error;
+}
+
+transaction.status; // fully typed inside the success branch`,
+  },
+] as const;
+---
+
+<div
+  class="usage-examples grid overflow-hidden rounded-xl border border-border lg:grid-cols-[16rem_1fr]"
+>
+  <div
+    role="tablist"
+    aria-orientation="vertical"
+    aria-label="SDK usage examples"
+    class="flex gap-1 overflow-x-auto border-b border-border bg-muted/30 p-2 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:border-r lg:border-b-0 lg:p-3"
+  >
+    {
+      examples.map((example, index) => (
+        <button
+          role="tab"
+          type="button"
+          id={`tab-${example.id}`}
+          data-tab={example.id}
+          aria-controls={`panel-${example.id}`}
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+          class="group shrink-0 rounded-lg border border-transparent px-3.5 py-2.5 text-left transition-colors hover:bg-background aria-selected:border-border aria-selected:bg-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none lg:w-full"
+        >
+          <span class="font-heading block text-sm font-medium text-muted-foreground transition-colors group-hover:text-foreground group-aria-selected:text-foreground">
+            {example.label}
+          </span>
+          <span class="mt-0.5 hidden text-xs text-muted-foreground lg:block">{example.blurb}</span>
+        </button>
+      ))
+    }
+  </div>
+
+  {
+    examples.map((example, index) => (
+      <div
+        role="tabpanel"
+        id={`panel-${example.id}`}
+        data-panel={example.id}
+        aria-labelledby={`tab-${example.id}`}
+        class="code-block relative min-w-0 bg-background"
+        hidden={index !== 0}
+      >
+        <div class="flex items-center justify-between border-b border-border bg-muted/40 py-1.5 pr-1.5 pl-3">
+          <span class="font-mono text-xs text-muted-foreground">{example.filename}</span>
+          <button
+            type="button"
+            class="copy-btn inline-grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+            aria-label="Copy code"
+          >
+            <Icon name="copy" class="copy-icon size-3.5" />
+            <Icon name="check" class="check-icon hidden size-3.5 text-primary" />
+          </button>
+        </div>
+        <div class="max-h-[28rem] overflow-auto text-sm">
+          <Code code={example.code} lang="ts" themes={{ light: "github-light", dark: "github-dark" }} />
+        </div>
+      </div>
+    ))
+  }
+</div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>('.usage-examples')) {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role=tab]')];
+    const panels = [...root.querySelectorAll<HTMLElement>('[role=tabpanel]')];
+
+    const select = (tab: HTMLButtonElement) => {
+      for (const other of tabs) {
+        const active = other === tab;
+        other.setAttribute('aria-selected', String(active));
+        other.tabIndex = active ? 0 : -1;
+      }
+      for (const panel of panels) {
+        panel.hidden = panel.dataset.panel !== tab.dataset.tab;
+      }
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => select(tab));
+      tab.addEventListener('keydown', (event) => {
+        const isVertical = window.matchMedia('(min-width: 1024px)').matches;
+        const nextKey = isVertical ? 'ArrowDown' : 'ArrowRight';
+        const prevKey = isVertical ? 'ArrowUp' : 'ArrowLeft';
+
+        let target: HTMLButtonElement | undefined;
+        if (event.key === nextKey) target = tabs[(index + 1) % tabs.length];
+        else if (event.key === prevKey) target = tabs[(index - 1 + tabs.length) % tabs.length];
+        else if (event.key === 'Home') target = tabs[0];
+        else if (event.key === 'End') target = tabs[tabs.length - 1];
+
+        if (target) {
+          event.preventDefault();
+          select(target);
+          target.focus();
+        }
+      });
+    });
+  }
+</script>

@@ -1,7 +1,12 @@
 import { WompiRequest } from "@/request";
-import { WompiError } from "@/errors/wompi-error";
-import { PaymentSourceSchema, CreatePaymentSourceInputSchema, wompiResponse } from "@/schemas";
-import type { PaymentSource, Result, WompiResponse } from "@/types";
+import {
+  CreatePaymentSourceInputSchema,
+  PaymentSourceSchema,
+  WompiError,
+  wompiResponse,
+  type PaymentSource,
+  type Result,
+} from "@/schemas";
 
 const PaymentSourceResponseSchema = wompiResponse(PaymentSourceSchema);
 
@@ -17,7 +22,7 @@ export class PaymentSources extends WompiRequest {
    * Get a payment source by ID.
    * Requires private key (BearerPrivateKey).
    */
-  async getPaymentSource(id: number): Promise<Result<WompiResponse<PaymentSource>>> {
+  async getPaymentSource(id: number): Promise<Result<PaymentSource>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for payment source operations"), null];
     }
@@ -31,7 +36,7 @@ export class PaymentSources extends WompiRequest {
    * Create a new payment source (CARD or NEQUI).
    * Requires private key (BearerPrivateKey).
    */
-  async createPaymentSource(input: unknown): Promise<Result<WompiResponse<PaymentSource>>> {
+  async createPaymentSource(input: unknown): Promise<Result<PaymentSource>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for payment source operations"), null];
     }

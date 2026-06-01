@@ -10,7 +10,7 @@ description: >
   Load when building hosted checkout pages or no-code payment collection.
 type: core
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 requires:
   - wompi-client-setup
 sources:
@@ -43,7 +43,7 @@ const [error, link] = await wompi.paymentLinks.createPaymentLink({
 });
 if (error) throw error;
 
-console.log(link.data.id, link.data.active); // 'link_xxx', true
+console.log(link.id, link.active); // 'link_xxx', true
 ```
 
 ## Core Patterns
@@ -109,14 +109,14 @@ if (error) throw error;
 // Retrieve — no privateKey needed
 const [getErr, link] = await wompi.paymentLinks.getPaymentLink('link_123');
 if (getErr) throw getErr;
-console.log(link.data.active);
+console.log(link.active);
 
 // Deactivate
 const [updateErr, updated] = await wompi.paymentLinks.updatePaymentLink('link_123', {
   active: false,
 });
 if (updateErr) throw updateErr;
-console.log(updated.data.active); // false
+console.log(updated.active); // false
 ```
 
 ## Common Mistakes
@@ -222,7 +222,7 @@ Wrong:
 
 ```typescript
 const [, link] = await wompi.paymentLinks.createPaymentLink(input);
-return { linkId: link.data.id }; // TypeError if validation failed or key missing
+return { linkId: link.id }; // TypeError if validation failed or key missing
 ```
 
 Correct:
@@ -232,10 +232,10 @@ const [error, link] = await wompi.paymentLinks.createPaymentLink(input);
 if (error) {
   return { error: error.message };
 }
-return { linkId: link.data.id };
+return { linkId: link.id };
 ```
 
-Source: `packages/core/src/types.ts`
+Source: `packages/core/src/schemas.ts`
 
 ## See also
 

@@ -11,14 +11,14 @@ description: >
   querying transaction history.
 type: core
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 requires:
   - wompi-client-setup
 sources:
   - "pulgueta/wompi-node:packages/core/src/client/transactions/index.ts"
   - "pulgueta/wompi-node:packages/core/src/client/tokens/index.ts"
   - "pulgueta/wompi-node:packages/core/src/client/merchants/index.ts"
-  - "pulgueta/wompi-node:packages/core/src/server/utils/get-signature-key.ts"
+  - "pulgueta/wompi-node:packages/core/src/server.ts"
   - "pulgueta/wompi-node:packages/core/src/schemas.ts"
   - "pulgueta/wompi-node:packages/core/CHANGELOG.md"
 ---
@@ -42,7 +42,7 @@ const wompi = new WompiClient({
 // 1. Fresh acceptance token — fetch for each transaction
 const [merchantErr, merchant] = await wompi.merchants.getMerchant();
 if (merchantErr) throw merchantErr;
-const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
 if (!acceptanceToken) throw new Error('Missing acceptance token');
 
 // 2. Tokenize the card
@@ -72,11 +72,11 @@ const [error, txn] = await wompi.transactions.createTransaction({
   signature,
   customer_email: 'buyer@example.com',
   reference,
-  payment_method: { type: 'CARD', token: token.data.id, installments: 1 },
+  payment_method: { type: 'CARD', token: token.id, installments: 1 },
 });
 if (error) throw error;
 
-console.log(txn.data.id, txn.data.status); // 'txn-xxx', 'PENDING' | 'APPROVED'
+console.log(txn.id, txn.status); // 'txn-xxx', 'PENDING' | 'APPROVED'
 ```
 
 ## Core Patterns
@@ -122,7 +122,7 @@ const [error, list] = await wompi.transactions.listTransactions({
   order: 'DESC',
 });
 if (error) throw error;
-console.log(list.data.length, list.data[0]?.id);
+console.log(list.length, list[0]?.id);
 ```
 
 ### Void a transaction and read the result
@@ -135,7 +135,7 @@ const [error, result] = await wompi.transactions.voidTransaction('txn-123', {
 });
 if (error) throw error;
 
-const voided = result?.data?.transaction; // nested under .transaction
+const voided = result?.transaction; // nested under .transaction
 console.log(voided?.id, voided?.status); // 'txn-123', 'VOIDED'
 ```
 
@@ -150,9 +150,9 @@ const [tokenErr, nequiToken] = await wompi.tokens.tokenizeNequi({
 if (tokenErr) throw tokenErr;
 
 // Poll until approved
-const [pollErr, updated] = await wompi.tokens.getNequiToken(nequiToken.data.id);
+const [pollErr, updated] = await wompi.tokens.getNequiToken(nequiToken.id);
 if (pollErr) throw pollErr;
-console.log(updated.data.status); // 'PENDING' | 'APPROVED' | 'DECLINED'
+console.log(updated.status); // 'PENDING' | 'APPROVED' | 'DECLINED'
 ```
 
 ## Common Mistakes
@@ -221,7 +221,7 @@ Wrong:
 ```typescript
 // Module-level cache — token expires and causes transaction rejections
 const merchant = await wompi.merchants.getMerchant();
-const acceptanceToken = merchant[1]!.data.presigned_acceptance!.acceptance_token;
+const acceptanceToken = merchant[1]!.presigned_acceptance!.acceptance_token;
 
 // Later, in a route handler:
 await wompi.transactions.createTransaction({ acceptance_token: acceptanceToken, ... });
@@ -233,7 +233,7 @@ Correct:
 // Fetch a fresh token for each transaction
 const [merchantErr, merchant] = await wompi.merchants.getMerchant();
 if (merchantErr) throw merchantErr;
-const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
 if (!acceptanceToken) throw new Error('Missing acceptance token');
 ```
 
@@ -268,7 +268,7 @@ await wompi.transactions.createTransaction({
 });
 ```
 
-Source: `packages/core/src/server/utils/get-signature-key.ts`
+Source: `packages/core/src/server.ts`
 
 ---
 
@@ -278,8 +278,8 @@ Wrong:
 
 ```typescript
 const [error, result] = await wompi.transactions.voidTransaction('txn-123');
-console.log(result?.data?.id);     // undefined — wrong nesting
-console.log(result?.data?.status); // this is the VOID outcome, not the transaction
+console.log(result?.id);     // undefined — wrong nesting
+console.log(result?.status); // this is the VOID outcome, not the transaction
 ```
 
 Correct:
@@ -287,7 +287,7 @@ Correct:
 ```typescript
 const [error, result] = await wompi.transactions.voidTransaction('txn-123');
 if (error) throw error;
-const voided = result?.data?.transaction; // voided transaction is nested here
+const voided = result?.transaction; // voided transaction is nested here
 console.log(voided?.id, voided?.status);  // 'txn-123', 'VOIDED'
 ```
 

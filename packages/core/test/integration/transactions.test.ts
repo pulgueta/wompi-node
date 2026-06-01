@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { WompiClient } from "../../src/client";
-import { getSignatureKey } from "../../src/server/utils";
-import { WompiNotFoundError } from "../../src/errors/wompi-error";
+import { WompiClient } from "../../src";
+import { getSignatureKey } from "../../src/server";
+import { WompiNotFoundError } from "../../src/schemas";
 
 /**
  * Transaction lifecycle against the real Wompi sandbox: tokenize a card, sign
@@ -32,7 +32,7 @@ describe.skipIf(!canRun)("sandbox · transaction lifecycle", () => {
     // 1. Acceptance token from the merchant.
     const [merchantError, merchant] = await wompi.merchants.getMerchant();
     expect(merchantError).toBeNull();
-    const acceptanceToken = merchant?.data.presigned_acceptance?.acceptance_token;
+    const acceptanceToken = merchant?.presigned_acceptance?.acceptance_token;
     expect(acceptanceToken).toBeTruthy();
 
     // 2. Tokenize the approved test card.
@@ -44,7 +44,7 @@ describe.skipIf(!canRun)("sandbox · transaction lifecycle", () => {
       card_holder: "Pedro Pérez",
     });
     expect(tokenError).toBeNull();
-    expect(token?.data.id).toBeTruthy();
+    expect(token?.id).toBeTruthy();
 
     // 3. Sign the exact reference + amount with the integrity key.
     const reference = `sdk-it-${Date.now()}`;
@@ -65,21 +65,21 @@ describe.skipIf(!canRun)("sandbox · transaction lifecycle", () => {
       reference,
       payment_method: {
         type: "CARD",
-        token: token?.data.id,
+        token: token?.id,
         installments: 1,
       },
     });
     expect(createError).toBeNull();
-    const transactionId = created?.data.id;
+    const transactionId = created?.id;
     expect(transactionId).toBeTruthy();
 
     // 5. Poll until the sandbox settles the transaction.
-    let status = created?.data.status;
+    let status = created?.status;
     for (let attempt = 0; attempt < 20 && status === "PENDING"; attempt++) {
       await sleep(2_000);
       const [getError, fetched] = await wompi.transactions.getTransaction(transactionId ?? "");
       expect(getError).toBeNull();
-      status = fetched?.data.status;
+      status = fetched?.status;
     }
     expect(status).toBeDefined();
 
@@ -87,7 +87,7 @@ describe.skipIf(!canRun)("sandbox · transaction lifecycle", () => {
     if (status === "APPROVED") {
       const [voidError, voided] = await wompi.transactions.voidTransaction(transactionId ?? "");
       expect(voidError).toBeNull();
-      expect(voided?.data.transaction?.id).toBe(transactionId);
+      expect(voided?.transaction?.id).toBe(transactionId);
     }
   }, 60_000);
 

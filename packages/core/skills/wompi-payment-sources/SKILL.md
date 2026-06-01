@@ -8,7 +8,7 @@ description: >
   Load when building recurring billing, saved payment methods, or subscription flows.
 type: core
 library: '@pulgueta/wompi'
-library_version: "2.0.0"
+library_version: "3.0.0"
 requires:
   - wompi-client-setup
 sources:
@@ -35,7 +35,7 @@ const wompi = new WompiClient({
 // 1. Get acceptance token
 const [merchantErr, merchant] = await wompi.merchants.getMerchant();
 if (merchantErr) throw merchantErr;
-const acceptanceToken = merchant.data.presigned_acceptance!.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance!.acceptance_token;
 
 // 2. Tokenize the card
 const [tokenErr, token] = await wompi.tokens.tokenizeCard({
@@ -50,13 +50,13 @@ if (tokenErr) throw tokenErr;
 // 3. Save as a payment source (CARD type)
 const [sourceErr, source] = await wompi.paymentSources.createPaymentSource({
   type: 'CARD',
-  token: token.data.id,
+  token: token.id,
   acceptance_token: acceptanceToken,
   customer_email: 'maria@example.com',
 });
 if (sourceErr) throw sourceErr;
 
-console.log(source.data.id, source.data.status); // numeric id, 'AVAILABLE'
+console.log(source.id, source.status); // numeric id, 'AVAILABLE'
 ```
 
 ## Core Patterns
@@ -73,14 +73,14 @@ if (tokenErr) throw tokenErr;
 
 const [sourceErr, source] = await wompi.paymentSources.createPaymentSource({
   type: 'NEQUI',
-  token: nequiToken.data.id,
+  token: nequiToken.id,
   acceptance_token: acceptanceToken,
   customer_email: 'user@example.com',
 });
 if (sourceErr) throw sourceErr;
 
 // Check status — PENDING means awaiting customer approval
-console.log(source.data.status); // 'PENDING' | 'AVAILABLE'
+console.log(source.status); // 'PENDING' | 'AVAILABLE'
 ```
 
 ### Retrieve a payment source
@@ -89,7 +89,7 @@ console.log(source.data.status); // 'PENDING' | 'AVAILABLE'
 const [error, source] = await wompi.paymentSources.getPaymentSource(sourceId);
 if (error) throw error;
 
-if (source.data.status === 'AVAILABLE') {
+if (source.status === 'AVAILABLE') {
   // Ready to charge
 }
 ```
@@ -112,7 +112,7 @@ const signature = await getSignatureKey({
 
 const [merchantErr, merchant] = await wompi.merchants.getMerchant();
 if (merchantErr) throw merchantErr;
-const acceptanceToken = merchant.data.presigned_acceptance!.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance!.acceptance_token;
 
 const [error, txn] = await wompi.transactions.createTransaction({
   acceptance_token: acceptanceToken,
@@ -121,11 +121,11 @@ const [error, txn] = await wompi.transactions.createTransaction({
   signature,
   customer_email: 'maria@example.com',
   reference,
-  payment_source_id: source.data.id, // numeric id from createPaymentSource
+  payment_source_id: source.id, // numeric id from createPaymentSource
 });
 if (error) throw error;
 
-console.log(txn.data.id, txn.data.status);
+console.log(txn.id, txn.status);
 ```
 
 ## Common Mistakes
@@ -164,7 +164,7 @@ Wrong:
 ```typescript
 await wompi.paymentSources.createPaymentSource({
   type: 'CARD',
-  token: cardToken.data.id,
+  token: cardToken.id,
   customer_email: 'user@example.com',
   // acceptance_token missing — Zod validation fails before HTTP call
 });
@@ -175,11 +175,11 @@ Correct:
 ```typescript
 const [merchantErr, merchant] = await wompi.merchants.getMerchant();
 if (merchantErr) throw merchantErr;
-const acceptanceToken = merchant.data.presigned_acceptance!.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance!.acceptance_token;
 
 await wompi.paymentSources.createPaymentSource({
   type: 'CARD',
-  token: cardToken.data.id,
+  token: cardToken.id,
   customer_email: 'user@example.com',
   acceptance_token: acceptanceToken,
 });
@@ -226,7 +226,7 @@ Wrong:
 
 ```typescript
 const [, source] = await wompi.paymentSources.createPaymentSource(input);
-await db.save({ sourceId: source.data.id }); // TypeError if error occurred
+await db.save({ sourceId: source.id }); // TypeError if error occurred
 ```
 
 Correct:
@@ -234,10 +234,10 @@ Correct:
 ```typescript
 const [error, source] = await wompi.paymentSources.createPaymentSource(input);
 if (error) throw error;
-await db.save({ sourceId: source.data.id });
+await db.save({ sourceId: source.id });
 ```
 
-Source: `packages/core/src/types.ts`
+Source: `packages/core/src/schemas.ts`
 
 ## See also
 

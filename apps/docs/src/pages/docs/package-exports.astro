@@ -3,43 +3,30 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 import CodeBlock from "../../components/CodeBlock.astro";
 import Callout from "../../components/Callout.astro";
 
-const mainEntry = `import { WompiClient, WompiRequest, type WompiRequestConfig } from "@pulgueta/wompi";`;
+const mainEntry = `import { WompiClient } from "@pulgueta/wompi";`;
 
-const clientEntry = `import { WompiClient } from "@pulgueta/wompi/client";`;
-
-const typesEntry = `import type {
-  WompiClientOptions,
-  Result,
-  Transaction,
-  TransactionStatus,
-  CreateTransactionInput,
-  PaymentLink,
-  CreatePaymentLinkInput,
-  PaymentSource,
-  CardToken,
-  NequiToken,
-  Merchant,
-  FinancialInstitution,
-} from "@pulgueta/wompi/types";`;
+const serverEntry = `import { getSignatureKey, type GetSignatureKeyOptions } from "@pulgueta/wompi/server";`;
 
 const schemasEntry = `import {
+  // Zod schemas — validate request bodies before they hit the SDK.
   CreateTransactionInputSchema,
   TokenizeCardInputSchema,
   CreatePaymentLinkInputSchema,
+  // Inferred types — every z.output<…> shape, zero runtime cost.
+  type Transaction,
+  type TransactionStatus,
+  type CreatePaymentLinkInput,
+  type Result,
+  // Error classes — for instanceof checks.
+  WompiError,
+  WompiNotFoundError,
+  WompiValidationError,
+  WompiRequestError,
 } from "@pulgueta/wompi/schemas";
 
 // Validate an incoming form body before passing it to the SDK.
 const parsed = CreateTransactionInputSchema.safeParse(req.body);
 if (!parsed.success) return res.status(400).json(parsed.error.flatten());`;
-
-const errorsEntry = `import {
-  WompiError,
-  WompiNotFoundError,
-  WompiValidationError,
-  WompiRequestError,
-} from "@pulgueta/wompi/errors";`;
-
-const serverEntry = `import { getSignatureKey } from "@pulgueta/wompi/server";`;
 ---
 
 <DocsLayout
@@ -56,80 +43,64 @@ const serverEntry = `import { getSignatureKey } from "@pulgueta/wompi/server";`;
     <code>@pulgueta/wompi</code>
   </h2>
   <p>
-    The default entry. Re-exports the client and the lower-level request primitive.
+    The default entry. Exports the client and nothing else — instantiate it once and reach every
+    resource through it.
   </p>
   <CodeBlock code={mainEntry} lang="ts" />
   <ul>
-    <li><code>WompiClient</code> — the high-level client constructed in every other doc page.</li>
-    <li><code>WompiRequest</code> — the base class wrapping <code>fetch</code> + Zod parsing. Use it directly only when you need to call an endpoint the SDK hasn't covered yet.</li>
-    <li><code>WompiRequestConfig</code> (alias: <code>BaseConfig</code>) — the constructor options type.</li>
+    <li>
+      <code>WompiClient</code> — the high-level client constructed in every other doc page. It runs
+      on the platform <code>fetch</code>, so it works in Node and edge runtimes alike.
+    </li>
   </ul>
-
-  <h2 id="client">
-    <code>@pulgueta/wompi/client</code>
-  </h2>
-  <p>
-    Just the <code>WompiClient</code> class. Use this entry if you want to skip importing
-    <code>WompiRequest</code> and its types.
-  </p>
-  <CodeBlock code={clientEntry} lang="ts" />
-
-  <h2 id="types">
-    <code>@pulgueta/wompi/types</code>
-  </h2>
-  <p>
-    Every typed shape derived from the Zod schemas — return types, input types, enums and union
-    types — without pulling Zod itself into your bundle.
-  </p>
-  <CodeBlock code={typesEntry} lang="ts" />
-
-  <Callout type="tip" title="Typed enums">
-    <code>TransactionStatus</code>, <code>PaymentMethodType</code> and <code>LegalIdType</code>
-    are string literal unions — perfect for narrowing in <code>switch</code> statements without
-    importing the schema.
-  </Callout>
-
-  <h2 id="schemas">
-    <code>@pulgueta/wompi/schemas</code>
-  </h2>
-  <p>
-    The raw Zod schemas. Pair them with your own routing layer to validate request bodies before
-    they hit the SDK.
-  </p>
-  <CodeBlock code={schemasEntry} lang="ts" />
-
-  <h2 id="errors">
-    <code>@pulgueta/wompi/errors</code>
-  </h2>
-  <p>
-    The error subclasses, for when you'd rather <code>instanceof</code>-check than branch on
-    <code>error.type</code>.
-  </p>
-  <CodeBlock code={errorsEntry} lang="ts" />
-
-  <p>
-    See <a href="/docs/error-handling">Error handling</a> for a comparison of both styles.
-  </p>
 
   <h2 id="server">
     <code>@pulgueta/wompi/server</code>
   </h2>
   <p>
-    The server-only helpers. Currently houses <code>getSignatureKey</code>, the integrity
-    signature builder. Kept in its own entry so the client bundle stays free of crypto code.
+    The server-only helpers. Houses <code>getSignatureKey</code>, the integrity signature builder,
+    plus its options type. Kept in its own entry so a browser bundle never pulls in the signing
+    logic.
   </p>
   <CodeBlock code={serverEntry} lang="ts" />
+  <ul>
+    <li>
+      <code>getSignatureKey</code> — computes the SHA-256 integrity signature
+      <code>createTransaction</code> requires. See <a href="/docs/integrity-signature">Integrity
+        signature</a>.
+    </li>
+    <li><code>GetSignatureKeyOptions</code> — the argument type for the helper above.</li>
+  </ul>
+
+  <h2 id="schemas">
+    <code>@pulgueta/wompi/schemas</code>
+  </h2>
+  <p>
+    Everything type-related lives here: the raw Zod schemas, the inferred TypeScript types they
+    produce, the error classes and the <code>Result</code> tuple. Pull schemas in to validate a
+    request body in your own routing layer, types in to annotate your code, or error classes in for
+    <code>instanceof</code> branching.
+  </p>
+  <CodeBlock code={schemasEntry} lang="ts" />
+
+  <Callout type="tip" title="Typed enums">
+    <code>TransactionStatus</code>, <code>PaymentMethodType</code> and <code>LegalIdType</code>
+    are string literal unions — perfect for narrowing in <code>switch</code> statements. Import the
+    type and skip the schema entirely.
+  </Callout>
+
+  <p>
+    See <a href="/docs/error-handling">Error handling</a> for the two ways to branch on the error
+    classes exported here.
+  </p>
 
   <h2 id="summary">Subpath summary</h2>
   <table>
     <thead><tr><th>Subpath</th><th>Exports</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr><td><code>.</code></td><td><code>WompiClient</code>, <code>WompiRequest</code>, types</td><td>The default entry.</td></tr>
-      <tr><td><code>./client</code></td><td><code>WompiClient</code></td><td>Smallest possible import for the high-level client.</td></tr>
-      <tr><td><code>./types</code></td><td>Every <code>z.output&lt;…&gt;</code> type</td><td>Zero-runtime — type-only.</td></tr>
-      <tr><td><code>./schemas</code></td><td>Every Zod schema</td><td>For server-side validation layers.</td></tr>
-      <tr><td><code>./errors</code></td><td>Error subclasses</td><td>For <code>instanceof</code> branching.</td></tr>
-      <tr><td><code>./server</code></td><td><code>getSignatureKey</code></td><td>Web Crypto, server-only.</td></tr>
+      <tr><td><code>.</code></td><td><code>WompiClient</code></td><td>The default entry — the client and nothing else.</td></tr>
+      <tr><td><code>./server</code></td><td><code>getSignatureKey</code>, <code>GetSignatureKeyOptions</code></td><td>Web Crypto, server-only.</td></tr>
+      <tr><td><code>./schemas</code></td><td>Zod schemas, inferred types, error classes, <code>Result</code></td><td>For validation layers, type annotations and <code>instanceof</code> checks.</td></tr>
     </tbody>
   </table>
 </DocsLayout>

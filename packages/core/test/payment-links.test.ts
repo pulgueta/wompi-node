@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PaymentLinks } from "../src/client/payment-links";
-import { WompiError } from "../src/errors/wompi-error";
+import { WompiClient } from "../src";
+import { WompiError } from "../src/schemas";
 import { okJson } from "./helpers";
 
 const PAYMENT_LINK_RESPONSE = {
@@ -18,7 +18,11 @@ const PAYMENT_LINK_RESPONSE = {
 
 describe("PaymentLinks", () => {
   const mockFetch = vi.fn();
+  const PUBLIC_KEY = "pub_test_123";
   const PRIVATE_KEY = "prv_test_456";
+
+  const makeClient = (privateKey: string | undefined) =>
+    new WompiClient({ publicKey: PUBLIC_KEY, privateKey, sandbox: true }).paymentLinks;
 
   beforeEach(() => {
     vi.stubGlobal("fetch", mockFetch);
@@ -30,15 +34,15 @@ describe("PaymentLinks", () => {
 
   describe("getPaymentLink", () => {
     it("should return [null, data] for a valid link", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
 
       mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
 
       const [error, data] = await links.getPaymentLink("link_123");
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe("link_123");
-      expect(data!.data.active).toBe(true);
+      expect(data!.id).toBe("link_123");
+      expect(data!.active).toBe(true);
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/payment_links/link_123");
@@ -46,31 +50,73 @@ describe("PaymentLinks", () => {
     });
 
     it("should work without private key for read operations", async () => {
-      const links = new PaymentLinks(undefined, true);
+      const links = makeClient(undefined);
 
       mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
 
       const [error, data] = await links.getPaymentLink("link_123");
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe("link_123");
+      expect(data!.id).toBe("link_123");
     });
 
     it("should accept a partial payment link body without a false error", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
 
       mockFetch.mockResolvedValueOnce(okJson({ data: { id: "link_partial" } }));
 
       const [error, data] = await links.getPaymentLink("link_partial");
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe("link_partial");
+      expect(data!.id).toBe("link_partial");
+    });
+
+    it("should accept null-valued fields in response", async () => {
+      const links = makeClient(PRIVATE_KEY);
+
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            id: "link_123",
+            name: "Test",
+            description: "Test description",
+            single_use: false,
+            collect_shipping: false,
+            active: true,
+            created_at: "2024-01-01",
+            updated_at: "2024-01-01",
+            sku: null,
+            expires_at: null,
+            redirect_url: null,
+            image_url: null,
+            customer_data: null,
+          },
+        })
+      );
+
+      const [error, data] = await links.getPaymentLink("link_123");
+
+      expect(error).toBeNull();
+      expect(data!.id).toBe("link_123");
+      expect(data!.sku).toBeNull();
+      expect(data!.expires_at).toBeNull();
+    });
+
+    it("should populate checkout_url in response", async () => {
+      const links = makeClient(PRIVATE_KEY);
+
+      mockFetch.mockResolvedValueOnce(okJson(PAYMENT_LINK_RESPONSE));
+
+      const [error, data] = await links.getPaymentLink("link_123");
+
+      expect(error).toBeNull();
+      expect(data!.checkout_url).toBe("https://checkout.wompi.co/l/link_123");
     });
   });
 
   describe("createPaymentLink", () => {
     it("should return [null, data] with valid input", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
       const input = {
         name: "Test Link",
         description: "A test payment link",
@@ -95,8 +141,8 @@ describe("PaymentLinks", () => {
       const [error, data] = await links.createPaymentLink(input);
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe("link_new");
-      expect(data!.data.active).toBe(true);
+      expect(data!.id).toBe("link_new");
+      expect(data!.active).toBe(true);
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/payment_links");
@@ -105,7 +151,7 @@ describe("PaymentLinks", () => {
     });
 
     it("should return [error, null] when private key is missing", async () => {
-      const links = new PaymentLinks(undefined, true);
+      const links = makeClient(undefined);
 
       const [error, data] = await links.createPaymentLink({
         name: "Test",
@@ -120,7 +166,7 @@ describe("PaymentLinks", () => {
     });
 
     it("should return [error, null] on invalid input", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
 
       const [error, data] = await links.createPaymentLink({
         name: 123,
@@ -132,7 +178,7 @@ describe("PaymentLinks", () => {
     });
 
     it("should support taxes in payment link creation", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
       const input = {
         name: "Link with taxes",
         description: "Has VAT",
@@ -163,11 +209,40 @@ describe("PaymentLinks", () => {
       const parsedBody = JSON.parse(options.body);
       expect(parsedBody.taxes).toEqual([{ type: "VAT", percentage: 19 }]);
     });
+
+    it("should populate checkout_url after creation", async () => {
+      const links = makeClient(PRIVATE_KEY);
+      const input = {
+        name: "Test Link",
+        description: "A test payment link",
+        single_use: true,
+        collect_shipping: false,
+        amount_in_cents: 1000000,
+        currency: "COP",
+      };
+
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: {
+            id: "link_new",
+            active: true,
+            ...input,
+            created_at: "2024-01-01",
+            updated_at: "2024-01-01",
+          },
+        })
+      );
+
+      const [error, data] = await links.createPaymentLink(input);
+
+      expect(error).toBeNull();
+      expect(data!.checkout_url).toBe("https://checkout.wompi.co/l/link_new");
+    });
   });
 
   describe("updatePaymentLink", () => {
     it("should return [null, data] on successful update", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
 
       mockFetch.mockResolvedValueOnce(
         okJson({ data: { ...PAYMENT_LINK_RESPONSE.data, active: false } })
@@ -176,7 +251,7 @@ describe("PaymentLinks", () => {
       const [error, data] = await links.updatePaymentLink("link_123", { active: false });
 
       expect(error).toBeNull();
-      expect(data!.data.active).toBe(false);
+      expect(data!.active).toBe(false);
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain("/payment_links/link_123");
@@ -185,7 +260,7 @@ describe("PaymentLinks", () => {
     });
 
     it("should return [error, null] when private key is missing", async () => {
-      const links = new PaymentLinks(undefined, true);
+      const links = makeClient(undefined);
 
       const [error, data] = await links.updatePaymentLink("link_123", { active: false });
 
@@ -195,7 +270,7 @@ describe("PaymentLinks", () => {
     });
 
     it("should return [error, null] on invalid input", async () => {
-      const links = new PaymentLinks(PRIVATE_KEY, true);
+      const links = makeClient(PRIVATE_KEY);
 
       const [error, data] = await links.updatePaymentLink("link_123", { active: "not-a-boolean" });
 
