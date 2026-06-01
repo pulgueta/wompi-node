@@ -1,4 +1,7 @@
 ---
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
+
 import "../styles/global.css";
 import { site } from "../config/site";
 
@@ -68,6 +71,9 @@ const ogImage = new URL("/og-image.webp", Astro.site ?? site.url).href;
   </head>
   <body class="min-h-dvh bg-background text-foreground antialiased">
     <slot />
+
+    <Analytics />
+    <SpeedInsights />
 
     <!-- Delegated copy-to-clipboard handler for every `.copy-btn` on the page. -->
     <script>
