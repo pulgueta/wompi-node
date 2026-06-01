@@ -3,7 +3,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 import CodeBlock from "../../components/CodeBlock.astro";
 import Callout from "../../components/Callout.astro";
 
-const tokenizeCardSnippet = `const [error, response] = await wompi.tokens.tokenizeCard({
+const tokenizeCardSnippet = `const [error, token] = await wompi.tokens.tokenizeCard({
   number: "4242424242424242",
   cvc: "123",
   exp_month: "12",
@@ -12,19 +12,16 @@ const tokenizeCardSnippet = `const [error, response] = await wompi.tokens.tokeni
 });
 if (error) throw error;
 
-const token = response.data;
-
 token.id;        // tok_test_xxxx — pass into payment_method.token
 token.brand;     // "VISA" | "MASTERCARD" | ...
 token.last_four; // "4242"
 token.expires_at;`;
 
-const tokenizeNequiSnippet = `const [error, response] = await wompi.tokens.tokenizeNequi({
+const tokenizeNequiSnippet = `const [error, token] = await wompi.tokens.tokenizeNequi({
   phone_number: "3001234567",
 });
 if (error) throw error;
 
-const token = response.data;
 token.id;     // nequi_xxx
 token.status; // "PENDING" — the customer must approve in the Nequi app
 
@@ -33,7 +30,7 @@ const [pollError, pollResponse] = await wompi.tokens.getNequiToken(token.id);`;
 
 const getNequiSnippet = `const [error, response] = await wompi.tokens.getNequiToken("nequi_token_id");
 
-response?.data.status; // "PENDING" | "APPROVED" | "DECLINED"`;
+response?.status; // "PENDING" | "APPROVED" | "DECLINED"`;
 ---
 
 <DocsLayout

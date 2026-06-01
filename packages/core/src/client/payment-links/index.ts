@@ -1,26 +1,22 @@
 import { WompiRequest } from "@/request";
-import { WompiError } from "@/errors/wompi-error";
 import {
-  PaymentLinkSchema,
   CreatePaymentLinkInputSchema,
+  PaymentLinkSchema,
   UpdatePaymentLinkInputSchema,
+  WompiError,
   wompiResponse,
+  type PaymentLink,
+  type Result,
 } from "@/schemas";
-import type { PaymentLink, Result, WompiResponse } from "@/types";
 
 const CHECKOUT_BASE_URL = "https://checkout.wompi.co";
 
 const PaymentLinkResponseSchema = wompiResponse(PaymentLinkSchema);
 
-function withCheckoutUrl(response: WompiResponse<PaymentLink>): WompiResponse<PaymentLink> {
-  return {
-    ...response,
-    data: {
-      ...response.data,
-      checkout_url: `${CHECKOUT_BASE_URL}/l/${response.data.id}`,
-    },
-  };
-}
+const withCheckoutUrl = (link: PaymentLink): PaymentLink => ({
+  ...link,
+  checkout_url: `${CHECKOUT_BASE_URL}/l/${link.id}`,
+});
 
 export class PaymentLinks extends WompiRequest {
   constructor(
@@ -34,17 +30,17 @@ export class PaymentLinks extends WompiRequest {
    * Get a payment link by ID.
    * No authentication required.
    */
-  async getPaymentLink(id: string): Promise<Result<WompiResponse<PaymentLink>>> {
-    const [error, response] = await this.get(`/payment_links/${id}`, PaymentLinkResponseSchema);
+  async getPaymentLink(id: string): Promise<Result<PaymentLink>> {
+    const [error, link] = await this.get(`/payment_links/${id}`, PaymentLinkResponseSchema);
     if (error) return [error, null];
-    return [null, withCheckoutUrl(response)];
+    return [null, withCheckoutUrl(link)];
   }
 
   /**
    * Create a new payment link.
    * Requires private key (BearerPrivateKey).
    */
-  async createPaymentLink(input: unknown): Promise<Result<WompiResponse<PaymentLink>>> {
+  async createPaymentLink(input: unknown): Promise<Result<PaymentLink>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for payment link operations"), null];
     }
@@ -60,7 +56,7 @@ export class PaymentLinks extends WompiRequest {
       ];
     }
 
-    const [error, response] = await this.post(
+    const [error, link] = await this.post(
       "/payment_links",
       PaymentLinkResponseSchema,
       parsed.data,
@@ -69,14 +65,14 @@ export class PaymentLinks extends WompiRequest {
       }
     );
     if (error) return [error, null];
-    return [null, withCheckoutUrl(response)];
+    return [null, withCheckoutUrl(link)];
   }
 
   /**
    * Activate or deactivate a payment link.
    * Requires private key (BearerPrivateKey).
    */
-  async updatePaymentLink(id: string, input: unknown): Promise<Result<WompiResponse<PaymentLink>>> {
+  async updatePaymentLink(id: string, input: unknown): Promise<Result<PaymentLink>> {
     if (!this.privateKey) {
       return [new WompiError("Private key is required for payment link operations"), null];
     }
@@ -92,7 +88,7 @@ export class PaymentLinks extends WompiRequest {
       ];
     }
 
-    const [error, response] = await this.patch(
+    const [error, link] = await this.patch(
       `/payment_links/${id}`,
       PaymentLinkResponseSchema,
       parsed.data,
@@ -101,6 +97,6 @@ export class PaymentLinks extends WompiRequest {
       }
     );
     if (error) return [error, null];
-    return [null, withCheckoutUrl(response)];
+    return [null, withCheckoutUrl(link)];
   }
 }

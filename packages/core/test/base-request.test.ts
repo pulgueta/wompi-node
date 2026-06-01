@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
-import { WompiRequest } from "../src/index";
+import { WompiRequest } from "../src/request";
 import {
   WompiNotFoundError,
   WompiValidationError,
   WompiRequestError,
   WompiError,
-} from "../src/errors/wompi-error";
+} from "../src/schemas";
 import { okJson, okEmpty, errorJson } from "./helpers";
 
 const TestSchema = z.object({ data: z.string() });

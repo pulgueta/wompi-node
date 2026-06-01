@@ -20,20 +20,20 @@ if (merchantError) throw merchantError;
 // 3. Convert the card token into a long-lived payment source.
 const [error, response] = await wompi.paymentSources.createPaymentSource({
   type: "CARD",
-  token: token.data.id,
-  acceptance_token: merchant.data.presigned_acceptance!.acceptance_token,
+  token: token.id,
+  acceptance_token: merchant.presigned_acceptance!.acceptance_token,
   customer_email: "buyer@example.com",
 });
 if (error) throw error;
 
-response.data.id; // numeric id — store this against your user`;
+response.id; // numeric id — store this against your user`;
 
 const getSnippet = `const [error, response] = await wompi.paymentSources.getPaymentSource(12_345);
 if (error) throw error;
 
-response.data.id;
-response.data.status; // "AVAILABLE" | "PENDING"
-response.data.type;   // "CARD" | "NEQUI"`;
+response.id;
+response.status; // "AVAILABLE" | "PENDING"
+response.type;   // "CARD" | "NEQUI"`;
 
 const chargeSnippet = `const [error, response] = await wompi.transactions.createTransaction({
   acceptance_token,

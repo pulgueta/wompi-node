@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { WompiClient } from "../../src/client";
+import { WompiClient } from "../../src";
 
 /**
  * Integration tests against the real Wompi sandbox.
@@ -27,21 +27,21 @@ const sandboxClient = () =>
 
 describe.skipIf(!publicKey)("sandbox · read-only endpoints", () => {
   it("getMerchant returns the presigned acceptance token", async () => {
-    const [error, response] = await sandboxClient().merchants.getMerchant();
+    const [error, merchant] = await sandboxClient().merchants.getMerchant();
 
     expect(error).toBeNull();
-    expect(response?.data.presigned_acceptance?.acceptance_token).toBeTruthy();
+    expect(merchant?.presigned_acceptance?.acceptance_token).toBeTruthy();
   });
 
   it("getFinancialInstitutions returns the PSE bank list", async () => {
-    const [error, response] = await sandboxClient().pse.getFinancialInstitutions();
+    const [error, institutions] = await sandboxClient().pse.getFinancialInstitutions();
 
     expect(error).toBeNull();
-    expect(Array.isArray(response?.data)).toBe(true);
+    expect(Array.isArray(institutions)).toBe(true);
   });
 
   it("tokenizeCard issues a token for the 4242 test card", async () => {
-    const [error, response] = await sandboxClient().tokens.tokenizeCard({
+    const [error, token] = await sandboxClient().tokens.tokenizeCard({
       number: "4242424242424242",
       cvc: "123",
       exp_month: "12",
@@ -50,6 +50,6 @@ describe.skipIf(!publicKey)("sandbox · read-only endpoints", () => {
     });
 
     expect(error).toBeNull();
-    expect(response?.data.id).toBeTruthy();
+    expect(token?.id).toBeTruthy();
   });
 });

@@ -4,22 +4,26 @@ import CodeBlock from "../../../components/CodeBlock.astro";
 import Callout from "../../../components/Callout.astro";
 import Badge from "../../../components/Badge.astro";
 import { CardCheckoutForm } from "../../../components/examples/CardCheckoutForm";
+import { CredentialsPanel } from "../../../components/examples/CredentialsPanel";
 
 const apiRoute = `import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { getSignatureKey } from "@pulgueta/wompi/server";
-import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY, WOMPI_INTEGRITY_KEY } from "astro:env/server";
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request }) => {
+  // The visitor's own sandbox keys ride along as request headers — never env.
+  const publicKey = request.headers.get("x-wompi-public-key");
+  const privateKey = request.headers.get("x-wompi-private-key");
+  const integrityKey = request.headers.get("x-wompi-integrity-key");
+  if (!publicKey || !privateKey || !integrityKey) {
+    return Response.json({ configured: false, message: "Provide your sandbox keys." });
+  }
+
   const { card, customerEmail, amountInCents } = await request.json();
 
-  const wompi = new WompiClient({
-    publicKey: WOMPI_PUBLIC_KEY,
-    privateKey: WOMPI_PRIVATE_KEY,
-    sandbox: true,
-  });
+  const wompi = new WompiClient({ publicKey, privateKey, sandbox: true });
 
   // 1. Fetch the acceptance token.
   const [merchantError, merchant] = await wompi.merchants.getMerchant();
@@ -34,23 +38,35 @@ export const POST: APIRoute = async ({ request }) => {
   const signature = await getSignatureKey({
     reference,
     amountInCents,
-    integrityKey: WOMPI_INTEGRITY_KEY,
+    integrityKey,
   });
 
   // 4. Create the transaction.
   const [transactionError, transaction] = await wompi.transactions.createTransaction({
-    acceptance_token: merchant.data.presigned_acceptance!.acceptance_token,
+    acceptance_token: merchant.presigned_acceptance!.acceptance_token,
     amount_in_cents: amountInCents,
     currency: "COP",
     signature,
     customer_email: customerEmail,
     reference,
-    payment_method: { type: "CARD", token: token.data.id, installments: 1 },
+    payment_method: { type: "CARD", token: token.id, installments: 1 },
   });
 
   if (transactionError) return Response.json({ error: transactionError.message }, { status: 422 });
-  return Response.json({ transaction: transaction.data });
+  return Response.json({ transaction });
 };`;
+
+const productionSnippet = `// In your own app, read the keys from the server environment — never the client.
+import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY, WOMPI_INTEGRITY_KEY } from "astro:env/server";
+
+const wompi = new WompiClient({
+  publicKey: WOMPI_PUBLIC_KEY,
+  privateKey: WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});
+
+// …and sign with the integrity secret from the same server env.
+const signature = await getSignatureKey({ reference, amountInCents, integrityKey: WOMPI_INTEGRITY_KEY });`;
 ---
 
 <DocsLayout
@@ -61,18 +77,19 @@ export const POST: APIRoute = async ({ request }) => {
   <p>
     <Badge variant="default">Live</Badge>
     The form below calls the same SDK methods you'd use in production. The API route lives in
-    <code>apps/docs/src/pages/api/examples/checkout.ts</code> and runs on every request — set
-    <code>WOMPI_PUBLIC_KEY</code>, <code>WOMPI_PRIVATE_KEY</code> and
-    <code>WOMPI_INTEGRITY_KEY</code> in <code>apps/docs/.env</code> to charge a real sandbox card.
+    <code>apps/docs/src/pages/api/examples/checkout.ts</code> and runs on every request against
+    <strong>your</strong> Wompi sandbox — paste your <code>publicKey</code>, <code>privateKey</code>
+    and <code>integrityKey</code> below to charge a sandbox card.
   </p>
 
   <Callout type="note" title="Sandbox only">
     The route hard-codes <code>sandbox: true</code>. <code>4242 4242 4242 4242</code> is approved;
-    <code>4111 1111 1111 1111</code> is declined.
+    <code>4111 1111 1111 1111</code> is declined. Use your Wompi <strong>test</strong> keys only.
   </Callout>
 
   <h2 id="try-it">Try it</h2>
-  <div class="not-prose my-6">
+  <div class="not-prose my-6 grid gap-6">
+    <CredentialsPanel client:load />
     <CardCheckoutForm client:load />
   </div>
 
@@ -84,26 +101,38 @@ export const POST: APIRoute = async ({ request }) => {
 
   <CodeBlock code={apiRoute} lang="ts" filename="src/pages/api/examples/checkout.ts" />
 
-  <h2 id="environment">Environment variables</h2>
+  <h2 id="credentials">How your keys are handled</h2>
   <p>
-    The route is declared with Astro's <code>envField</code> in <code>astro.config.mjs</code>, so
-    Vercel's environment is type-checked at build time:
+    There are no maintainer keys baked into this site. Your sandbox keys live in this tab's
+    <code>sessionStorage</code> and are attached as request headers only when you submit, so the
+    route reads them per request and never persists or logs them:
   </p>
 
   <CodeBlock
-    code={`env: {
-  schema: {
-    WOMPI_PUBLIC_KEY: envField.string({ context: "server", access: "secret", optional: true }),
-    WOMPI_PRIVATE_KEY: envField.string({ context: "server", access: "secret", optional: true }),
-    WOMPI_INTEGRITY_KEY: envField.string({ context: "server", access: "secret", optional: true }),
+    code={`// browser → forward the keys you saved for this tab
+await fetch("/api/examples/checkout", {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "x-wompi-public-key": publicKey,
+    "x-wompi-private-key": privateKey,
+    "x-wompi-integrity-key": integrityKey,
   },
-}`}
-    lang="js"
-    filename="astro.config.mjs"
+  body: JSON.stringify({ card, customerEmail, amountInCents }),
+});`}
+    lang="ts"
   />
 
-  <p>
-    The keys are <code>optional: true</code> on purpose — the site always builds, and the route
-    returns a friendly notice when a key is missing instead of crashing the request.
-  </p>
+  <Callout type="warning" title="Demo only — production reads keys from the server env">
+    Sending keys from the browser is a convenience for this playground, not a pattern to copy. In a
+    real integration your keys stay in <strong>server environment variables</strong> and the browser
+    never sees them:
+  </Callout>
+
+  <CodeBlock code={productionSnippet} lang="ts" />
+
+  <Callout type="tip" title="Why not a shared sandbox?">
+    A single set of keys would expose the maintainer's merchant details to everyone and can't stand
+    in for your account. Bringing your own keys keeps every demo charge inside your own sandbox.
+  </Callout>
 </DocsLayout>

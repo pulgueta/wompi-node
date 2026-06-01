@@ -18,15 +18,11 @@ export default defineConfig({
 
   env: {
     schema: {
-      // Wompi sandbox credentials for the live examples. They are optional so the
-      // site always builds — the `/api/examples/*` routes degrade to a friendly
-      // notice when a key is missing instead of crashing the request.
-      WOMPI_PUBLIC_KEY: envField.string({ context: "server", access: "secret" }),
-      WOMPI_PRIVATE_KEY: envField.string({ context: "server", access: "secret" }),
-      WOMPI_INTEGRITY_KEY: envField.string({
-        context: "server",
-        access: "secret",
-      }),
+      // The live examples no longer use maintainer Wompi keys — each visitor
+      // brings their own sandbox keys, forwarded per request as headers (see
+      // `src/lib/wompi-credentials.ts`). Only the optional Upstash credentials
+      // for rate limiting remain server-side; the site always builds without
+      // them and the limiter degrades to a no-op when they are absent.
       UPSTASH_REDIS_REST_URL: envField.string({
         context: "server",
         access: "secret",

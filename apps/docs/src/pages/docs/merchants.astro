@@ -3,20 +3,18 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 import CodeBlock from "../../components/CodeBlock.astro";
 import Callout from "../../components/Callout.astro";
 
-const getMerchantSnippet = `const [error, response] = await wompi.merchants.getMerchant();
+const getMerchantSnippet = `const [error, merchant] = await wompi.merchants.getMerchant();
 if (error) throw error;
-
-const merchant = response.data;
 
 merchant.name;          // string | undefined
 merchant.legal_name;    // string | undefined
 merchant.accepted_payment_methods;  // string[] | undefined
 merchant.presigned_acceptance?.acceptance_token; // string`;
 
-const acceptanceSnippet = `const [error, response] = await wompi.merchants.getMerchant();
+const acceptanceSnippet = `const [error, merchant] = await wompi.merchants.getMerchant();
 if (error) throw error;
 
-const acceptance = response.data.presigned_acceptance;
+const acceptance = merchant.presigned_acceptance;
 
 // Persist for the duration of a single transaction — Wompi rotates these.
 return {

@@ -15,7 +15,7 @@ if (error) {
 }
 
 // And inside this branch, response is fully typed.
-response.data.status;`;
+response.status;`;
 
 const typeBranchSnippet = `if (error) {
   if ("type" in error && error.type === "NOT_FOUND_ERROR") {
@@ -40,7 +40,7 @@ const instanceofSnippet = `import {
   WompiNotFoundError,
   WompiRequestError,
   WompiValidationError,
-} from "@pulgueta/wompi/errors";
+} from "@pulgueta/wompi/schemas";
 
 if (error instanceof WompiValidationError) {
   // error.messages is Record<string, string[]>
@@ -134,7 +134,7 @@ const inputValidationSnippet = `const [error] = await wompi.transactions.createT
   <h2 id="branching-with-instanceof">Or with <code>instanceof</code></h2>
   <p>
     If you prefer class-based branching, import the error classes from the
-    <code>/errors</code> subpath.
+    <code>/schemas</code> subpath.
   </p>
   <CodeBlock code={instanceofSnippet} lang="ts" />
 

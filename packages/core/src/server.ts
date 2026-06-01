@@ -1,4 +1,4 @@
-import { WompiError } from "@/errors/wompi-error";
+import { WompiError } from "@/schemas";
 
 export type GetSignatureKeyOptions = {
   /** Unique merchant reference for the transaction — the same value passed to `createTransaction`. */

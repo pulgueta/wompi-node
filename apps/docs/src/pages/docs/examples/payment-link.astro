@@ -4,21 +4,24 @@ import CodeBlock from "../../../components/CodeBlock.astro";
 import Callout from "../../../components/Callout.astro";
 import Badge from "../../../components/Badge.astro";
 import { PaymentLinkForm } from "../../../components/examples/PaymentLinkForm";
+import { CredentialsPanel } from "../../../components/examples/CredentialsPanel";
 
 const apiRoute = `import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
-import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY } from "astro:env/server";
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request }) => {
+  // The visitor's own sandbox keys ride along as request headers — never env.
+  const publicKey = request.headers.get("x-wompi-public-key");
+  const privateKey = request.headers.get("x-wompi-private-key");
+  if (!publicKey || !privateKey) {
+    return Response.json({ configured: false, message: "Provide your sandbox keys." });
+  }
+
   const { name, description, amountInCents, singleUse, collectShipping } = await request.json();
 
-  const wompi = new WompiClient({
-    publicKey: WOMPI_PUBLIC_KEY,
-    privateKey: WOMPI_PRIVATE_KEY,
-    sandbox: true,
-  });
+  const wompi = new WompiClient({ publicKey, privateKey, sandbox: true });
 
   const [error, response] = await wompi.paymentLinks.createPaymentLink({
     name,
@@ -31,7 +34,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (error) return Response.json({ error: error.message }, { status: 422 });
 
-  const link = response.data;
+  const link = response;
   return Response.json({
     paymentLink: {
       id: link.id,
@@ -50,7 +53,16 @@ const [error, response] = await wompi.transactions.listTransactions({
   until_date: "2026-12-31",
 });
 
-const paidByLink = response?.data.filter((t) => t.payment_link_id === link.id) ?? [];`;
+const paidByLink = response?.filter((t) => t.payment_link_id === link.id) ?? [];`;
+
+const productionSnippet = `// In your own app, read the keys from the server environment — never the client.
+import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY } from "astro:env/server";
+
+const wompi = new WompiClient({
+  publicKey: WOMPI_PUBLIC_KEY,
+  privateKey: WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});`;
 ---
 
 <DocsLayout
@@ -66,13 +78,16 @@ const paidByLink = response?.data.filter((t) => t.payment_link_id === link.id) ?
     <code>wompi.paymentLinks.createPaymentLink</code> and returns the public URL.
   </p>
 
-  <Callout type="note" title="Try the URL right away">
-    The link the demo returns is a real sandbox link — you can open it and run
+  <Callout type="note" title="Bring your own sandbox keys">
+    This demo runs against <strong>your</strong> Wompi sandbox, not ours. Paste your test keys
+    below — they stay in this browser tab (<code>sessionStorage</code>) and are sent only to the
+    example route when you submit. The link it returns is a real sandbox link you can open and run
     through the hosted checkout end-to-end.
   </Callout>
 
   <h2 id="try-it">Try it</h2>
-  <div class="not-prose my-6">
+  <div class="not-prose my-6 grid gap-6">
+    <CredentialsPanel client:load />
     <PaymentLinkForm client:load />
   </div>
 
@@ -88,6 +103,15 @@ const paidByLink = response?.data.filter((t) => t.payment_link_id === link.id) ?
     lang="ts"
     filename="src/pages/api/examples/payment-link.ts"
   />
+
+  <Callout type="warning" title="Demo only — production reads keys from the server env">
+    Forwarding the keys from the browser exists purely so you can try the SDK here without
+    deploying anything. In a real app, keep your keys in <strong>server environment variables</strong>
+    and read them with <code>astro:env/server</code> (or <code>process.env</code>) — never send
+    secret keys from the client.
+  </Callout>
+
+  <CodeBlock code={productionSnippet} lang="ts" />
 
   <h2 id="following-up">Reconciling paid links</h2>
   <p>
