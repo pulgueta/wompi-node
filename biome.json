@@ -35,7 +35,8 @@
     "include": ["src/**/*.ts", "test/**/*.spec.ts"]
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "ignore": ["**/package.json"]
   },
   "organizeImports": {
     "enabled": false
