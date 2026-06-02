@@ -17,12 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup environment
         uses: ./.github/setup
 
-      - name: Run Biome CI
-        run: pnpm exec biome ci .
+      - name: Run lint
+        run: pnpm lint
+
+      - name: Run format
+        run: pnpm format
