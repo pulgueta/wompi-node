@@ -1,4 +1,5 @@
 ---
+import { ClientRouter } from "astro:transitions";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
@@ -28,6 +29,9 @@ const ogImage = new URL("/og-image.webp", Astro.site ?? site.url).href;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <meta name="generator" content={Astro.generator} />
+
+    <!-- Client-side routing: animates page swaps with the View Transitions API. -->
+    <ClientRouter />
 
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
@@ -74,6 +78,30 @@ const ogImage = new URL("/og-image.webp", Astro.site ?? site.url).href;
 
     <Analytics />
     <SpeedInsights />
+
+    <!--
+      Theme system, made resilient to client-side navigation. The pre-paint
+      script in <head> sets the initial class on first load; these document-level
+      handlers keep it working as the router swaps pages:
+        • a delegated click handler toggles + persists the theme (survives swaps);
+        • astro:before-swap copies the live theme onto the incoming document so a
+          navigation never flashes the wrong theme mid-transition.
+    -->
+    <script>
+      const root = document.documentElement;
+
+      document.addEventListener('click', (event) => {
+        if (!(event.target as HTMLElement).closest('#theme-toggle')) return;
+        const isDark = root.classList.toggle('dark');
+        try {
+          localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        } catch {}
+      });
+
+      document.addEventListener('astro:before-swap', (event) => {
+        event.newDocument.documentElement.classList.toggle('dark', root.classList.contains('dark'));
+      });
+    </script>
 
     <!-- Delegated copy-to-clipboard handler for every `.copy-btn` on the page. -->
     <script>

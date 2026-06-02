@@ -18,15 +18,29 @@
 </aside>
 
 <script>
-  const list = document.getElementById('toc-list');
-  const aside = document.getElementById('on-this-page');
-  const headings = [
-    ...document.querySelectorAll('article :is(h2, h3)[id]'),
-  ] as HTMLElement[];
+  // The table of contents is derived from the rendered headings, so it has to be
+  // rebuilt every time the router swaps in a new page. `buildTableOfContents`
+  // tears down the previous scroll-spy observer and list first, which keeps it
+  // safe to run on the initial load *and* on every astro:page-load.
+  let tocObserver: IntersectionObserver | undefined;
 
-  if (!list || headings.length === 0) {
-    aside?.remove();
-  } else {
+  function buildTableOfContents() {
+    const list = document.getElementById('toc-list');
+    if (!list) return;
+
+    tocObserver?.disconnect();
+    list.replaceChildren();
+
+    const aside = document.getElementById('on-this-page');
+    const headings = [
+      ...document.querySelectorAll('article :is(h2, h3)[id]'),
+    ] as HTMLElement[];
+
+    if (headings.length === 0) {
+      aside?.remove();
+      return;
+    }
+
     for (const heading of headings) {
       const li = document.createElement('li');
       const a = document.createElement('a');
@@ -52,13 +66,16 @@
       }
     };
 
-    const observer = new IntersectionObserver(
+    tocObserver = new IntersectionObserver(
       (entries) => {
         const visible = entries.filter((entry) => entry.isIntersecting);
         if (visible.length > 0) setActive(visible[0].target.id);
       },
       { rootMargin: '-80px 0px -70% 0px' }
     );
-    for (const heading of headings) observer.observe(heading);
+    for (const heading of headings) tocObserver.observe(heading);
   }
+
+  buildTableOfContents();
+  document.addEventListener('astro:page-load', buildTableOfContents);
 </script>
