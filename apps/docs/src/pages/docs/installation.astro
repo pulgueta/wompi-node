@@ -37,12 +37,6 @@ const tsConfigSnippet = `{
 
   <InstallTabs pkg="@pulgueta/wompi zod" />
 
-  <Callout type="note" title="Node version">
-    The SDK targets Node 22+ and any runtime with global <code>fetch</code> and Web Crypto
-    (<code>crypto.subtle</code>). All Wompi calls go over the platform fetch — no <code>node-fetch</code>,
-    no Axios.
-  </Callout>
-
   <h2 id="get-your-api-keys">Get your API keys</h2>
   <p>
     Sign in to your <a
@@ -99,8 +93,8 @@ const wompi = new WompiClient({
 const [error, response] = await wompi.merchants.getMerchant();
 if (error) throw error;
 
-console.log("Merchant:", response.data.name);
-console.log("Acceptance token:", response.data.presigned_acceptance?.acceptance_token);`}
+console.log("Merchant:", response.name);
+console.log("Acceptance token:", response.presigned_acceptance?.acceptance_token);`}
     lang="ts"
     filename="verify.ts"
   />

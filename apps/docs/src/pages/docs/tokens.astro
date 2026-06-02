@@ -12,7 +12,7 @@ const tokenizeCardSnippet = `const [error, response] = await wompi.tokens.tokeni
 });
 if (error) throw error;
 
-const token = response.data;
+const token = response;
 
 token.id;        // tok_test_xxxx — pass into payment_method.token
 token.brand;     // "VISA" | "MASTERCARD" | ...
@@ -24,7 +24,7 @@ const tokenizeNequiSnippet = `const [error, response] = await wompi.tokens.token
 });
 if (error) throw error;
 
-const token = response.data;
+const token = response;
 token.id;     // nequi_xxx
 token.status; // "PENDING" — the customer must approve in the Nequi app
 
@@ -33,7 +33,7 @@ const [pollError, pollResponse] = await wompi.tokens.getNequiToken(token.id);`;
 
 const getNequiSnippet = `const [error, response] = await wompi.tokens.getNequiToken("nequi_token_id");
 
-response?.data.status; // "PENDING" | "APPROVED" | "DECLINED"`;
+response?.status; // "PENDING" | "APPROVED" | "DECLINED"`;
 ---
 
 <DocsLayout

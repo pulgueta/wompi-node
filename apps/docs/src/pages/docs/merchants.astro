@@ -6,7 +6,7 @@ import Callout from "../../components/Callout.astro";
 const getMerchantSnippet = `const [error, response] = await wompi.merchants.getMerchant();
 if (error) throw error;
 
-const merchant = response.data;
+const merchant = response;
 
 merchant.name;          // string | undefined
 merchant.legal_name;    // string | undefined
@@ -16,7 +16,7 @@ merchant.presigned_acceptance?.acceptance_token; // string`;
 const acceptanceSnippet = `const [error, response] = await wompi.merchants.getMerchant();
 if (error) throw error;
 
-const acceptance = response.data.presigned_acceptance;
+const acceptance = response.presigned_acceptance;
 
 // Persist for the duration of a single transaction — Wompi rotates these.
 return {

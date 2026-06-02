@@ -21,11 +21,20 @@ export default defineConfig({
       // Wompi sandbox credentials for the live examples. They are optional so the
       // site always builds — the `/api/examples/*` routes degrade to a friendly
       // notice when a key is missing instead of crashing the request.
-      WOMPI_PUBLIC_KEY: envField.string({ context: "server", access: "secret" }),
-      WOMPI_PRIVATE_KEY: envField.string({ context: "server", access: "secret" }),
+      WOMPI_PUBLIC_KEY: envField.string({
+        context: "server",
+        access: "secret",
+        optional: true,
+      }),
+      WOMPI_PRIVATE_KEY: envField.string({
+        context: "server",
+        access: "secret",
+        optional: true,
+      }),
       WOMPI_INTEGRITY_KEY: envField.string({
         context: "server",
         access: "secret",
+        optional: true,
       }),
       UPSTASH_REDIS_REST_URL: envField.string({
         context: "server",

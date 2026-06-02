@@ -1,8 +1,8 @@
 import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { getSignatureKey } from "@pulgueta/wompi/server";
-import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY, WOMPI_INTEGRITY_KEY } from "astro:env/server";
 import { checkRateLimit } from "@/lib/ratelimit";
+import { readCredentialHeaders } from "@/lib/wompi-credentials";
 
 // Live endpoint — opt out of prerendering so it runs on every request.
 export const prerender = false;
@@ -10,7 +10,8 @@ export const prerender = false;
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    // Responses echo the visitor's own sandbox data — never cache them.
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 
 /**
@@ -24,11 +25,13 @@ export const POST: APIRoute = async ({ request }) => {
   const rateLimited = await checkRateLimit(request, "checkout");
   if (rateLimited) return rateLimited;
 
-  if (!WOMPI_PUBLIC_KEY || !WOMPI_INTEGRITY_KEY) {
+  // The visitor supplies their own sandbox keys; they travel as request headers
+  // and are used only for this call — never read from env, persisted or logged.
+  const { publicKey, privateKey, integrityKey } = readCredentialHeaders(request);
+  if (!publicKey || !privateKey || !integrityKey) {
     return json({
       configured: false,
-      message:
-        "Add WOMPI_PUBLIC_KEY and WOMPI_INTEGRITY_KEY to apps/docs/.env to run this example.",
+      message: "Add your own Wompi sandbox public, private and integrity keys to run this example.",
     });
   }
 
@@ -49,8 +52,8 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const wompi = new WompiClient({
-    publicKey: WOMPI_PUBLIC_KEY,
-    privateKey: WOMPI_PRIVATE_KEY,
+    publicKey,
+    privateKey,
     sandbox: true,
   });
 
@@ -60,7 +63,7 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ ok: false, step: "merchant", error: merchantError.message }, 502);
   }
 
-  const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+  const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
   if (!acceptanceToken) {
     return json({ ok: false, step: "merchant", error: "Merchant has no acceptance token." }, 502);
   }
@@ -76,7 +79,7 @@ export const POST: APIRoute = async ({ request }) => {
   const signature = await getSignatureKey({
     reference,
     amountInCents,
-    integrityKey: WOMPI_INTEGRITY_KEY,
+    integrityKey,
   });
 
   // 4. Create the transaction.
@@ -87,13 +90,13 @@ export const POST: APIRoute = async ({ request }) => {
     signature,
     customer_email: customerEmail,
     reference,
-    payment_method: { type: "CARD", token: token.data.id, installments },
+    payment_method: { type: "CARD", token: token.id, installments },
   });
   if (transactionError) {
     return json({ ok: false, step: "transaction", error: transactionError.message }, 422);
   }
 
-  const t = transaction.data;
+  const t = transaction;
   return json({
     ok: true,
     configured: true,
@@ -107,8 +110,8 @@ export const POST: APIRoute = async ({ request }) => {
       createdAt: t.created_at ?? null,
     },
     card: {
-      brand: token.data.brand ?? null,
-      lastFour: token.data.last_four ?? null,
+      brand: token.brand ?? null,
+      lastFour: token.last_four ?? null,
     },
   });
 };

@@ -30,7 +30,7 @@ if (error) {
   throw error;
 }
 
-response.data.status; // "PENDING" | "APPROVED" | "DECLINED" | "ERROR" | "VOIDED"`;
+response.status; // "PENDING" | "APPROVED" | "DECLINED" | "ERROR" | "VOIDED"`;
 
 const listSnippet = `const [error, response] = await wompi.transactions.listTransactions({
   from_date: "2026-01-01",
@@ -41,9 +41,9 @@ const listSnippet = `const [error, response] = await wompi.transactions.listTran
   order_by: "created_at",
   order: "DESC",
 });
+if (error) throw error;
 
-response?.data; // Transaction[]
-response?.meta; // pagination metadata`;
+response; // Transaction[] — the array directly; page through it with page/page_size`;
 
 const voidSnippet = `// Full void.
 const [error, response] = await wompi.transactions.voidTransaction("txn_abc123");
@@ -54,7 +54,7 @@ const [error, response] = await wompi.transactions.voidTransaction("txn_abc123",
 });
 
 // Wompi may answer with an empty 201 — response is undefined in that case.
-response?.data.transaction?.status; // optional`;
+response?.transaction?.status; // optional`;
 ---
 
 <DocsLayout
@@ -158,7 +158,8 @@ response?.data.transaction?.status; // optional`;
 
   <Callout type="note" title="Empty 201 body">
     Wompi's spec documents an empty <code>201</code> on void. The SDK matches that —
-    <code>response</code> is the <em>full</em> wrapper most of the time, but can be
-    <code>undefined</code> when the body is empty. Optional-chain accordingly.
+    <code>response</code> carries the void outcome (with the voided transaction under
+    <code>response.transaction</code>) most of the time, but can be <code>undefined</code> when the
+    body is empty. Optional-chain accordingly.
   </Callout>
 </DocsLayout>

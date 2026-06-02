@@ -3,41 +3,36 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 import CodeBlock from "../../components/CodeBlock.astro";
 import Callout from "../../components/Callout.astro";
 
-const mainEntry = `import { WompiClient, WompiRequest, type WompiRequestConfig } from "@pulgueta/wompi";`;
+const mainEntry = `import { WompiClient } from "@pulgueta/wompi";`;
 
-const clientEntry = `import { WompiClient } from "@pulgueta/wompi/client";`;
+const schemasEntry = `import {
+  // Zod schemas — validate a request body before it reaches the SDK.
+  CreateTransactionInputSchema,
+  TokenizeCardInputSchema,
+  CreatePaymentLinkInputSchema,
+  // Error classes — for instanceof branching.
+  WompiError,
+  WompiNotFoundError,
+  WompiValidationError,
+  WompiRequestError,
+} from "@pulgueta/wompi/schemas";
 
-const typesEntry = `import type {
-  WompiClientOptions,
+import type {
+  // Inferred types — return shapes, input shapes, enums and the Result tuple.
   Result,
   Transaction,
   TransactionStatus,
   CreateTransactionInput,
   PaymentLink,
-  CreatePaymentLinkInput,
   PaymentSource,
   CardToken,
-  NequiToken,
   Merchant,
   FinancialInstitution,
-} from "@pulgueta/wompi/types";`;
+} from "@pulgueta/wompi/schemas";`;
 
-const schemasEntry = `import {
-  CreateTransactionInputSchema,
-  TokenizeCardInputSchema,
-  CreatePaymentLinkInputSchema,
-} from "@pulgueta/wompi/schemas";
-
-// Validate an incoming form body before passing it to the SDK.
+const validateExample = `// Validate an incoming form body before passing it to the SDK.
 const parsed = CreateTransactionInputSchema.safeParse(req.body);
 if (!parsed.success) return res.status(400).json(parsed.error.flatten());`;
-
-const errorsEntry = `import {
-  WompiError,
-  WompiNotFoundError,
-  WompiValidationError,
-  WompiRequestError,
-} from "@pulgueta/wompi/errors";`;
 
 const serverEntry = `import { getSignatureKey } from "@pulgueta/wompi/server";`;
 ---
@@ -48,75 +43,62 @@ const serverEntry = `import { getSignatureKey } from "@pulgueta/wompi/server";`;
   description="Every entry point @pulgueta/wompi ships and what's behind it."
 >
   <p>
-    The package is published as ESM and CJS with separate type declarations for each subpath. Pull
-    in only the entry you need — the others stay out of your bundle.
+    The package is published as ESM and CJS with separate type declarations for each subpath. There
+    are three: the client, the schemas (with their types and error classes) and the server helper.
+    Pull in only the entry you need — the others stay out of your bundle.
   </p>
+
+  <Callout type="note" title="Changed in v3">
+    The package was flattened to three entries. <code>WompiClient</code> is the only root export, and
+    the former <code>/client</code>, <code>/types</code> and <code>/errors</code> subpaths were
+    folded into <code>/schemas</code>. If you're upgrading from v2, repoint type and error imports at
+    <code>@pulgueta/wompi/schemas</code>.
+  </Callout>
 
   <h2 id="main">
     <code>@pulgueta/wompi</code>
   </h2>
-  <p>
-    The default entry. Re-exports the client and the lower-level request primitive.
-  </p>
+  <p>The default entry. Exports the client — the one class you construct to call the API.</p>
   <CodeBlock code={mainEntry} lang="ts" />
   <ul>
-    <li><code>WompiClient</code> — the high-level client constructed in every other doc page.</li>
-    <li><code>WompiRequest</code> — the base class wrapping <code>fetch</code> + Zod parsing. Use it directly only when you need to call an endpoint the SDK hasn't covered yet.</li>
-    <li><code>WompiRequestConfig</code> (alias: <code>BaseConfig</code>) — the constructor options type.</li>
+    <li>
+      <code>WompiClient</code> — the high-level client used in every other doc page. It owns the
+      <code>merchants</code>, <code>transactions</code>, <code>tokens</code>,
+      <code>paymentSources</code>, <code>paymentLinks</code> and <code>pse</code> sub-resources.
+    </li>
   </ul>
-
-  <h2 id="client">
-    <code>@pulgueta/wompi/client</code>
-  </h2>
-  <p>
-    Just the <code>WompiClient</code> class. Use this entry if you want to skip importing
-    <code>WompiRequest</code> and its types.
-  </p>
-  <CodeBlock code={clientEntry} lang="ts" />
-
-  <h2 id="types">
-    <code>@pulgueta/wompi/types</code>
-  </h2>
-  <p>
-    Every typed shape derived from the Zod schemas — return types, input types, enums and union
-    types — without pulling Zod itself into your bundle.
-  </p>
-  <CodeBlock code={typesEntry} lang="ts" />
-
-  <Callout type="tip" title="Typed enums">
-    <code>TransactionStatus</code>, <code>PaymentMethodType</code> and <code>LegalIdType</code>
-    are string literal unions — perfect for narrowing in <code>switch</code> statements without
-    importing the schema.
-  </Callout>
 
   <h2 id="schemas">
     <code>@pulgueta/wompi/schemas</code>
   </h2>
   <p>
-    The raw Zod schemas. Pair them with your own routing layer to validate request bodies before
-    they hit the SDK.
+    Everything derived from the API contract: the Zod schemas, the types inferred from them (return
+    shapes, input shapes, enums, the <code>Result</code> tuple) and the four error classes.
   </p>
   <CodeBlock code={schemasEntry} lang="ts" />
 
-  <h2 id="errors">
-    <code>@pulgueta/wompi/errors</code>
-  </h2>
   <p>
-    The error subclasses, for when you'd rather <code>instanceof</code>-check than branch on
-    <code>error.type</code>.
+    Pair the schemas with your own routing layer to validate request bodies before they hit the SDK.
   </p>
-  <CodeBlock code={errorsEntry} lang="ts" />
+  <CodeBlock code={validateExample} lang="ts" />
+
+  <Callout type="tip" title="Typed enums">
+    <code>TransactionStatus</code>, <code>PaymentMethodType</code> and <code>LegalIdType</code>
+    are string literal unions — perfect for narrowing in <code>switch</code> statements. Import them
+    as <code>type</code> and no Zod reaches your bundle.
+  </Callout>
 
   <p>
-    See <a href="/docs/error-handling">Error handling</a> for a comparison of both styles.
+    The error classes (<code>WompiError</code> and its subclasses) live here too. See
+    <a href="/docs/error-handling">Error handling</a> for when each one is returned.
   </p>
 
   <h2 id="server">
     <code>@pulgueta/wompi/server</code>
   </h2>
   <p>
-    The server-only helpers. Currently houses <code>getSignatureKey</code>, the integrity
-    signature builder. Kept in its own entry so the client bundle stays free of crypto code.
+    The server-only helper: <code>getSignatureKey</code>, the integrity signature builder. Kept in
+    its own entry so the client bundle stays free of the signing code.
   </p>
   <CodeBlock code={serverEntry} lang="ts" />
 
@@ -124,12 +106,10 @@ const serverEntry = `import { getSignatureKey } from "@pulgueta/wompi/server";`;
   <table>
     <thead><tr><th>Subpath</th><th>Exports</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr><td><code>.</code></td><td><code>WompiClient</code>, <code>WompiRequest</code>, types</td><td>The default entry.</td></tr>
-      <tr><td><code>./client</code></td><td><code>WompiClient</code></td><td>Smallest possible import for the high-level client.</td></tr>
-      <tr><td><code>./types</code></td><td>Every <code>z.output&lt;…&gt;</code> type</td><td>Zero-runtime — type-only.</td></tr>
-      <tr><td><code>./schemas</code></td><td>Every Zod schema</td><td>For server-side validation layers.</td></tr>
-      <tr><td><code>./errors</code></td><td>Error subclasses</td><td>For <code>instanceof</code> branching.</td></tr>
+      <tr><td><code>.</code></td><td><code>WompiClient</code></td><td>The client. The only entry most apps import.</td></tr>
+      <tr><td><code>./schemas</code></td><td>Zod schemas, inferred types, error classes, <code>Result</code></td><td>Validation layers, typing and <code>instanceof</code> branching.</td></tr>
       <tr><td><code>./server</code></td><td><code>getSignatureKey</code></td><td>Web Crypto, server-only.</td></tr>
+      <tr><td><code>./package.json</code></td><td>The manifest</td><td>Exposed for tooling that reads the version.</td></tr>
     </tbody>
   </table>
 </DocsLayout>

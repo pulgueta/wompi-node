@@ -1,14 +1,15 @@
 import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
-import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY } from "astro:env/server";
 import { checkRateLimit } from "@/lib/ratelimit";
+import { readCredentialHeaders } from "@/lib/wompi-credentials";
 
 export const prerender = false;
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    // Responses echo the visitor's own sandbox data — never cache them.
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 
 /** Creates a hosted Wompi payment link and returns its public checkout URL. */
@@ -16,10 +17,13 @@ export const POST: APIRoute = async ({ request }) => {
   const rateLimited = await checkRateLimit(request, "payment-link");
   if (rateLimited) return rateLimited;
 
-  if (!WOMPI_PUBLIC_KEY || !WOMPI_PRIVATE_KEY) {
+  // The visitor supplies their own sandbox keys; they travel as request headers
+  // and are used only for this call — never read from env, persisted or logged.
+  const { publicKey, privateKey } = readCredentialHeaders(request);
+  if (!publicKey || !privateKey) {
     return json({
       configured: false,
-      message: "Add WOMPI_PUBLIC_KEY and WOMPI_PRIVATE_KEY to apps/docs/.env to run this example.",
+      message: "Add your own Wompi sandbox public and private keys to run this example.",
     });
   }
 
@@ -38,14 +42,17 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!name || !description || !Number.isInteger(amountInCents) || amountInCents < 1) {
     return json(
-      { ok: false, error: "A name, a description and a whole `amountInCents` are required." },
+      {
+        ok: false,
+        error: "A name, a description and a whole `amountInCents` are required.",
+      },
       400
     );
   }
 
   const wompi = new WompiClient({
-    publicKey: WOMPI_PUBLIC_KEY,
-    privateKey: WOMPI_PRIVATE_KEY,
+    publicKey,
+    privateKey,
     sandbox: true,
   });
 
@@ -61,13 +68,14 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ ok: false, error: error.message }, 422);
   }
 
-  const link = response.data;
+  const link = response;
+
   return json({
     ok: true,
     configured: true,
     paymentLink: {
       id: link.id,
-      url: `https://checkout.wompi.co/l/${link.id}`,
+      url: link.checkout_url,
       name: link.name ?? name,
       amountInCents: link.amount_in_cents ?? amountInCents,
       singleUse: link.single_use ?? singleUse,

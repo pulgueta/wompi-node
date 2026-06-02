@@ -47,8 +47,7 @@ const formulaSnippet = `<reference><amountInCents><currency><expirationTime?><in
 
   <h2 id="usage">Usage</h2>
   <p>
-    Import <code>getSignatureKey</code> from the <code>/server</code> subpath. It uses Web Crypto
-    (<code>crypto.subtle.digest</code>) so it runs unchanged on Node, edge runtimes and modern
+    Import <code>getSignatureKey</code> from the <code>/server</code> subpath. It uses Node's built-in Crypto API so it runs unchanged on Node, edge runtimes and modern
     serverless platforms.
   </p>
 

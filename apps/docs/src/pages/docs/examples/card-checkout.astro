@@ -1,11 +1,17 @@
 ---
 import DocsLayout from "../../../layouts/DocsLayout.astro";
-import CodeBlock from "../../../components/CodeBlock.astro";
 import Callout from "../../../components/Callout.astro";
 import Badge from "../../../components/Badge.astro";
+import FrameworkTabs from "../../../components/FrameworkTabs.astro";
 import { CardCheckoutForm } from "../../../components/examples/CardCheckoutForm";
+import { CredentialsPanel } from "../../../components/examples/CredentialsPanel";
 
-const apiRoute = `import type { APIRoute } from "astro";
+const frameworkExamples = [
+  {
+    id: "astro",
+    label: "Astro",
+    filename: "src/pages/api/checkout.ts",
+    code: `import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 import { getSignatureKey } from "@pulgueta/wompi/server";
 import { WOMPI_PUBLIC_KEY, WOMPI_PRIVATE_KEY, WOMPI_INTEGRITY_KEY } from "astro:env/server";
@@ -21,89 +27,218 @@ export const POST: APIRoute = async ({ request }) => {
     sandbox: true,
   });
 
-  // 1. Fetch the acceptance token.
   const [merchantError, merchant] = await wompi.merchants.getMerchant();
   if (merchantError) return Response.json({ error: merchantError.message }, { status: 502 });
 
-  // 2. Tokenize the card.
   const [tokenError, token] = await wompi.tokens.tokenizeCard(card);
   if (tokenError) return Response.json({ error: tokenError.message }, { status: 422 });
 
-  // 3. Sign the amount.
-  const reference = \`docs-demo-\${Date.now()}\`;
-  const signature = await getSignatureKey({
-    reference,
-    amountInCents,
-    integrityKey: WOMPI_INTEGRITY_KEY,
-  });
+  const reference = \`order-\${Date.now()}\`;
+  const signature = await getSignatureKey({ reference, amountInCents, integrityKey: WOMPI_INTEGRITY_KEY });
 
-  // 4. Create the transaction.
   const [transactionError, transaction] = await wompi.transactions.createTransaction({
-    acceptance_token: merchant.data.presigned_acceptance!.acceptance_token,
+    acceptance_token: merchant.presigned_acceptance!.acceptance_token,
     amount_in_cents: amountInCents,
     currency: "COP",
     signature,
     customer_email: customerEmail,
     reference,
-    payment_method: { type: "CARD", token: token.data.id, installments: 1 },
+    payment_method: { type: "CARD", token: token.id, installments: 1 },
   });
 
   if (transactionError) return Response.json({ error: transactionError.message }, { status: 422 });
-  return Response.json({ transaction: transaction.data });
-};`;
+  return Response.json({ transaction });
+};`,
+  },
+  {
+    id: "next",
+    label: "Next.js",
+    filename: "app/api/checkout/route.ts",
+    code: `import { NextRequest, NextResponse } from "next/server";
+import { WompiClient } from "@pulgueta/wompi";
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+export async function POST(request: NextRequest) {
+  const { card, customerEmail, amountInCents } = await request.json();
+
+  const wompi = new WompiClient({
+    publicKey: process.env.WOMPI_PUBLIC_KEY!,
+    privateKey: process.env.WOMPI_PRIVATE_KEY!,
+    sandbox: true,
+  });
+
+  const [merchantError, merchant] = await wompi.merchants.getMerchant();
+  if (merchantError) return NextResponse.json({ error: merchantError.message }, { status: 502 });
+
+  const [tokenError, token] = await wompi.tokens.tokenizeCard(card);
+  if (tokenError) return NextResponse.json({ error: tokenError.message }, { status: 422 });
+
+  const reference = \`order-\${Date.now()}\`;
+  const signature = await getSignatureKey({
+    reference,
+    amountInCents,
+    integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+  });
+
+  const [transactionError, transaction] = await wompi.transactions.createTransaction({
+    acceptance_token: merchant.presigned_acceptance!.acceptance_token,
+    amount_in_cents: amountInCents,
+    currency: "COP",
+    signature,
+    customer_email: customerEmail,
+    reference,
+    payment_method: { type: "CARD", token: token.id, installments: 1 },
+  });
+
+  if (transactionError) return NextResponse.json({ error: transactionError.message }, { status: 422 });
+  return NextResponse.json({ transaction });
+}`,
+  },
+  {
+    id: "tanstack",
+    label: "TanStack Start",
+    filename: "app/api/checkout.ts",
+    code: `import { createServerFn } from "@tanstack/react-start";
+import { WompiClient } from "@pulgueta/wompi";
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+type CheckoutInput = {
+  card: { number: string; exp_month: string; exp_year: string; cvc: string; card_holder: string };
+  customerEmail: string;
+  amountInCents: number;
+};
+
+export const checkout = createServerFn({ method: "POST" })
+  .validator((data: CheckoutInput) => data)
+  .handler(async ({ data: { card, customerEmail, amountInCents } }) => {
+    const wompi = new WompiClient({
+      publicKey: process.env.WOMPI_PUBLIC_KEY!,
+      privateKey: process.env.WOMPI_PRIVATE_KEY!,
+      sandbox: true,
+    });
+
+    const [merchantError, merchant] = await wompi.merchants.getMerchant();
+    if (merchantError) throw new Error(merchantError.message);
+
+    const [tokenError, token] = await wompi.tokens.tokenizeCard(card);
+    if (tokenError) throw new Error(tokenError.message);
+
+    const reference = \`order-\${Date.now()}\`;
+    const signature = await getSignatureKey({
+      reference,
+      amountInCents,
+      integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+    });
+
+    const [transactionError, transaction] = await wompi.transactions.createTransaction({
+      acceptance_token: merchant.presigned_acceptance!.acceptance_token,
+      amount_in_cents: amountInCents,
+      currency: "COP",
+      signature,
+      customer_email: customerEmail,
+      reference,
+      payment_method: { type: "CARD", token: token.id, installments: 1 },
+    });
+
+    if (transactionError) throw new Error(transactionError.message);
+    return { transaction };
+  });`,
+  },
+  {
+    id: "elysia",
+    label: "Elysia",
+    filename: "src/routes/checkout.ts",
+    code: `import { Elysia, t } from "elysia";
+import { WompiClient } from "@pulgueta/wompi";
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+export const checkoutRoute = new Elysia().post(
+  "/checkout",
+  async ({ body: { card, customerEmail, amountInCents } }) => {
+    const wompi = new WompiClient({
+      publicKey: Bun.env.WOMPI_PUBLIC_KEY!,
+      privateKey: Bun.env.WOMPI_PRIVATE_KEY!,
+      sandbox: true,
+    });
+
+    const [merchantError, merchant] = await wompi.merchants.getMerchant();
+    if (merchantError) throw new Error(merchantError.message);
+
+    const [tokenError, token] = await wompi.tokens.tokenizeCard(card);
+    if (tokenError) throw new Error(tokenError.message);
+
+    const reference = \`order-\${Date.now()}\`;
+    const signature = await getSignatureKey({
+      reference,
+      amountInCents,
+      integrityKey: Bun.env.WOMPI_INTEGRITY_KEY!,
+    });
+
+    const [transactionError, transaction] = await wompi.transactions.createTransaction({
+      acceptance_token: merchant.presigned_acceptance!.acceptance_token,
+      amount_in_cents: amountInCents,
+      currency: "COP",
+      signature,
+      customer_email: customerEmail,
+      reference,
+      payment_method: { type: "CARD", token: token.id, installments: 1 },
+    });
+
+    if (transactionError) throw new Error(transactionError.message);
+    return { transaction };
+  },
+  {
+    body: t.Object({
+      card: t.Object({
+        number: t.String(),
+        exp_month: t.String(),
+        exp_year: t.String(),
+        cvc: t.String(),
+        card_holder: t.String(),
+      }),
+      customerEmail: t.String(),
+      amountInCents: t.Number(),
+    }),
+  }
+);`,
+  },
+];
 ---
 
 <DocsLayout
   section="Examples"
   title="Card checkout"
-  description="A live Astro API route that tokenizes a card, signs the amount and creates a Wompi sandbox transaction."
+  description="Tokenize a card, sign the amount and create a Wompi sandbox transaction — shown for Astro, Next.js, TanStack Start and Elysia."
 >
   <p>
     <Badge variant="default">Live</Badge>
-    The form below calls the same SDK methods you'd use in production. The API route lives in
-    <code>apps/docs/src/pages/api/examples/checkout.ts</code> and runs on every request — set
-    <code>WOMPI_PUBLIC_KEY</code>, <code>WOMPI_PRIVATE_KEY</code> and
-    <code>WOMPI_INTEGRITY_KEY</code> in <code>apps/docs/.env</code> to charge a real sandbox card.
+    The form below calls the same SDK methods you'd use in production. Enter your
+    <code>publicKey</code>, <code>privateKey</code> and <code>integrityKey</code> below to charge a
+    sandbox card, then check the framework examples to adapt the server route to your stack.
   </p>
 
   <Callout type="note" title="Sandbox only">
     The route hard-codes <code>sandbox: true</code>. <code>4242 4242 4242 4242</code> is approved;
-    <code>4111 1111 1111 1111</code> is declined.
+    <code>4111 1111 1111 1111</code> is declined. Use your Wompi <strong>test</strong> keys only.
   </Callout>
 
   <h2 id="try-it">Try it</h2>
-  <div class="not-prose my-6">
+  <div class="not-prose my-6 grid gap-6">
+    <CredentialsPanel client:load />
     <CardCheckoutForm client:load />
   </div>
 
-  <h2 id="api-route">The API route</h2>
+  <h2 id="framework-examples">Framework examples</h2>
   <p>
-    Four steps — fetch the acceptance token, tokenize the card, sign the amount, create the
-    transaction. Every error branch returns a JSON body with the SDK's own error message.
+    Four steps regardless of framework — fetch the acceptance token, tokenize the card, sign the
+    amount, create the transaction. Pick your stack:
   </p>
 
-  <CodeBlock code={apiRoute} lang="ts" filename="src/pages/api/examples/checkout.ts" />
+  <FrameworkTabs examples={frameworkExamples} idBase="checkout" />
 
-  <h2 id="environment">Environment variables</h2>
-  <p>
-    The route is declared with Astro's <code>envField</code> in <code>astro.config.mjs</code>, so
-    Vercel's environment is type-checked at build time:
-  </p>
-
-  <CodeBlock
-    code={`env: {
-  schema: {
-    WOMPI_PUBLIC_KEY: envField.string({ context: "server", access: "secret", optional: true }),
-    WOMPI_PRIVATE_KEY: envField.string({ context: "server", access: "secret", optional: true }),
-    WOMPI_INTEGRITY_KEY: envField.string({ context: "server", access: "secret", optional: true }),
-  },
-}`}
-    lang="js"
-    filename="astro.config.mjs"
-  />
-
-  <p>
-    The keys are <code>optional: true</code> on purpose — the site always builds, and the route
-    returns a friendly notice when a key is missing instead of crashing the request.
-  </p>
+  <Callout type="note" title="Keys live on the server">
+    All examples read credentials from server environment variables (<code>WOMPI_PUBLIC_KEY</code>,
+    <code>WOMPI_PRIVATE_KEY</code>, <code>WOMPI_INTEGRITY_KEY</code>). The browser never touches
+    them.
+  </Callout>
 </DocsLayout>

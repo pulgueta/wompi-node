@@ -6,10 +6,10 @@ import Callout from "../../components/Callout.astro";
 const listSnippet = `const [error, response] = await wompi.pse.getFinancialInstitutions();
 if (error) throw error;
 
-response.data; // FinancialInstitution[]
+response; // FinancialInstitution[]
 
 // Render a <select> on the checkout page.
-const options = response.data.map((inst) => ({
+const options = response.map((inst) => ({
   value: inst.financial_institution_code,
   label: inst.financial_institution_name ?? inst.financial_institution_code,
 }));`;
@@ -55,7 +55,8 @@ const [error, response] = await wompi.transactions.createTransaction({
 
   <h3 id="response">Response shape</h3>
   <p>
-    The response is wrapped in <code>WompiListResponse&lt;FinancialInstitution&gt;</code>.
+    On success <code>response</code> is a <code>FinancialInstitution[]</code> — the array directly,
+    with no wrapper.
   </p>
   <table>
     <thead><tr><th>Field</th><th>Type</th></tr></thead>

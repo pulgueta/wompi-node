@@ -13,7 +13,7 @@ const createSnippet = `const [error, response] = await wompi.paymentLinks.create
 });
 if (error) throw error;
 
-const link = response.data;
+const link = response;
 const checkoutUrl = \`https://checkout.wompi.co/l/\${link.id}\`;`;
 
 const variableAmountSnippet = `// Omit amount_in_cents for "donation" / open-amount links — the customer
@@ -31,9 +31,9 @@ if (error) {
   throw error;
 }
 
-response.data.active;        // boolean — has it been deactivated?
-response.data.amount_in_cents;
-response.data.single_use;`;
+response.active;        // boolean — has it been deactivated?
+response.amount_in_cents;
+response.single_use;`;
 
 const updateSnippet = `// Deactivate a link so the URL stops accepting payments.
 const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, { active: false });

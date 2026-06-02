@@ -42,11 +42,12 @@
   },
   "overrides": [
     {
+      "ignore": ["node_modules", "dist", "build", ".agents/**", ".claude/**"],
       "include": [
         "packages/core/**",
         "packages/client/**",
         "packages/server/**",
-        "apps/docs/**",
+        "apps/docs/src/**",
         "*.astro"
       ],
       "javascript": {

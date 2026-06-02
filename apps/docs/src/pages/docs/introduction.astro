@@ -18,7 +18,7 @@ if (error) {
   return;
 }
 
-response.data.presigned_acceptance?.acceptance_token;`;
+response.presigned_acceptance?.acceptance_token;`;
 ---
 
 <DocsLayout
@@ -46,12 +46,12 @@ response.data.presigned_acceptance?.acceptance_token;`;
       unknown fields pass through so a Wompi API addition never breaks your client.
     </li>
     <li>
-      <strong>Tree-shakeable subpaths.</strong> Import the client, schemas, types, errors and the
-      server helpers separately — pay only for the surface you actually use.
+      <strong>Tree-shakeable subpaths.</strong> Import the client, the schemas (with their types and
+      error classes) and the server helper separately — pay only for the surface you actually use.
     </li>
     <li>
       <strong>No runtime dependencies.</strong> The package uses the platform <code>fetch</code>
-      and Web Crypto, so it runs unchanged on Node 22+, edge runtimes and modern serverless platforms.
+      and Node Crypto, so it runs unchanged on Node 22+, edge runtimes and modern serverless platforms.
     </li>
   </ul>
 

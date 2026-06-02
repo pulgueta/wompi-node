@@ -14,7 +14,7 @@ export const wompi = new WompiClient({
 const acceptanceSnippet = `const [merchantError, merchant] = await wompi.merchants.getMerchant();
 if (merchantError) throw merchantError;
 
-const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
 if (!acceptanceToken) throw new Error("Merchant has no acceptance token");`;
 
 const tokenSnippet = `const [tokenError, token] = await wompi.tokens.tokenizeCard({
@@ -26,7 +26,7 @@ const tokenSnippet = `const [tokenError, token] = await wompi.tokens.tokenizeCar
 });
 if (tokenError) throw tokenError;
 
-token.data.id; // cardToken_xxx — pass this into the transaction`;
+token.id; // cardToken_xxx — pass this into the transaction`;
 
 const signatureSnippet = `import { getSignatureKey } from "@pulgueta/wompi/server";
 
@@ -46,11 +46,11 @@ const transactionSnippet = `const [transactionError, transaction] = await wompi.
   signature,
   customer_email: "customer@example.com",
   reference,
-  payment_method: { type: "CARD", token: token.data.id, installments: 1 },
+  payment_method: { type: "CARD", token: token.id, installments: 1 },
 });
 if (transactionError) throw transactionError;
 
-transaction.data.status; // "PENDING" — poll wompi.transactions.getTransaction(id)`;
+transaction.status; // "PENDING" — poll wompi.transactions.getTransaction(id)`;
 ---
 
 <DocsLayout
@@ -74,7 +74,8 @@ transaction.data.status; // "PENDING" — poll wompi.transactions.getTransaction
   <h2 id="1-instantiate-the-client">1. Instantiate the client</h2>
   <p>
     Create the client once and reuse it. <code>sandbox: true</code> sends requests to
-    <code>https://api-sandbox.co.uat.wompi.dev</code>; set it to <code>false</code> for production.
+    <code>https://sandbox.wompi.co/v1</code>; set it to <code>false</code> to hit
+    <code>https://production.wompi.co/v1</code>.
   </p>
 
   <CodeBlock code={clientSnippet} lang="ts" filename="lib/wompi.ts" />
