@@ -1,0 +1,105 @@
+---
+import { Code } from "astro:components";
+import Icon from "./Icon.astro";
+
+export interface FrameworkExample {
+  id: string;
+  label: string;
+  filename: string;
+  code: string;
+}
+
+interface Props {
+  examples: FrameworkExample[];
+  idBase?: string;
+}
+
+const { examples, idBase = "fw" } = Astro.props;
+---
+
+<div class={`framework-tabs-${idBase} overflow-hidden rounded-xl border border-border`}>
+  <div
+    role="tablist"
+    aria-label="Framework examples"
+    class="flex flex-wrap gap-0 border-b border-border bg-muted/60"
+  >
+    {
+      examples.map((example, index) => (
+        <button
+          role="tab"
+          type="button"
+          data-tab={example.id}
+          aria-selected={index === 0 ? "true" : "false"}
+          class="border-b-2 border-transparent px-4 py-2.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground aria-selected:border-primary aria-selected:text-foreground"
+        >
+          {example.label}
+        </button>
+      ))
+    }
+  </div>
+
+  {
+    examples.map((example, index) => (
+      <figure
+        role="tabpanel"
+        data-panel={example.id}
+        aria-label={example.label}
+        hidden={index !== 0}
+        class="code-block"
+      >
+        <figcaption class="flex items-center justify-between border-b border-border bg-muted/40 py-1.5 pr-1.5 pl-3">
+          <span class="font-mono text-xs text-muted-foreground">{example.filename}</span>
+          <button
+            type="button"
+            class="copy-btn inline-grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-label="Copy code to clipboard"
+          >
+            <Icon name="copy" class="copy-icon size-3.5" />
+            <Icon name="check" class="check-icon hidden size-3.5 text-primary" />
+          </button>
+        </figcaption>
+        <Code
+          code={example.code}
+          lang="ts"
+          themes={{ light: "github-light", dark: "github-dark" }}
+        />
+      </figure>
+    ))
+  }
+</div>
+
+<script define:vars={{ idBase }}>
+  const container = document.querySelector(`.framework-tabs-${idBase}`);
+  if (container) {
+    const buttons = [...container.querySelectorAll("[role=tab]")];
+    const panels = [...container.querySelectorAll("[role=tabpanel]")];
+
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        for (const other of buttons) {
+          other.setAttribute("aria-selected", String(other === button));
+        }
+        for (const panel of panels) {
+          panel.hidden = panel.dataset.panel !== button.dataset.tab;
+        }
+      });
+    }
+
+    for (const panel of panels) {
+      const btn = panel.querySelector(".copy-btn");
+      if (!btn) continue;
+      btn.addEventListener("click", async () => {
+        const code = panel.querySelector("code")?.innerText ?? "";
+        await navigator.clipboard.writeText(code);
+        const copy = btn.querySelector(".copy-icon");
+        const check = btn.querySelector(".check-icon");
+        copy?.classList.add("hidden");
+        check?.classList.remove("hidden");
+        setTimeout(() => {
+          copy?.classList.remove("hidden");
+          check?.classList.add("hidden");
+        }, 1500);
+      });
+    }
+  }
+</script>

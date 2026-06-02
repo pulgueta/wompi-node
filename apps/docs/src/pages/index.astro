@@ -1,10 +1,13 @@
 ---
 import { Code } from "astro:components";
+
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
 import Icon from "../components/Icon.astro";
 import InstallTabs from "../components/InstallTabs.astro";
+import UsageTabs from "../components/UsageTabs.astro";
+import type { UsageExample } from "../components/UsageTabs.astro";
 import { site } from "../config/site";
 
 const heroSnippet = `import { WompiClient } from "@pulgueta/wompi";
@@ -21,56 +24,138 @@ if (error) {
   return;
 }
 
-response.data.status; // "APPROVED" | "PENDING" | "DECLINED" | ...`;
+response.status; // "APPROVED" | "PENDING" | "DECLINED" | ...`;
 
-const liveExampleSnippet = `const wompi = new WompiClient({
-  publicKey: WOMPI_PUBLIC_KEY,
-  privateKey: WOMPI_PRIVATE_KEY,
+const usageExamples: UsageExample[] = [
+  {
+    id: "card",
+    label: "Charge a card",
+    description: "Tokenize, sign, and create a transaction.",
+    icon: "credit-card",
+    filename: "charge-card.ts",
+    code: `import { WompiClient } from "@pulgueta/wompi";
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
   sandbox: true,
 });
 
-const [error, response] = await wompi.paymentLinks.createPaymentLink({
+const [merchantError, merchant] = await wompi.merchants.getMerchant();
+if (merchantError) throw merchantError;
+
+const reference = \`order-\${Date.now()}\`;
+const signature = await getSignatureKey({
+  reference,
+  amountInCents: 2_490_000,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+
+const [error, tx] = await wompi.transactions.createTransaction({
+  acceptance_token: merchant.presigned_acceptance!.acceptance_token,
+  amount_in_cents: 2_490_000,
+  currency: "COP",
+  signature,
+  reference,
+  customer_email: "buyer@example.com",
+  payment_method: { type: "CARD", token: cardToken, installments: 1 },
+});
+if (error) throw error;
+
+tx.status; // "PENDING" — poll getTransaction(tx.id)`,
+  },
+  {
+    id: "link",
+    label: "Hosted payment link",
+    description: "Share a checkout URL, skip card handling.",
+    icon: "link",
+    filename: "payment-link.ts",
+    code: `const [error, response] = await wompi.paymentLinks.createPaymentLink({
   name: "Order #1024",
-  description: "Thank you for shopping.",
+  description: "Thanks for shopping.",
   single_use: true,
   collect_shipping: false,
   amount_in_cents: 99_000,
   currency: "COP",
 });
+if (error) throw error;
 
-if (error) return new Response(error.message, { status: 422 });
-return Response.json({ url: \`https://checkout.wompi.co/l/\${response.data.id}\` });`;
+// Hand the customer a hosted checkout — no card data touches you.
+const url = \`https://checkout.wompi.co/l/\${response.id}\`;`,
+  },
+  {
+    id: "source",
+    label: "Reusable payment source",
+    description: "Store a token, re-charge it later.",
+    icon: "layers",
+    filename: "payment-source.ts",
+    code: `// Promote a one-time card token into a source you can re-charge.
+const [sourceError, source] = await wompi.paymentSources.createPaymentSource({
+  type: "CARD",
+  token: cardToken,
+  acceptance_token: acceptanceToken,
+  customer_email: "buyer@example.com",
+});
+if (sourceError) throw sourceError;
 
-const features = [
-  {
-    icon: "shield" as const,
-    title: "Error-first results",
-    body: "Every call returns a [error, data] tuple, so you can never forget to handle a failure. Errors are typed subclasses, not stringly-typed.",
+// Later, charge it with just the numeric id (private key required).
+const [error, tx] = await wompi.transactions.createTransaction({
+  acceptance_token: acceptanceToken,
+  amount_in_cents: 1_990_000,
+  currency: "COP",
+  signature,
+  reference: \`recur-\${Date.now()}\`,
+  customer_email: "buyer@example.com",
+  payment_source_id: source.id,
+});`,
   },
   {
-    icon: "sparkle" as const,
-    title: "Validated with Zod",
-    body: "Inputs are parsed before they hit the wire and responses are parsed leniently — unknown fields pass through, identities are typed.",
+    id: "pse",
+    label: "PSE bank transfer",
+    description: "List banks, route a PSE payment.",
+    icon: "bank",
+    filename: "pse.ts",
+    code: `// 1. List the banks PSE supports, render them as <option>s.
+const [error, banks] = await wompi.pse.getFinancialInstitutions();
+if (error) throw error;
+
+// 2. Route the chosen bank code through a PSE transaction.
+const [txError, tx] = await wompi.transactions.createTransaction({
+  acceptance_token: acceptanceToken,
+  amount_in_cents: 750_000,
+  currency: "COP",
+  signature,
+  reference: \`pse-\${Date.now()}\`,
+  customer_email: "buyer@example.com",
+  payment_method: {
+    type: "PSE",
+    user_type: 0,
+    user_legal_id_type: "CC",
+    user_legal_id: "1020304050",
+    financial_institution_code: banks[0].financial_institution_code,
+    payment_description: "Order #1024",
+  },
+});`,
   },
   {
-    icon: "package" as const,
-    title: "Tree-shakeable subpaths",
-    body: "Import only what you use: client, schemas, types, errors and a server entry for the integrity signature helper.",
-  },
-  {
-    icon: "bolt" as const,
-    title: "Sandbox by default",
-    body: "Flip a single flag to switch between sandbox and production. Tests, demos and integration suites stay safe by default.",
-  },
-  {
-    icon: "credit-card" as const,
-    title: "Full payment surface",
-    body: "Transactions, tokens, payment sources, payment links and PSE financial institutions — everything documented and typed.",
-  },
-  {
-    icon: "code" as const,
-    title: "Zero runtime deps",
-    body: "Uses the platform fetch and Web Crypto. Works on Node 22+, edge runtimes and modern serverless platforms out of the box.",
+    id: "errors",
+    label: "Typed error handling",
+    description: "Branch on the discriminant, never guess.",
+    icon: "shield",
+    filename: "errors.ts",
+    code: `const [error, response] = await wompi.transactions.getTransaction(id);
+
+if (error) {
+  // Branch on the discriminant — no instanceof, no string matching.
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") return notFound();
+  if ("type" in error && error.type === "INPUT_VALIDATION_ERROR") {
+    return badRequest(error.messages);
+  }
+  if ("statusCode" in error) return badGateway(error.statusCode);
+  throw error; // local WompiError — bad input before the request fired
+}
+
+response.status; // fully typed once \`error\` is ruled out`,
   },
 ];
 ---
@@ -83,29 +168,12 @@ const features = [
       <div class="mx-auto max-w-360 px-6 py-20 sm:px-8 sm:py-24 lg:py-28">
         <div class="grid items-center gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
           <div>
-            <a
-              href={site.repo}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1 font-mono text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-            >
-              <span class="inline-block size-1.5 rounded-full bg-primary"></span>
-              v{site.version} — read the changelog on GitHub
-              <Icon name="arrow-right" class="size-3" />
-            </a>
-
             <h1
-              class="font-heading mt-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]"
+              class="font-heading mt-6 text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]"
             >
-              The unofficial Wompi SDK for{" "}
-              <span class="text-primary">Node.js</span>
+              Integrate Wompi in your 
+              <span class="text-primary">Node.js</span> apps with ease.
             </h1>
-
-            <p class="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              A fully typed, error-first SDK for the Wompi payments API. Validated with Zod,
-              tree-shakeable across subpath exports, and built for transactions, tokens, payment
-              sources, payment links and PSE.
-            </p>
 
             <div class="mt-8 flex flex-wrap items-center gap-3">
               <a
@@ -133,7 +201,10 @@ const features = [
             </div>
 
             <div class="mt-8 max-w-md">
-              <InstallTabs pkg="@pulgueta/wompi" />
+              <InstallTabs pkg="@pulgueta/wompi zod" />
+              <p class="mt-2.5 text-xs leading-relaxed text-muted-foreground">
+                Zod is the only peer dependency — install it alongside the SDK.
+              </p>
             </div>
           </div>
 
@@ -160,110 +231,69 @@ const features = [
 
     <section class="border-b border-border bg-muted/20">
       <div class="mx-auto max-w-[90rem] px-6 py-20 sm:px-8 lg:py-24">
-        <div class="mx-auto max-w-2xl text-center">
-          <p class="font-heading text-sm font-semibold text-primary">Why this SDK</p>
-          <h2 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-            Built for the way you actually call payment APIs
+        <div class="max-w-2xl">
+          <h2 class="text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+            One client, every Wompi flow
           </h2>
-          <p class="mt-4 text-muted-foreground sm:text-lg">
-            Error-first results, validated inputs, typed responses and zero runtime dependencies —
-            so adding payments to your app feels like calling any other typed service.
+          <p class="mt-4 text-pretty text-muted-foreground sm:text-lg">
+            Card charges, hosted links, stored payment sources, PSE bank transfers and typed errors
+            all run through the same client. Each tab is a real call against the SDK — copy it, swap
+            in your keys, and run it.
           </p>
         </div>
 
-        <ul class="mt-12 grid gap-px overflow-hidden rounded-xl border border-border sm:grid-cols-2 lg:grid-cols-3">
-          {
-            features.map((feature) => (
-              <li class="flex flex-col gap-3 bg-background p-6">
-                <span class="inline-grid size-9 place-items-center rounded-md bg-primary/10 text-primary">
-                  <Icon name={feature.icon} class="size-[18px]" />
-                </span>
-                <p class="font-heading text-base font-semibold">{feature.title}</p>
-                <p class="text-sm leading-relaxed text-muted-foreground">{feature.body}</p>
-              </li>
-            ))
-          }
-        </ul>
-      </div>
-    </section>
-
-    <section class="border-b border-border">
-      <div class="mx-auto max-w-[90rem] px-6 py-20 sm:px-8 lg:py-24">
-        <div class="grid gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-16">
-          <div>
-            <p class="font-heading text-sm font-semibold text-primary">Live in this site</p>
-            <h2 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              Real Astro API routes, calling the real Wompi sandbox
-            </h2>
-            <p class="mt-4 text-muted-foreground sm:text-lg">
-              Two interactive demos render the SDK end-to-end: a card checkout that signs the
-              transaction with the integrity key, and a hosted payment link that returns a checkout
-              URL you can open right away.
-            </p>
-            <div class="mt-6 flex flex-wrap gap-3">
-              <a
-                href="/docs/examples/card-checkout"
-                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
-              >
-                <Icon name="credit-card" class="size-4" />
-                Card checkout
-              </a>
-              <a
-                href="/docs/examples/payment-link"
-                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
-              >
-                <Icon name="link" class="size-4" />
-                Payment link
-              </a>
-            </div>
-          </div>
-
-          <figure class="code-block overflow-hidden rounded-xl border border-border">
-            <figcaption
-              class="flex items-center justify-between border-b border-border bg-muted/60 py-1.5 pr-1.5 pl-3"
-            >
-              <span class="font-mono text-xs text-muted-foreground"
-                >src/pages/api/examples/payment-link.ts</span
-              >
-            </figcaption>
-            <Code
-              code={liveExampleSnippet}
-              lang="ts"
-              themes={{ light: "github-light", dark: "github-dark" }}
-            />
-          </figure>
+        <div class="mt-10 lg:mt-12">
+          <UsageTabs examples={usageExamples} />
         </div>
       </div>
     </section>
 
     <section>
-      <div class="mx-auto max-w-[90rem] px-6 py-20 sm:px-8 lg:py-24">
+      <div class="mx-auto max-w-360 px-6 py-20 sm:px-8 lg:py-24">
         <div
-          class="flex flex-col items-start gap-6 rounded-xl border border-border bg-muted/30 p-8 sm:flex-row sm:items-center sm:justify-between sm:p-10"
+          class="relative overflow-hidden rounded-2xl border border-border bg-muted/30 px-6 py-14 text-center sm:px-10 sm:py-16"
         >
-          <div>
-            <h2 class="font-heading text-2xl font-bold tracking-tight">Ready to ship?</h2>
-            <p class="mt-2 max-w-xl text-muted-foreground">
-              Install the SDK, drop your sandbox keys in and follow the five-minute quickstart.
-            </p>
+          <div
+            aria-hidden="true"
+            class="pointer-events-none absolute inset-x-0 -top-24 mx-auto h-48 w-xl max-w-full rounded-full bg-primary/10 blur-3xl"
+          >
           </div>
-          <div class="flex flex-wrap gap-3">
-            <a
-              href="/docs/quickstart"
-              class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-            >
-              Quickstart
-              <Icon name="arrow-right" class="size-4" />
-            </a>
-            <a
-              href={site.npm}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
-            >
-              <Icon name="package" class="size-4" />
-              View on npm
-            </a>
+
+          <div class="relative">
+            <h2 class="font-heading text-3xl font-bold tracking-tight text-balance">
+              Start receiving payments in your Node.js applications
+            </h2>
+            <p class="mx-auto mt-3 max-w-xl text-pretty text-muted-foreground sm:text-lg">
+              Install the package, set your environment variables and use the provided skills to integrate Wompi in your Node.js applications.
+            </p>
+
+            <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="/docs/quickstart"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                Get started
+                <Icon name="arrow-right" class="size-4" />
+              </a>
+              <a
+                href={site.repo}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                <Icon name="github" class="size-4" />
+                Star on GitHub
+              </a>
+              <a
+                href={site.wompi}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Visit Wompi
+                <Icon name="external" class="size-3.5" />
+              </a>
+            </div>
           </div>
         </div>
       </div>
