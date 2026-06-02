@@ -2,6 +2,16 @@
 
 This is the **unofficial** Wompi SDK. This package features a simpler abstraction for the Wompi API, making it easier to interact as a developer and to integrate into your projects.
 
+## AI Agent Skills
+
+If you use an AI coding agent (Claude Code, Cursor, Copilot, etc.), run:
+
+```bash
+pnpx @tanstack/intent@latest install
+```
+
+This installs focused skill files covering client setup, transactions, payment sources, payment links, server integration, and a go-to-production checklist — so your agent produces correct Wompi code without hallucinating APIs.
+
 ## Installation
 
 To install this package, you can use NPM, Yarn, or PNPM:
@@ -39,8 +49,6 @@ const wompi = new WompiClient({
 });
 ```
 
-`WompiClient` is also exported from the `@pulgueta/wompi/client` subpath.
-
 ### Error handling
 
 Every client method returns an error-first tuple — `[error, data]` — instead of
@@ -57,7 +65,7 @@ if (error) {
   return;
 }
 
-console.log(response.data.status); // fully typed
+console.log(response.status); // fully typed
 ```
 
 ### Creating a transaction
@@ -78,7 +86,7 @@ const wompi = new WompiClient({
 // 1. Acceptance token from the merchant.
 const [merchantError, merchant] = await wompi.merchants.getMerchant();
 if (merchantError) throw merchantError;
-const acceptanceToken = merchant.data.presigned_acceptance?.acceptance_token;
+const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
 if (!acceptanceToken) {
   throw new Error("Missing acceptance token in merchant response");
 }
@@ -110,11 +118,11 @@ const [error, transaction] = await wompi.transactions.createTransaction({
   signature,
   customer_email: "buyer@example.com",
   reference,
-  payment_method: { type: "CARD", token: token.data.id, installments: 1 },
+  payment_method: { type: "CARD", token: token.id, installments: 1 },
 });
 if (error) throw error;
 
-console.log(transaction.data.id, transaction.data.status);
+console.log(transaction.id, transaction.status);
 ```
 
 ### Computing the integrity signature
@@ -151,11 +159,8 @@ write requires a `privateKey`.
 
 ### Subpath exports
 
-| Import                    | Contents                        |
-| ------------------------- | ------------------------------- |
-| `@pulgueta/wompi`         | `WompiClient`, `WompiRequest`   |
-| `@pulgueta/wompi/client`  | `WompiClient`                   |
-| `@pulgueta/wompi/server`  | `getSignatureKey`               |
-| `@pulgueta/wompi/errors`  | `WompiError` and its subclasses |
-| `@pulgueta/wompi/types`   | The inferred TypeScript types   |
-| `@pulgueta/wompi/schemas` | The Zod schemas                 |
+| Import                    | Contents                                                       |
+| ------------------------- | -------------------------------------------------------------- |
+| `@pulgueta/wompi`         | `WompiClient`                                                  |
+| `@pulgueta/wompi/server`  | `getSignatureKey`, `GetSignatureKeyOptions`                   |
+| `@pulgueta/wompi/schemas` | Zod schemas, inferred types, `WompiError` and its subclasses, `Result` |

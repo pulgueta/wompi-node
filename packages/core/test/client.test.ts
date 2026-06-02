@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { WompiClient } from "../src/client";
-import { WompiError } from "../src/errors/wompi-error";
+import { WompiClient } from "../src";
+import { WompiError } from "../src/schemas";
 
 describe("WompiClient", () => {
   it("should create a client with a public key", () => {

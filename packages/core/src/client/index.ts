@@ -1,11 +1,10 @@
-import { WompiError } from "@/errors/wompi-error";
 import { Merchants } from "@/client/merchants";
 import { Transactions } from "@/client/transactions";
 import { Tokens } from "@/client/tokens";
 import { PaymentSources } from "@/client/payment-sources";
 import { PaymentLinks } from "@/client/payment-links";
 import { PSE } from "@/client/pse";
-import { WompiClientOptionsSchema } from "@/schemas";
+import { WompiClientOptionsSchema, WompiError } from "@/schemas";
 
 export class WompiClient {
   /** Merchant operations (get merchant info, acceptance token). */

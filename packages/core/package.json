@@ -1,6 +1,6 @@
 {
   "name": "@pulgueta/wompi",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "El SDK de Wompi para Node.js",
   "author": "Andrés Rodríguez <roariasaf@gmail.com>",
   "license": "MIT",
@@ -17,7 +17,10 @@
     "url": "https://github.com/pulgueta/wompi-node/issues"
   },
   "homepage": "https://github.com/pulgueta/wompi-node",
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "skills"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -29,30 +32,15 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./client": {
-      "types": "./dist/client/index.d.ts",
-      "import": "./dist/client/index.js",
-      "require": "./dist/client/index.cjs"
-    },
-    "./types": {
-      "types": "./dist/types.d.ts",
-      "import": "./dist/types.js",
-      "require": "./dist/types.cjs"
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.cjs"
     },
     "./schemas": {
       "types": "./dist/schemas.d.ts",
       "import": "./dist/schemas.js",
       "require": "./dist/schemas.cjs"
-    },
-    "./errors": {
-      "types": "./dist/errors/wompi-error.d.ts",
-      "import": "./dist/errors/wompi-error.js",
-      "require": "./dist/errors/wompi-error.cjs"
-    },
-    "./server": {
-      "types": "./dist/server/utils/index.d.ts",
-      "import": "./dist/server/utils/index.js",
-      "require": "./dist/server/utils/index.cjs"
     }
   },
   "scripts": {
@@ -71,11 +59,11 @@
   ],
   "devDependencies": {
     "@pulgueta/wompi-tsconfig": "workspace:*",
-    "@types/node": "^22.5.5",
-    "@vitest/coverage-v8": "^2.1.1",
-    "tsup": "^8.3.0",
-    "typescript": "^5.6.2",
-    "vitest": "^2.1.1"
+    "@types/node": "^24.12.4",
+    "@vitest/coverage-v8": "^4.1.7",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
   },
   "peerDependencies": {
     "zod": "^4.3.6"

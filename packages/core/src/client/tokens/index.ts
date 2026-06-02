@@ -1,13 +1,15 @@
 import { WompiRequest } from "@/request";
 import {
+  CardTokenSchema,
+  NequiTokenSchema,
   TokenizeCardInputSchema,
   TokenizeNequiInputSchema,
-  NequiTokenSchema,
-  CardTokenSchema,
+  WompiError,
   wompiResponse,
+  type CardToken,
+  type NequiToken,
+  type Result,
 } from "@/schemas";
-import { WompiError } from "@/errors/wompi-error";
-import type { CardToken, NequiToken, Result, WompiResponse } from "@/types";
 
 const CardTokenResponseSchema = wompiResponse(CardTokenSchema);
 const NequiTokenResponseSchema = wompiResponse(NequiTokenSchema);
@@ -24,7 +26,7 @@ export class Tokens extends WompiRequest {
    * Tokenize a credit card for use in transactions or payment sources.
    * Requires public key (BearerPublicKey).
    */
-  async tokenizeCard(input: unknown): Promise<Result<WompiResponse<CardToken>>> {
+  async tokenizeCard(input: unknown): Promise<Result<CardToken>> {
     const parsed = TokenizeCardInputSchema.safeParse(input);
 
     if (!parsed.success) {
@@ -45,7 +47,7 @@ export class Tokens extends WompiRequest {
    * Tokenize a Nequi account for use in transactions or payment sources.
    * Requires public key (BearerPublicKey).
    */
-  async tokenizeNequi(input: unknown): Promise<Result<WompiResponse<NequiToken>>> {
+  async tokenizeNequi(input: unknown): Promise<Result<NequiToken>> {
     const parsed = TokenizeNequiInputSchema.safeParse(input);
 
     if (!parsed.success) {
@@ -66,7 +68,7 @@ export class Tokens extends WompiRequest {
    * Get the status of a tokenized Nequi account.
    * Requires public key (BearerPublicKey).
    */
-  async getNequiToken(tokenId: string): Promise<Result<WompiResponse<NequiToken>>> {
+  async getNequiToken(tokenId: string): Promise<Result<NequiToken>> {
     return this.get(`/tokens/nequi/${tokenId}`, NequiTokenResponseSchema, {
       Authorization: `Bearer ${this.publicKey}`,
     });

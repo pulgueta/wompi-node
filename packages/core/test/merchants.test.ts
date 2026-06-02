@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Merchants } from "../src/client/merchants";
+import { WompiClient } from "../src";
 import { okJson } from "./helpers";
 
 const MERCHANT_RESPONSE = {
@@ -29,6 +29,9 @@ describe("Merchants", () => {
   const mockFetch = vi.fn();
   const PUBLIC_KEY = "pub_test_123";
 
+  const makeClient = (sandbox = true) =>
+    new WompiClient({ publicKey: PUBLIC_KEY, sandbox }).merchants;
+
   beforeEach(() => {
     vi.stubGlobal("fetch", mockFetch);
   });
@@ -39,16 +42,16 @@ describe("Merchants", () => {
 
   describe("getMerchant", () => {
     it("should return [null, data] with merchant info", async () => {
-      const merchants = new Merchants(PUBLIC_KEY, true);
+      const merchants = makeClient();
 
       mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 
       const [error, data] = await merchants.getMerchant();
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe(11000);
-      expect(data!.data.name).toBe("Tienda del ahorro");
-      expect(data!.data.accepted_payment_methods).toEqual(["CARD", "NEQUI", "PSE"]);
+      expect(data!.id).toBe(11000);
+      expect(data!.name).toBe("Tienda del ahorro");
+      expect(data!.accepted_payment_methods).toEqual(["CARD", "NEQUI", "PSE"]);
 
       const [url, options] = mockFetch.mock.calls[0]!;
       expect(url).toContain(`/merchants/${PUBLIC_KEY}`);
@@ -56,7 +59,7 @@ describe("Merchants", () => {
     });
 
     it("should accept payment methods outside the strict enum", async () => {
-      const merchants = new Merchants(PUBLIC_KEY, true);
+      const merchants = makeClient();
 
       // The live sandbox returns these for real merchants — they must not fail validation.
       mockFetch.mockResolvedValueOnce(
@@ -71,22 +74,22 @@ describe("Merchants", () => {
       const [error, data] = await merchants.getMerchant();
 
       expect(error).toBeNull();
-      expect(data!.data.accepted_payment_methods).toContain("DAVIPLATA");
+      expect(data!.accepted_payment_methods).toContain("DAVIPLATA");
     });
 
     it("should accept a partial merchant body without a false error", async () => {
-      const merchants = new Merchants(PUBLIC_KEY, true);
+      const merchants = makeClient();
 
       mockFetch.mockResolvedValueOnce(okJson({ data: { id: 11000, public_key: "pub_test_123" } }));
 
       const [error, data] = await merchants.getMerchant();
 
       expect(error).toBeNull();
-      expect(data!.data.id).toBe(11000);
+      expect(data!.id).toBe(11000);
     });
 
     it("should use sandbox URL when sandbox is enabled", async () => {
-      const merchants = new Merchants(PUBLIC_KEY, true);
+      const merchants = makeClient(true);
 
       mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 
@@ -97,7 +100,7 @@ describe("Merchants", () => {
     });
 
     it("should use production URL when sandbox is disabled", async () => {
-      const merchants = new Merchants(PUBLIC_KEY, false);
+      const merchants = makeClient(false);
 
       mockFetch.mockResolvedValueOnce(okJson(MERCHANT_RESPONSE));
 

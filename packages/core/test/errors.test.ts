@@ -4,7 +4,7 @@ import {
   WompiNotFoundError,
   WompiValidationError,
   WompiRequestError,
-} from "../src/errors/wompi-error";
+} from "../src/schemas";
 
 describe("WompiError", () => {
   it("should create with a message", () => {
