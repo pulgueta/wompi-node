@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "45f00bac84048d02d4506b93c761c846490dd4f70d336100fb962019568a5e54"
+    },
     "turborepo": {
       "source": "vercel/turborepo",
       "sourceType": "github",
