@@ -26,9 +26,9 @@ const { title, description, section } = Astro.props;
     >
       <Sidebar />
 
-      <main class="min-w-0 py-8 lg:py-12">
+      <main class="min-w-0 py-8 lg:py-12" transition:name="main-content">
         <article class="prose mx-auto max-w-3xl">
-          <header class="mb-10">
+          <header class="mb-10" transition:name="page-title">
             {
               section && (
                 <p class="font-heading text-sm font-semibold text-primary">{section}</p>
@@ -72,34 +72,48 @@ const { title, description, section } = Astro.props;
 </BaseLayout>
 
 <script>
-  const dialog = document.getElementById('mobile-nav') as HTMLDialogElement | null;
-  const openButton = document.querySelector<HTMLButtonElement>('[data-sidebar-toggle]');
+  // The mobile navigation drawer. The header toggle and the dialog both ride the
+  // `root` snapshot, so the router replaces them on every navigation — rebind the
+  // fresh elements on each page load. The dataset guard keeps the initial page
+  // (which runs this script *and* fires astro:page-load) from binding twice.
+  function initMobileNav() {
+    const dialog = document.getElementById('mobile-nav') as HTMLDialogElement | null;
+    const openButton = document.querySelector<HTMLButtonElement>('[data-sidebar-toggle]');
+    if (!dialog || !openButton || dialog.dataset.navReady === 'true') return;
+    dialog.dataset.navReady = 'true';
 
-  const setExpanded = (value: boolean) =>
-    openButton?.setAttribute('aria-expanded', String(value));
+    const setExpanded = (value: boolean) =>
+      openButton.setAttribute('aria-expanded', String(value));
 
-  openButton?.addEventListener('click', () => {
-    dialog?.showModal();
-    setExpanded(true);
-  });
+    openButton.addEventListener('click', () => {
+      dialog.showModal();
+      setExpanded(true);
+    });
 
-  dialog?.querySelector('[data-close-nav]')?.addEventListener('click', () => dialog.close());
+    dialog.querySelector('[data-close-nav]')?.addEventListener('click', () => dialog.close());
 
-  // Clicking the dialog element itself means the backdrop was clicked.
-  dialog?.addEventListener('click', (event) => {
-    if (event.target === dialog) dialog.close();
-  });
+    // Clicking the dialog element itself means the backdrop was clicked.
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
 
-  dialog?.addEventListener('close', () => setExpanded(false));
+    dialog.addEventListener('close', () => setExpanded(false));
 
-  // Following a link should dismiss the drawer.
-  for (const link of dialog?.querySelectorAll('a') ?? []) {
-    link.addEventListener('click', () => dialog?.close());
+    // Following a link should dismiss the drawer.
+    for (const link of dialog.querySelectorAll('a')) {
+      link.addEventListener('click', () => dialog.close());
+    }
   }
 
-  // Never leave the drawer open when the layout switches to desktop.
+  initMobileNav();
+  document.addEventListener('astro:page-load', initMobileNav);
+
+  // Never leave the drawer open when the layout switches to desktop. Registered
+  // once; it resolves the current dialog only when it actually fires.
   window.matchMedia('(min-width: 1024px)').addEventListener('change', (event) => {
-    if (event.matches && dialog?.open) dialog.close();
+    if (!event.matches) return;
+    const dialog = document.getElementById('mobile-nav') as HTMLDialogElement | null;
+    if (dialog?.open) dialog.close();
   });
 </script>
 

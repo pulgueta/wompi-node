@@ -309,3 +309,82 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ── View Transitions ─────────────────────────────────────────────────────────
+   A subtle, staggered page reveal. The persistent chrome (header, sidebar,
+   on-this-page rail, footer) rides the `root` snapshot, which we hold still so
+   it never crossfades or flashes between pages. Only the page title and its
+   content move: the title leads with a small fade-rise, the content follows a
+   beat later. One ease-out curve, everything under ~340ms, GPU-only properties.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ease-out-quint — confident deceleration, no bounce */
+  --vt-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    /* A whisper of blur lets the outgoing text dissolve instead of briefly
+       double-exposing with the incoming page. Only the exiting layer blurs, so
+       the content you're about to read always arrives crisp. */
+    filter: blur(3px);
+  }
+}
+@keyframes vt-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes vt-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Chrome stays put: the root snapshot swaps instantly, never crossfades. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Snap each group box to its new size so the title/content height changing
+     between pages can't stretch the captured snapshot — only opacity and a few
+     pixels of translate animate. */
+  ::view-transition-group(page-title),
+  ::view-transition-group(main-content),
+  ::view-transition-group(home-main) {
+    animation: none;
+  }
+
+  ::view-transition-old(page-title),
+  ::view-transition-old(main-content),
+  ::view-transition-old(home-main) {
+    animation: vt-out 140ms var(--vt-ease) both;
+  }
+
+  /* Title leads. */
+  ::view-transition-new(page-title) {
+    animation: vt-title-in 300ms var(--vt-ease) both;
+  }
+  /* Content (and its pagination) follows a beat later. */
+  ::view-transition-new(main-content) {
+    animation: vt-content-in 280ms 55ms var(--vt-ease) both;
+  }
+  /* Landing page content enters on its own, no stagger. */
+  ::view-transition-new(home-main) {
+    animation: vt-content-in 300ms var(--vt-ease) both;
+  }
+}
+
+/* Honour reduced-motion: cut every transition animation to an instant swap. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

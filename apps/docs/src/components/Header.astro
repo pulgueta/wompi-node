@@ -97,12 +97,9 @@ const navLinks = [
   </div>
 </header>
 
-<script>
-  const toggle = document.getElementById('theme-toggle');
-  toggle?.addEventListener('click', () => {
-    const isDark = document.documentElement.classList.toggle('dark');
-    try {
-      localStorage.setItem('theme', isDark ? 'dark' : 'light');
-    } catch {}
-  });
-</script>
+<!--
+  No script here: the theme toggle (#theme-toggle) is handled by a delegated
+  document-level listener in BaseLayout so it keeps working as the router swaps
+  this header on navigation.
+-->
+
