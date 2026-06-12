@@ -68,7 +68,7 @@ const { examples, idBase = "fw" } = Astro.props;
   }
 </div>
 
-<script define:vars={{ idBase }}>
+<script is:inline define:vars={{ idBase }}>
   const container = document.querySelector(`.framework-tabs-${idBase}`);
   if (container) {
     const buttons = [...container.querySelectorAll("[role=tab]")];

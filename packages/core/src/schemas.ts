@@ -61,9 +61,15 @@ export const ShippingAddressSchema = z.object({
   postal_code: z.string().optional(),
 });
 
+/**
+ * Lenient by design: the direct flow sends `{ type, token, installments… }`,
+ * while charges against a saved `payment_source_id` send only
+ * `{ installments }` — Wompi infers the type from the source.
+ */
 export const TransactionPaymentMethodSchema = z
   .object({
-    type: z.string(),
+    type: z.string().optional(),
+    installments: z.number().int().min(1).optional(),
   })
   .loose();
 
@@ -82,12 +88,9 @@ export const CreateTransactionInputSchema = z
     customer_data: CustomerDataSchema.optional(),
     shipping_address: ShippingAddressSchema.optional(),
   })
-  .refine(
-    (data) => (data.payment_method === undefined) !== (data.payment_source_id === undefined),
-    {
-      message: "Provide exactly one of payment_method or payment_source_id",
-    }
-  );
+  .refine((data) => data.payment_method !== undefined || data.payment_source_id !== undefined, {
+    message: "Provide payment_method, payment_source_id, or both",
+  });
 
 /**
  * Response shape of a transaction.
@@ -345,6 +348,51 @@ export const wompiListResponse = <T extends z.ZodType>(itemSchema: T) =>
     })
     .transform((parsed) => (parsed as { data: z.output<T>[] }).data);
 
+export const WebhookSignatureSchema = z.object({
+  properties: z.array(z.string()),
+  checksum: z.string(),
+});
+
+/**
+ * Envelope of every event Wompi POSTs to the configured Events URL.
+ *
+ * `event` stays a plain string (Wompi adds event types over time); use
+ * {@link TransactionUpdatedEventSchema} or the `isTransactionUpdatedEvent`
+ * guard from `/server` to narrow the payload of known types.
+ */
+export const WebhookEventSchema = z
+  .object({
+    event: z.string(),
+    data: z.record(z.string(), z.unknown()),
+    environment: z.string(),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sent_at: z.string().optional(),
+  })
+  .loose();
+
+export const TransactionUpdatedEventSchema = z
+  .object({
+    event: z.literal("transaction.updated"),
+    data: z.object({ transaction: TransactionSchema }),
+    environment: z.string(),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sent_at: z.string().optional(),
+  })
+  .loose();
+
+export const NequiTokenUpdatedEventSchema = z
+  .object({
+    event: z.literal("nequi_token.updated"),
+    data: z.object({ nequi_token: NequiTokenSchema }),
+    environment: z.string(),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sent_at: z.string().optional(),
+  })
+  .loose();
+
 export const NotFoundErrorResponseSchema = z.object({
   error: z.object({
     type: z.literal("NOT_FOUND_ERROR"),
@@ -414,6 +462,11 @@ export type Merchant = z.output<typeof MerchantSchema>;
 
 export type FinancialInstitution = z.output<typeof FinancialInstitutionSchema>;
 
+export type WebhookSignature = z.output<typeof WebhookSignatureSchema>;
+export type WebhookEvent = z.output<typeof WebhookEventSchema>;
+export type TransactionUpdatedEvent = z.output<typeof TransactionUpdatedEventSchema>;
+export type NequiTokenUpdatedEvent = z.output<typeof NequiTokenUpdatedEventSchema>;
+
 export type NotFoundErrorResponse = z.output<typeof NotFoundErrorResponseSchema>;
 export type InputValidationErrorResponse = z.output<typeof InputValidationErrorResponseSchema>;
 
@@ -468,6 +521,15 @@ export class WompiRequestError extends WompiError {
   }
 }
 
+export class WompiWebhookVerificationError extends WompiError {
+  readonly type = "WEBHOOK_VERIFICATION_ERROR" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WompiWebhookVerificationError";
+  }
+}
+
 /**
  * Every error a {@link Result} can carry. The subclasses expose discriminants
  * (`.type` on not-found / validation errors, `.statusCode` on request errors), so
@@ -477,7 +539,8 @@ export type WompiErrorResult =
   | WompiError
   | WompiNotFoundError
   | WompiRequestError
-  | WompiValidationError;
+  | WompiValidationError
+  | WompiWebhookVerificationError;
 
 /**
  * Discriminated result tuple for error-first handling.
