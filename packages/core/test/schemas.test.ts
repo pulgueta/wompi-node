@@ -197,14 +197,16 @@ describe("CreateTransactionInputSchema (strict input)", () => {
     ).toBe(true);
   });
 
-  it("rejects passing both payment_method and payment_source_id", () => {
+  it("accepts both payment_method and payment_source_id (recurring card charge)", () => {
+    // Wompi requires payment_method.installments when charging a saved CARD
+    // source, so the two fields legitimately travel together.
     expect(
       CreateTransactionInputSchema.safeParse({
         ...base,
-        payment_method: { type: "CARD" },
+        payment_method: { installments: 1 },
         payment_source_id: 42,
       }).success
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("rejects passing neither payment_method nor payment_source_id", () => {

@@ -232,8 +232,15 @@ describe("Transactions", () => {
       expect(error!.message).toContain("Invalid input");
     });
 
-    it("should reject input that provides both payment_method and payment_source_id", async () => {
+    it("accepts payment_method alongside payment_source_id (recurring card charge)", async () => {
       const transactions = makeClient(PRIVATE_KEY);
+
+      // Wompi requires `payment_method.installments` when charging a saved
+      // CARD source, so both fields travel together. `type` is omitted — the
+      // source defines it.
+      mockFetch.mockResolvedValueOnce(
+        okJson({ data: { id: "tx-1", status: "PENDING", reference: "ref-123" } }, 201)
+      );
 
       const [error, data] = await transactions.createTransaction({
         acceptance_token: "eyJhb...",
@@ -242,13 +249,19 @@ describe("Transactions", () => {
         signature: "sig_123",
         customer_email: "test@example.com",
         reference: "ref-123",
-        payment_method: { type: "CARD" },
+        payment_method: { installments: 1 },
         payment_source_id: 1234,
       });
 
-      expect(data).toBeNull();
-      expect(error).toBeInstanceOf(WompiError);
-      expect(error!.message).toContain("Invalid input");
+      expect(error).toBeNull();
+      expect(data!.id).toBe("tx-1");
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect(JSON.parse(init.body)).toMatchObject({
+        payment_method: { installments: 1 },
+        payment_source_id: 1234,
+      });
+      expect(init.headers.Authorization).toBe(`Bearer ${PRIVATE_KEY}`);
     });
 
     it("should return [error, null] on invalid input", async () => {
