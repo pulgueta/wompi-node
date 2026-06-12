@@ -607,36 +607,39 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { immediately?: boolean; subscriptionId: string; userId: string },
         {
-          _creationTime: number;
-          _id: string;
-          amountInCents: number;
-          cancelAtPeriodEnd: boolean;
-          canceledAt?: number;
-          currency: string;
-          currentPeriodEnd: number;
-          currentPeriodStart: number;
-          customerId: string;
-          endedAt?: number;
-          failedAttempts: number;
-          interval: "day" | "week" | "month" | "year";
-          intervalCount: number;
-          lastError?: string;
-          metadata?: Record<string, any>;
-          nextChargeAt?: number;
-          paymentSourceId: string;
-          pendingProductId?: string;
-          pendingProductKey?: string;
-          productId: string;
-          productKey: string;
-          status:
-            | "incomplete"
-            | "trialing"
-            | "active"
-            | "past_due"
-            | "unpaid"
-            | "canceled";
-          trialEndsAt?: number;
-          userId: string;
+          changed: boolean;
+          subscription: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          };
         },
         Name
       >;
@@ -645,36 +648,39 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { productKey: string; subscriptionId: string; userId: string },
         {
-          _creationTime: number;
-          _id: string;
-          amountInCents: number;
-          cancelAtPeriodEnd: boolean;
-          canceledAt?: number;
-          currency: string;
-          currentPeriodEnd: number;
-          currentPeriodStart: number;
-          customerId: string;
-          endedAt?: number;
-          failedAttempts: number;
-          interval: "day" | "week" | "month" | "year";
-          intervalCount: number;
-          lastError?: string;
-          metadata?: Record<string, any>;
-          nextChargeAt?: number;
-          paymentSourceId: string;
-          pendingProductId?: string;
-          pendingProductKey?: string;
-          productId: string;
-          productKey: string;
-          status:
-            | "incomplete"
-            | "trialing"
-            | "active"
-            | "past_due"
-            | "unpaid"
-            | "canceled";
-          trialEndsAt?: number;
-          userId: string;
+          changed: boolean;
+          subscription: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          };
         },
         Name
       >;

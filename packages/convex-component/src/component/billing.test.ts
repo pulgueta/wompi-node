@@ -317,8 +317,17 @@ describe("subscription lifecycle", () => {
       subscriptionId: created.subscription._id,
       userId: "user_1",
     });
-    expect(canceled.cancelAtPeriodEnd).toBe(true);
-    expect(canceled.status).toBe("active");
+    expect(canceled.changed).toBe(true);
+    expect(canceled.subscription.cancelAtPeriodEnd).toBe(true);
+    expect(canceled.subscription.status).toBe("active");
+
+    // Canceling again is a no-op — the exactly-once callback contract
+    // hinges on this flag.
+    const again = await t.mutation(api.subscriptions.cancel, {
+      subscriptionId: created.subscription._id,
+      userId: "user_1",
+    });
+    expect(again.changed).toBe(false);
 
     // Still entitled until the period actually ends.
     const current = await t.query(api.subscriptions.getCurrent, { userId: "user_1" });
@@ -442,6 +451,21 @@ describe("subscription lifecycle", () => {
     });
     expect(retried.subscription._id).toBe(created.subscription._id);
     expect(retried.payment!._id).not.toBe(created.payment!._id);
+    // Deterministic: one settled charge so far, so this is resume attempt 1.
+    expect(retried.payment!.reference).toBe(
+      `wmps_${created.subscription._id}_resume_a1`,
+    );
+
+    // A retried call (double submit, action retry) reuses the pending charge
+    // instead of minting a second reference that could double-charge.
+    const retriedAgain = await t.mutation(api.subscriptions.create, {
+      customerId: customer._id,
+      userId: "user_1",
+      productKey: "pro-monthly",
+      paymentSource: CARD,
+    });
+    expect(retriedAgain.payment!._id).toBe(retried.payment!._id);
+    expect(retriedAgain.payment!.reference).toBe(retried.payment!.reference);
   });
 
   test("scheduled plan change applies at the next renewal claim", async () => {

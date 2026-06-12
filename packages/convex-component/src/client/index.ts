@@ -583,19 +583,26 @@ export class Wompi {
     ctx: RunMutationCtx,
     args: { userId: string; subscriptionId: string; immediately?: boolean },
   ): Promise<SubscriptionDoc> {
-    const subscription = (await ctx.runMutation(this.component.subscriptions.cancel, {
-      subscriptionId: args.subscriptionId as never,
-      userId: args.userId,
-      immediately: args.immediately,
-    })) as SubscriptionDoc;
+    const { subscription, changed } = (await ctx.runMutation(
+      this.component.subscriptions.cancel,
+      {
+        subscriptionId: args.subscriptionId as never,
+        userId: args.userId,
+        immediately: args.immediately,
+      },
+    )) as { subscription: SubscriptionDoc; changed: boolean };
 
-    await this.dispatch(ctx, {
-      outcome: "applied",
-      paymentChanged: false,
-      subscriptionChanged: true,
-      payment: null,
-      subscription,
-    });
+    // Canceling an already-canceled (or already pending-cancel) subscription
+    // is a no-op — callbacks fire exactly once per real state change.
+    if (changed) {
+      await this.dispatch(ctx, {
+        outcome: "applied",
+        paymentChanged: false,
+        subscriptionChanged: true,
+        payment: null,
+        subscription,
+      });
+    }
     return subscription;
   }
 
@@ -622,11 +629,27 @@ export class Wompi {
     ctx: RunMutationCtx,
     args: { userId: string; subscriptionId: string; productKey: string },
   ): Promise<SubscriptionDoc> {
-    return (await ctx.runMutation(this.component.subscriptions.changeProduct, {
-      subscriptionId: args.subscriptionId as never,
-      userId: args.userId,
-      productKey: args.productKey,
-    })) as SubscriptionDoc;
+    const { subscription, changed } = (await ctx.runMutation(
+      this.component.subscriptions.changeProduct,
+      {
+        subscriptionId: args.subscriptionId as never,
+        userId: args.userId,
+        productKey: args.productKey,
+      },
+    )) as { subscription: SubscriptionDoc; changed: boolean };
+
+    // A scheduled plan change patches the subscription, so it counts as a
+    // state change; re-requesting the same pending product does not.
+    if (changed) {
+      await this.dispatch(ctx, {
+        outcome: "applied",
+        paymentChanged: false,
+        subscriptionChanged: true,
+        payment: null,
+        subscription,
+      });
+    }
+    return subscription;
   }
 
   // -------------------------------------------------------------------------

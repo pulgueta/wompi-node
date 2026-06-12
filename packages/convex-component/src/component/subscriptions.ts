@@ -85,8 +85,17 @@ export const create = mutation({
     );
 
     if (resumable) {
-      const attempt = resumable.failedAttempts;
-      const reference = subscriptionChargeReference(resumable._id, `r${now}`, attempt);
+      // Resume references must be deterministic — a retried call (action
+      // retry, double submit) has to land on the same pending charge instead
+      // of minting a second one. Attempts are numbered by settled charge
+      // rows: inserting the pending row doesn't move the counter, settling
+      // it does, so each declined attempt gets a fresh reference.
+      const priorPayments = await ctx.db
+        .query("payments")
+        .withIndex("by_subscription_id", (q) => q.eq("subscriptionId", resumable._id))
+        .take(200);
+      const attempt = priorPayments.filter((p) => p.status !== "pending").length;
+      const reference = subscriptionChargeReference(resumable._id, "resume", attempt);
 
       await ctx.db.patch("subscriptions", resumable._id, {
         paymentSourceId,
@@ -98,20 +107,35 @@ export const create = mutation({
         lastError: undefined,
       });
 
-      const paymentId = await ctx.db.insert("payments", {
-        reference,
-        kind: "subscription",
-        status: "pending",
-        customerId: args.customerId,
-        userId: args.userId,
-        productId: product._id,
-        productKey: product.key,
-        subscriptionId: resumable._id,
-        amountInCents: product.amountInCents,
-        currency: product.currency,
-        description: product.name,
-        attempt,
-      });
+      const reusable = priorPayments.find(
+        (p) => p.reference === reference && p.status === "pending",
+      );
+
+      let paymentId;
+      if (reusable) {
+        await ctx.db.patch("payments", reusable._id, {
+          amountInCents: product.amountInCents,
+          currency: product.currency,
+          description: product.name,
+          attempt,
+        });
+        paymentId = reusable._id;
+      } else {
+        paymentId = await ctx.db.insert("payments", {
+          reference,
+          kind: "subscription",
+          status: "pending",
+          customerId: args.customerId,
+          userId: args.userId,
+          productId: product._id,
+          productKey: product.key,
+          subscriptionId: resumable._id,
+          amountInCents: product.amountInCents,
+          currency: product.currency,
+          description: product.name,
+          attempt,
+        });
+      }
 
       return {
         subscription: (await ctx.db.get("subscriptions", resumable._id))!,
@@ -243,6 +267,10 @@ export const get = query({
 /**
  * Cancel a subscription. By default access continues until the period ends
  * and the billing cron finalizes the cancellation; `immediately` revokes now.
+ *
+ * `changed` is false when the call was a no-op (already canceled, or already
+ * pending cancellation) — callers use it to keep the "callbacks fire exactly
+ * once per state change" contract honest.
  */
 export const cancel = mutation({
   args: {
@@ -250,19 +278,24 @@ export const cancel = mutation({
     userId: v.string(),
     immediately: v.optional(v.boolean()),
   },
-  returns: subscriptionDoc,
+  returns: v.object({ subscription: subscriptionDoc, changed: v.boolean() }),
   handler: async (ctx, args) => {
     const subscription = await ctx.db.get("subscriptions", args.subscriptionId);
     if (!subscription || subscription.userId !== args.userId) {
       throw new Error("Subscription not found");
     }
     if (subscription.status === "canceled") {
-      return subscription;
+      return { subscription, changed: false };
+    }
+
+    const immediate = args.immediately || subscription.status === "incomplete";
+    if (!immediate && subscription.cancelAtPeriodEnd) {
+      return { subscription, changed: false };
     }
 
     const now = Date.now();
 
-    if (args.immediately || subscription.status === "incomplete") {
+    if (immediate) {
       await ctx.db.patch("subscriptions", subscription._id, {
         status: "canceled",
         cancelAtPeriodEnd: false,
@@ -280,7 +313,10 @@ export const cancel = mutation({
       });
     }
 
-    return (await ctx.db.get("subscriptions", subscription._id))!;
+    return {
+      subscription: (await ctx.db.get("subscriptions", subscription._id))!,
+      changed: true,
+    };
   },
 });
 
@@ -316,7 +352,7 @@ export const changeProduct = mutation({
     userId: v.string(),
     productKey: v.string(),
   },
-  returns: subscriptionDoc,
+  returns: v.object({ subscription: subscriptionDoc, changed: v.boolean() }),
   handler: async (ctx, args) => {
     const subscription = await ctx.db.get("subscriptions", args.subscriptionId);
     if (!subscription || subscription.userId !== args.userId) {
@@ -337,13 +373,19 @@ export const changeProduct = mutation({
     if (product._id === subscription.productId) {
       throw new Error("Subscription is already on this product");
     }
+    if (subscription.pendingProductId === product._id) {
+      return { subscription, changed: false };
+    }
 
     await ctx.db.patch("subscriptions", subscription._id, {
       pendingProductId: product._id,
       pendingProductKey: product.key,
     });
 
-    return (await ctx.db.get("subscriptions", subscription._id))!;
+    return {
+      subscription: (await ctx.db.get("subscriptions", subscription._id))!,
+      changed: true,
+    };
   },
 });
 
