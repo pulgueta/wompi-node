@@ -1,7 +1,7 @@
 import { defineApp } from "convex/server";
-import wompi from "@pulgueta/wompi/convex.config.js";
+import wompi from "@pulgueta/wompi-convex/convex.config.js";
 
 const app = defineApp();
-app.use(wompi, { httpPrefix: "/comments/" });
+app.use(wompi);
 
 export default app;

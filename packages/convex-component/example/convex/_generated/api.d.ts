@@ -8,7 +8,11 @@
  * @module
  */
 
-import type * as example from "../example.js";
+import type * as billing from "../billing.js";
+import type * as crons from "../crons.js";
+import type * as dev from "../dev.js";
+import type * as http from "../http.js";
+import type * as wompi from "../wompi.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +21,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  example: typeof example;
+  billing: typeof billing;
+  crons: typeof crons;
+  dev: typeof dev;
+  http: typeof http;
+  wompi: typeof wompi;
 }>;
 
 /**
@@ -47,5 +55,5 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  wompi: import("@pulgueta/wompi/_generated/component.js").ComponentApi<"wompi">;
+  wompi: import("@pulgueta/wompi-convex/_generated/component.js").ComponentApi<"wompi">;
 };

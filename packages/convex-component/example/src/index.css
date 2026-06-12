@@ -1,68 +1,133 @@
+/* Tienda Wompi — demo surface for @pulgueta/wompi-convex.
+   Dark dev-tool register; amber primary (Bancolombia-adjacent heritage);
+   state is the product: status chips are the most legible thing on screen. */
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Surfaces */
+  --bg: oklch(0.168 0.012 60);
+  --surface: oklch(0.215 0.014 60);
+  --surface-2: oklch(0.255 0.016 60);
+  --border: oklch(0.32 0.018 60);
+  --border-strong: oklch(0.42 0.025 60);
+
+  /* Ink */
+  --ink: oklch(0.95 0.012 80);
+  --ink-muted: oklch(0.745 0.022 70);
+  --ink-faint: oklch(0.62 0.02 68);
+
+  /* Brand */
+  --primary: oklch(0.8 0.145 70);
+  --primary-hover: oklch(0.85 0.15 72);
+  --primary-ink: oklch(0.2 0.03 65);
+  --primary-dim: oklch(0.8 0.145 70 / 0.12);
+
+  /* Semantic state */
+  --ok: oklch(0.78 0.16 152);
+  --ok-dim: oklch(0.78 0.16 152 / 0.13);
+  --warn: oklch(0.81 0.13 85);
+  --warn-dim: oklch(0.81 0.13 85 / 0.13);
+  --danger: oklch(0.72 0.17 25);
+  --danger-dim: oklch(0.72 0.17 25 / 0.14);
+  --neutral: oklch(0.7 0.015 60);
+  --neutral-dim: oklch(0.7 0.015 60 / 0.13);
+  --pending: oklch(0.78 0.1 240);
+  --pending-dim: oklch(0.78 0.1 240 / 0.14);
+
+  /* Type */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  /* Shape */
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  /* Z scale */
+  --z-sticky: 10;
+  --z-toast: 20;
+
+  font-family: var(--font-sans);
   line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
+  background: var(--bg);
+  color: var(--ink);
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+  letter-spacing: -0.02em;
+}
+
+p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: oklch(0.8 0.145 70 / 0.4);
+}
+
+a:hover {
+  text-decoration-color: var(--primary);
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+  font: inherit;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  border: none;
+  background: none;
+  color: inherit;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+button:disabled {
+  cursor: not-allowed;
+}
+
+input {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
