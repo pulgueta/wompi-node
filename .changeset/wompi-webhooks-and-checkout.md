@@ -11,4 +11,6 @@ Add webhook event verification and Web Checkout URL building to `@pulgueta/wompi
 
 `@pulgueta/wompi/schemas` now ships the matching schemas and types: `WebhookEventSchema`, `TransactionUpdatedEventSchema`, `NequiTokenUpdatedEventSchema`, `WebhookSignatureSchema`, their inferred types, and a new `WompiWebhookVerificationError` (discriminant `type: "WEBHOOK_VERIFICATION_ERROR"`).
 
+`CreateTransactionInputSchema` now accepts `payment_method` and `payment_source_id` **together** (previously exactly one was required). Charging a saved card source requires both — Wompi rejects source-only charges with "No se especificó el número de cuotas (installments)" — so the exactly-one refine became at-least-one, and `TransactionPaymentMethodSchema` gained an optional `installments` field. Inputs that passed validation before still do; inputs combining both fields are no longer rejected.
+
 These primitives power the new `@pulgueta/wompi-convex` component, but work in any runtime with Web Crypto (Node 20+, edge runtimes, Convex).
