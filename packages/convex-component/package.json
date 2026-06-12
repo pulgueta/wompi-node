@@ -1,36 +1,37 @@
 {
-  "name": "@pulgueta/wompi",
-  "description": "A wompi component for Convex.",
-  "repository": "github:pulgueta/wompi-sdk",
-  "homepage": "https://github.com/pulgueta/wompi-sdk#readme",
+  "name": "@pulgueta/wompi-convex",
+  "description": "Subscriptions and product checkouts for Wompi on Convex: billing engine, webhooks, and realtime payment state.",
+  "repository": "github:pulgueta/wompi-node",
+  "homepage": "https://github.com/pulgueta/wompi-node/tree/convex-component/packages/convex-component#readme",
   "bugs": {
-    "url": "https://github.com/pulgueta/wompi-sdk/issues"
+    "url": "https://github.com/pulgueta/wompi-node/issues"
   },
-  "version": "0.1.0",
+  "version": "0.0.0",
   "license": "Apache-2.0",
   "keywords": [
     "convex",
-    "component"
+    "component",
+    "wompi",
+    "payments",
+    "subscriptions",
+    "billing",
+    "colombia"
   ],
   "type": "module",
   "scripts": {
     "dev": "convex dev --start 'npm run dev:build'",
     "dev:frontend": "cd example && vite",
-    "dev:build": "chokidar 'tsconfig*.json' 'src/**/*.ts' -i '**/*.test.ts' -c 'npm run build:codegen' --initial",
-    "predev": "convex init && npm run build:codegen",
+    "dev:build": "chokidar 'tsconfig*.json' 'src/**/*.ts' -i '**/*.test.ts' -c 'pnpm run build:codegen' --initial",
+    "predev": "convex init && pnpm run build:codegen",
     "build": "tsc --project ./tsconfig.build.json",
-    "build:codegen": "npx convex codegen --component-dir ./src/component && npm run build",
-    "build:clean": "rm -rf dist *.tsbuildinfo && npm run build:codegen",
+    "build:codegen": "npx convex codegen --component-dir ./src/component && pnpm run build",
+    "build:clean": "rm -rf dist *.tsbuildinfo && pnpm run build:codegen",
     "typecheck": "tsc --noEmit && tsc -p example && tsc -p example/convex",
     "lint": "eslint .",
     "test": "vitest run --typecheck",
     "test:watch": "vitest --typecheck --clearScreen false",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
-    "test:coverage": "vitest run --coverage --coverage.reporter=text",
-    "preversion": "npm ci && npm run build:clean && npm run test && npm run lint && npm run typecheck",
-    "alpha": "npm version prerelease --preid alpha && npm publish --tag alpha && git push --follow-tags",
-    "release": "npm version patch && npm publish && git push --follow-tags",
-    "version": "(npm whoami || npm login) && vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && prettier -w CHANGELOG.md && git add CHANGELOG.md"
+    "test:coverage": "vitest run --coverage --coverage.reporter=text"
   },
   "files": [
     "dist",
@@ -61,6 +62,10 @@
       "types": "./dist/component/convex.config.d.ts",
       "default": "./dist/component/convex.config.js"
     }
+  },
+  "dependencies": {
+    "@pulgueta/wompi": "workspace:^",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "convex": "^1.36.1",

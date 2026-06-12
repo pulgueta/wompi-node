@@ -110,6 +110,13 @@ importers:
         version: 5.9.3
 
   packages/convex-component:
+    dependencies:
+      '@pulgueta/wompi':
+        specifier: workspace:^
+        version: link:../core
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
     devDependencies:
       '@convex-dev/eslint-plugin':
         specifier: ^2.0.0
