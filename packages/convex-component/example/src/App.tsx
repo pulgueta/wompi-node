@@ -198,7 +198,7 @@ function CardForm({
       .replace(/(.{4})/g, "$1 ")
       .trim();
 
-  const submit = async (event: React.FormEvent) => {
+  const submit = async (event: React.SubmitEvent) => {
     event.preventDefault();
     setError(null);
     setPhase("tokenizing");
