@@ -8,8 +8,13 @@
  * @module
  */
 
-import type * as http from "../http.js";
-import type * as lib from "../lib.js";
+import type * as billing from "../billing.js";
+import type * as customers from "../customers.js";
+import type * as payments from "../payments.js";
+import type * as products from "../products.js";
+import type * as shared from "../shared.js";
+import type * as subscriptions from "../subscriptions.js";
+import type * as webhooks from "../webhooks.js";
 
 import type {
   ApiFromModules,
@@ -19,8 +24,13 @@ import type {
 import { anyApi, componentsGeneric } from "convex/server";
 
 const fullApi: ApiFromModules<{
-  http: typeof http;
-  lib: typeof lib;
+  billing: typeof billing;
+  customers: typeof customers;
+  payments: typeof payments;
+  products: typeof products;
+  shared: typeof shared;
+  subscriptions: typeof subscriptions;
+  webhooks: typeof webhooks;
 }> = anyApi as any;
 
 /**
