@@ -1,9 +1,24 @@
+## 3.1.0
+
+### Minor Changes
+
+- [#21](https://github.com/pulgueta/wompi-node/pull/21) [`6fa999a`](https://github.com/pulgueta/wompi-node/commit/6fa999afc2089bbb411b0bd13e4822b7408973ea) Thanks [@pulgueta](https://github.com/pulgueta)! - Add webhook event verification and Web Checkout URL building to `@pulgueta/wompi/server`, the two server-side primitives a payments integration needs beyond raw API calls:
+  - `verifyWebhookEvent(payload, { eventsKey })` — parses and authenticates an event Wompi POSTs to your Events URL. It recomputes the SHA-256 checksum from `signature.properties` + `timestamp` + your events secret and compares it in constant time. Returns the SDK's usual `Result` tuple.
+  - `computeEventChecksum(event, eventsKey)` — the low-level checksum, exposed for custom flows.
+  - `isTransactionUpdatedEvent(event)` — type guard narrowing a verified event to a fully-typed `transaction.updated` payload.
+  - `buildCheckoutUrl(options)` — builds a `https://checkout.wompi.co/p/?…` Web Checkout redirect URL, computing the integrity signature for you (or accepting a precomputed one), with support for redirect URL, expiration, customer data, shipping collection and taxes.
+
+  `@pulgueta/wompi/schemas` now ships the matching schemas and types: `WebhookEventSchema`, `TransactionUpdatedEventSchema`, `NequiTokenUpdatedEventSchema`, `WebhookSignatureSchema`, their inferred types, and a new `WompiWebhookVerificationError` (discriminant `type: "WEBHOOK_VERIFICATION_ERROR"`).
+
+  `CreateTransactionInputSchema` now accepts `payment_method` and `payment_source_id` **together** (previously exactly one was required). Charging a saved card source requires both — Wompi rejects source-only charges with "No se especificó el número de cuotas (installments)" — so the exactly-one refine became at-least-one, and `TransactionPaymentMethodSchema` gained an optional `installments` field. Inputs that passed validation before still do; inputs combining both fields are no longer rejected.
+
+  These primitives power the new `@pulgueta/wompi-convex` component, but work in any runtime with Web Crypto (Node 20+, edge runtimes, Convex).
+
 ## 3.0.0
 
 ### Major Changes
 
 - [#16](https://github.com/pulgueta/wompi-node/pull/16) [`23008dd`](https://github.com/pulgueta/wompi-node/commit/23008dd1c1925cb0498f1ad73c481341f6ab31ce) Thanks [@pulgueta](https://github.com/pulgueta)! - **Breaking changes**
-
   - The package root (`@pulgueta/wompi`) now exports only `WompiClient`. The integrity-signature helper `getSignatureKey` (and its `GetSignatureKeyOptions` type) moved to a new `@pulgueta/wompi/server` subpath, keeping the signing/crypto logic out of client bundles. Zod schemas, inferred types and error classes all live under `@pulgueta/wompi/schemas`.
   - Client methods now resolve to the entity directly instead of Wompi's `{ data, meta }` envelope. Read `response.status`, not `response.data.status`.
 
@@ -33,12 +48,10 @@
 - [#7](https://github.com/pulgueta/wompi-node/pull/7) [`f3e011d`](https://github.com/pulgueta/wompi-node/commit/f3e011d9d5f5afefe7ef73307b8b08759bd28353) Thanks [@pulgueta](https://github.com/pulgueta)! - Overhaul the SDK for type-safety and correctness. This is a breaking release.
 
   **Breaking changes**
-
   - `getSignatureKey` now takes an options object — `{ reference, amountInCents, integrityKey, currency?, expirationTime? }` — instead of positional arguments. It hashes `amountInCents` exactly as given (the previous build multiplied it by 100, producing wrong signatures) and throws a `WompiError` when the amount is not a non-negative integer.
   - `voidTransaction` resolves to the wrapped void outcome — the voided transaction is nested under `data.transaction` — or to `undefined` for an empty `201`. Code that read the transaction directly off `data` must be updated.
 
   **Fixes & improvements**
-
   - Response schemas are lenient: a successful Wompi response is never reported as a validation error. Non-identity fields are optional, unknown fields pass through, and drift-prone enums (`payment_method_type`, `accepted_payment_methods`, merchant `legal_id_type`) accept any string.
   - Empty `2xx` bodies are handled — they resolve to `undefined` instead of failing JSON parsing.
   - `PaymentMethodType` gains `BANCOLOMBIA_BNPL`, `DAVIPLATA`, `SU_PLUS` and `CARD_POS`.
