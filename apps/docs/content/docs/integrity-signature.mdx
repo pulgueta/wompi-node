@@ -1,0 +1,78 @@
+---
+title: Integrity signature
+description: What the Wompi integrity signature is, how getSignatureKey computes it, and the rules to follow.
+sidebar:
+  label: Integrity signature
+---
+
+Wompi requires every `createTransaction` call to include a `signature` field — an SHA-256 hex digest over the transaction's reference, amount, currency and (when applicable) expiration, salted with your merchant integrity key. This proves the request was built server-side and prevents tampering with the amount in transit.
+
+## Usage
+
+Import `getSignatureKey` from the `/server` subpath. It uses Node's built-in Crypto API so it runs unchanged on Node, edge runtimes and modern serverless platforms.
+
+```ts title="lib/sign.ts"
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+const signature = await getSignatureKey({
+  reference: "order-12345",
+  amountInCents: 2_490_000,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+```
+
+## The formula
+
+The hashed string is the concatenation of:
+
+```text
+<reference><amountInCents><currency><expirationTime?><integrityKey>
+
+// hashed as utf-8 with SHA-256, then expressed as lowercase hex.
+```
+
+- `reference` — must match the same string you pass to `createTransaction(&#123; reference &#125;)`.
+- `amountInCents` — the integer in cents, exactly as you'll send it. Never multiply by 100 here; the amount is already in cents.
+- `currency` — defaults to `"COP"`. Only `COP` is currently accepted by Wompi, but the field is hashed so it has to match the body.
+- `expirationTime` — include it _only_ if the transaction sets `expiration_time`. Omit otherwise; the hash uses an empty string in its place.
+- `integrityKey` — your merchant integrity secret. Read it from a server-only env var; never expose it to the browser.
+
+:::warning[Mismatch = HTTP 422]
+Wompi rejects the transaction with `INPUT_VALIDATION_ERROR` when any byte of the
+signed payload differs from the request body. The most common cause is multiplying
+`amountInCents` by 100 twice — once when computing the signature, once in the
+transaction body.
+:::
+
+## With `expiration_time`
+
+If the transaction carries an `expiration_time`, the signature must hash the same value, right before the integrity key.
+
+```ts
+// When the transaction sets expiration_time, hash the same value here.
+const expirationTime = "2026-12-31T23:59:59Z";
+
+const signature = await getSignatureKey({
+  reference: "order-12345",
+  amountInCents: 2_490_000,
+  currency: "COP",
+  expirationTime,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+
+const [error] = await wompi.transactions.createTransaction({
+  // ... other fields
+  signature,
+  expiration_time: expirationTime,
+});
+```
+
+## Validation
+
+`getSignatureKey` throws a `WompiError` if `amountInCents` is negative or not an integer. Every other field is passed through as-is.
+
+:::tip[When you don't need to sign yourself]
+Hosted payment links (see [Payment links](/docs/payment-links)) accept a
+`signature` field too, but Wompi will compute it for you if you omit it. The
+integrity signature is only required when you call `createTransaction` directly.
+:::

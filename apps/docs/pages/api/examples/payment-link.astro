@@ -1,0 +1,62 @@
+---
+import { WompiClient } from "@pulgueta/wompi";
+import { checkRateLimit, json, readCredentials } from "../../../lib/server";
+
+export const prerender = false;
+
+if (Astro.request.method !== "POST") {
+  return json({ ok: false, error: "Method not allowed." }, 405);
+}
+const request = Astro.request;
+  const limited = await checkRateLimit(request, "payment-link");
+  if (limited) return limited;
+
+  const credentials = readCredentials(["WOMPI_PUBLIC_KEY", "WOMPI_PRIVATE_KEY"]);
+  if (!credentials.ok) return credentials.response;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return json({ ok: false, error: "Request body must be valid JSON." }, 400);
+  }
+
+  const name = String(body.name ?? "").trim();
+  const description = String(body.description ?? "").trim();
+  const amountInCents = Number(body.amountInCents);
+  const singleUse = Boolean(body.singleUse);
+  const collectShipping = Boolean(body.collectShipping);
+  if (!name || !description || !Number.isInteger(amountInCents) || amountInCents < 1) {
+    return json(
+      { ok: false, error: "A name, description, and whole `amountInCents` are required." },
+      400
+    );
+  }
+
+  const wompi = new WompiClient({
+    publicKey: credentials.publicKey,
+    privateKey: credentials.privateKey,
+    sandbox: true,
+  });
+  const [error, link] = await wompi.paymentLinks.createPaymentLink({
+    name,
+    description,
+    single_use: singleUse,
+    collect_shipping: collectShipping,
+    amount_in_cents: amountInCents,
+    currency: "COP",
+  });
+  if (error) return json({ ok: false, error: error.message }, 422);
+
+  return json({
+    ok: true,
+    configured: true,
+    paymentLink: {
+      id: link.id,
+      url: link.checkout_url,
+      name: link.name ?? name,
+      amountInCents: link.amount_in_cents ?? amountInCents,
+      singleUse: link.single_use ?? singleUse,
+    },
+  });
+---

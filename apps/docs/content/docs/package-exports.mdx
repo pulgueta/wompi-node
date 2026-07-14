@@ -1,0 +1,89 @@
+---
+title: Package exports
+description: Every entry point @pulgueta/wompi ships and what's behind it.
+sidebar:
+  label: Package exports
+---
+
+The package is published as ESM and CJS with separate type declarations for each subpath. There are three: the client, the schemas (with their types and error classes) and the server helper. Pull in only the entry you need — the others stay out of your bundle.
+
+:::note[Changed in v3]
+The package was flattened to three entries. `WompiClient` is the only root export, and
+the former `/client`, `/types` and `/errors` subpaths were
+folded into `/schemas`. If you're upgrading from v2, repoint type and error imports at
+`@pulgueta/wompi/schemas`.
+:::
+
+## `@pulgueta/wompi`
+
+The default entry. Exports the client — the one class you construct to call the API.
+
+```ts
+import { WompiClient } from "@pulgueta/wompi";
+```
+
+- `WompiClient` — the high-level client used in every other doc page. It owns the `merchants`, `transactions`, `tokens`, `paymentSources`, `paymentLinks` and `pse` sub-resources.
+
+## `@pulgueta/wompi/schemas`
+
+Everything derived from the API contract: the Zod schemas, the types inferred from them (return shapes, input shapes, enums, the `Result` tuple) and the four error classes.
+
+```ts
+import {
+  // Zod schemas — validate a request body before it reaches the SDK.
+  CreateTransactionInputSchema,
+  TokenizeCardInputSchema,
+  CreatePaymentLinkInputSchema,
+  // Error classes — for instanceof branching.
+  WompiError,
+  WompiNotFoundError,
+  WompiValidationError,
+  WompiRequestError,
+} from "@pulgueta/wompi/schemas";
+
+import type {
+  // Inferred types — return shapes, input shapes, enums and the Result tuple.
+  Result,
+  Transaction,
+  TransactionStatus,
+  CreateTransactionInput,
+  PaymentLink,
+  PaymentSource,
+  CardToken,
+  Merchant,
+  FinancialInstitution,
+} from "@pulgueta/wompi/schemas";
+```
+
+Pair the schemas with your own routing layer to validate request bodies before they hit the SDK.
+
+```ts
+// Validate an incoming form body before passing it to the SDK.
+const parsed = CreateTransactionInputSchema.safeParse(req.body);
+if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+```
+
+:::tip[Typed enums]
+`TransactionStatus`, `PaymentMethodType` and `LegalIdType`
+are string literal unions — perfect for narrowing in `switch` statements. Import them
+as `type` and no Zod reaches your bundle.
+:::
+
+The error classes (`WompiError` and its subclasses) live here too. See [Error handling](/docs/error-handling) for when each one is returned.
+
+## `@pulgueta/wompi/server`
+
+The server-only helper: `getSignatureKey`, the integrity signature builder. Kept in its own entry so the client bundle stays free of the signing code.
+
+```ts
+import { getSignatureKey } from "@pulgueta/wompi/server";
+```
+
+## Subpath summary
+
+| Subpath          | Exports                                              | Notes                                                 |
+| ---------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `.`              | `WompiClient`                                        | The client. The only entry most apps import.          |
+| `./schemas`      | Zod schemas, inferred types, error classes, `Result` | Validation layers, typing and `instanceof` branching. |
+| `./server`       | `getSignatureKey`                                    | Web Crypto, server-only.                              |
+| `./package.json` | The manifest                                         | Exposed for tooling that reads the version.           |

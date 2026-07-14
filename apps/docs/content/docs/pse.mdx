@@ -1,0 +1,70 @@
+---
+title: PSE
+description: List PSE financial institutions and route a PSE payment through createTransaction.
+sidebar:
+  label: PSE
+---
+
+PSE (_Pagos Seguros en Línea_) is Colombia's bank-redirect rail. To take a PSE payment you need two things: the list of supported banks (this resource) and a transaction with `payment_method.type === "PSE"` (the transactions resource).
+
+## getFinancialInstitutions()
+
+Returns the list of banks currently available on PSE. The SDK authenticates with the public key.
+
+```ts
+const [error, response] = await wompi.pse.getFinancialInstitutions();
+if (error) throw error;
+
+response; // FinancialInstitution[]
+
+// Render a <select> on the checkout page.
+const options = response.map((inst) => ({
+  value: inst.financial_institution_code,
+  label: inst.financial_institution_name ?? inst.financial_institution_code,
+}));
+```
+
+### Response shape
+
+On success `response` is a `FinancialInstitution[]` — the array directly, with no wrapper.
+
+| Field                        | Type                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `financial_institution_code` | `string` — pass this into `payment_method.financial_institution_code`. |
+| `financial_institution_name` | `string?` — display label.                                             |
+
+:::note[The list changes]
+Banks come and go; fetch the list on demand rather than hard-coding it. A daily cache on your
+server is plenty.
+:::
+
+## Creating a PSE transaction
+
+Once the customer picks a bank, hand the code off to `createTransaction`. The response carries an `async_payment_url` in the underlying spec — redirect the customer to that URL to complete authentication at their bank.
+
+```ts
+// In createTransaction, payment_method.type === "PSE" and you carry
+// the chosen institution code and the customer's legal id.
+const [error, response] = await wompi.transactions.createTransaction({
+  acceptance_token,
+  amount_in_cents: 750_000,
+  currency: "COP",
+  signature,
+  customer_email: "buyer@example.com",
+  reference: `pse-${Date.now()}`,
+  payment_method: {
+    type: "PSE",
+    user_type: 0,
+    user_legal_id_type: "CC",
+    user_legal_id: "1020304050",
+    financial_institution_code: chosenCode,
+    payment_description: "Order #1024",
+  },
+});
+```
+
+:::tip[payment_method is loose]
+The SDK's `TransactionPaymentMethod` schema accepts arbitrary keys for forward
+compatibility — fields outside the typed shape (`user_type`,
+`user_legal_id_type`, etc.) pass through to Wompi unchanged.
+:::

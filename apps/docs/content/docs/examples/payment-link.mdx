@@ -1,0 +1,101 @@
+---
+title: Payment link
+description: A live Astro API route that creates a hosted Wompi checkout link and returns its public URL.
+sidebar:
+  label: Payment link
+  badge: Live
+---
+
+**Live** Generate a hosted checkout link without ever touching card details. Submit the form to call `POST /api/examples/payment-link`, which proxies to `wompi.paymentLinks.createPaymentLink` and returns the public URL.
+
+:::note[No credentials required]
+This demo uses sandbox credentials configured on the docs server. Nothing sensitive is requested
+from or sent to your browser. The returned URL is a real sandbox link you can open and run through
+the hosted checkout end to end.
+:::
+
+## Try it
+
+<PaymentLinkForm />
+
+## The API route
+
+The route is intentionally tiny: a single SDK call, two branches, no integrity signature handshake. Wompi computes the signature server-side when you create the link.
+
+```ts title="src/pages/api/examples/payment-link.ts"
+import type { APIRoute } from "astro";
+import { WompiClient } from "@pulgueta/wompi";
+
+export const prerender = false;
+
+export const POST: APIRoute = async ({ request }) => {
+  const publicKey = process.env.WOMPI_PUBLIC_KEY;
+  const privateKey = process.env.WOMPI_PRIVATE_KEY;
+  if (!publicKey || !privateKey) {
+    return Response.json(
+      { configured: false, message: "Sandbox environment is not configured." },
+      { status: 503 },
+    );
+  }
+
+  const { name, description, amountInCents, singleUse, collectShipping } =
+    await request.json();
+
+  const wompi = new WompiClient({ publicKey, privateKey, sandbox: true });
+
+  const [error, response] = await wompi.paymentLinks.createPaymentLink({
+    name,
+    description,
+    single_use: singleUse,
+    collect_shipping: collectShipping,
+    amount_in_cents: amountInCents,
+    currency: "COP",
+  });
+
+  if (error) return Response.json({ error: error.message }, { status: 422 });
+
+  const link = response;
+  return Response.json({
+    paymentLink: {
+      id: link.id,
+      url: link.checkout_url,
+      name: link.name ?? name,
+      amountInCents: link.amount_in_cents ?? amountInCents,
+      singleUse: link.single_use ?? singleUse,
+    },
+  });
+};
+```
+
+:::warning[Production credentials belong on the server]
+This demo and your own application should read Wompi keys from **server environment variables**.
+Never send private or integrity keys to the client.
+:::
+
+```ts
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY!,
+  sandbox: true,
+});
+```
+
+## Reconciling paid links
+
+Each transaction Wompi creates against a hosted link carries the link's id under `payment_link_id`. List or filter transactions to reconcile the link against the payment.
+
+```ts
+// After the customer pays, the resulting transaction carries the link's id.
+const [error, response] = await wompi.transactions.listTransactions({
+  payment_method_type: "CARD",
+  from_date: "2026-01-01",
+  until_date: "2026-12-31",
+});
+
+const paidByLink = response?.filter((t) => t.payment_link_id === link.id) ?? [];
+```
+
+:::tip[Single-use vs reusable]
+A `single_use: true` link burns after one paid transaction. Leave it
+`false` when you want a recurring "donate" / "tip jar" URL.
+:::

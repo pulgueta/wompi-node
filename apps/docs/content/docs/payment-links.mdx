@@ -1,0 +1,127 @@
+---
+title: Payment links
+description: Hosted checkout links — create one, share the URL, get notified on success.
+sidebar:
+  label: Payment links
+---
+
+Payment links are the fastest way to take a Wompi payment without integrating the full checkout. The SDK creates the link record; Wompi serves the checkout UI at `https://checkout.wompi.co/l/&#123;id&#125;`.
+
+## Authentication
+
+| Method              | HTTP                                  | Auth        |
+| ------------------- | ------------------------------------- | ----------- |
+| `getPaymentLink`    | `GET /payment_links/&#123;id&#125;`   | None        |
+| `createPaymentLink` | `POST /payment_links`                 | Private key |
+| `updatePaymentLink` | `PATCH /payment_links/&#123;id&#125;` | Private key |
+
+## createPaymentLink(input)
+
+Create a hosted checkout link with a fixed amount.
+
+```ts
+const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Order #1024",
+  description: "Thank you for shopping.",
+  single_use: true,
+  collect_shipping: false,
+  amount_in_cents: 99_000,
+  currency: "COP",
+});
+if (error) throw error;
+
+const link = response;
+const checkoutUrl = `https://checkout.wompi.co/l/${link.id}`;
+```
+
+### Input fields
+
+| Field                            | Type       | Notes                                                   |
+| -------------------------------- | ---------- | ------------------------------------------------------- |
+| `name`                           | `string`   | Shown on the checkout page.                             |
+| `description`                    | `string`   | Sub-line on the checkout page.                          |
+| `single_use`                     | `boolean`  | If `true`, the link burns after first paid transaction. |
+| `collect_shipping`               | `boolean`  | Show a shipping address form.                           |
+| `collect_customer_legal_id`      | `boolean?` | Ask for the customer's legal id.                        |
+| `amount_in_cents`                | `integer?` | Omit for open-amount links.                             |
+| `currency`                       | `"COP"?`   | Inferred from the merchant.                             |
+| `reference`                      | `string?`  | Your merchant reference.                                |
+| `signature`                      | `string?`  | Optional — Wompi can compute it.                        |
+| `sku`                            | `string?`  | Max 36 chars.                                           |
+| `expires_at` / `expiration_time` | `string?`  | ISO-8601 expiry timestamps.                             |
+| `redirect_url`                   | `string?`  | Where to send the customer after payment.               |
+| `image_url`                      | `string?`  | Product image displayed on checkout.                    |
+| `customer_data`                  | `object?`  | Up to 2 extra references — e.g. order id, table number. |
+| `taxes`                          | `array?`   | VAT / CONSUMPTION; per-amount or per-percentage.        |
+
+### Open-amount links
+
+Drop `amount_in_cents` to let the customer enter the amount at checkout.
+
+```ts
+// Omit amount_in_cents for "donation" / open-amount links — the customer
+// fills in the amount at checkout.
+const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Tip jar",
+  description: "Pay what you want",
+  single_use: false,
+  collect_shipping: false,
+});
+```
+
+### Taxes
+
+Each tax entry is either `amount_in_cents` or `percentage`-shaped.
+
+```ts
+// Add VAT and a consumption tax to the link.
+const [error, response] = await wompi.paymentLinks.createPaymentLink({
+  name: "Restaurant tab",
+  description: "Dinner for two",
+  single_use: true,
+  collect_shipping: false,
+  amount_in_cents: 150_000,
+  taxes: [
+    { type: "VAT", amount_in_cents: 24_000 },
+    { type: "CONSUMPTION", percentage: 8 },
+  ],
+});
+```
+
+## getPaymentLink(id)
+
+Fetch a link by id — public endpoint, no auth header. Useful for status pages that link to a checkout.
+
+```ts
+const [error, response] = await wompi.paymentLinks.getPaymentLink(linkId);
+if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") return null;
+  throw error;
+}
+
+response.active; // boolean — has it been deactivated?
+response.amount_in_cents;
+response.single_use;
+```
+
+## updatePaymentLink(id, input)
+
+The update endpoint only flips the `active` flag — there is no way to mutate other fields of an existing link. Create a new link if the amount or description changes.
+
+```ts
+// Deactivate a link so the URL stops accepting payments.
+const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, {
+  active: false,
+});
+
+// Re-activate the same link later.
+const [error] = await wompi.paymentLinks.updatePaymentLink(linkId, {
+  active: true,
+});
+```
+
+:::tip[Watch a link with webhooks]
+Configure Wompi's webhook to listen for `transaction.updated`; the resulting
+transaction carries `payment_link_id`, so you can correlate the payment back to the
+link you created.
+:::

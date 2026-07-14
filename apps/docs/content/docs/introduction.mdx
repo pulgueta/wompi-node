@@ -1,0 +1,64 @@
+---
+title: Introduction
+description: An overview of @pulgueta/wompi — what it is, what it covers, and how it's shaped.
+sidebar:
+  label: Introduction
+---
+
+`@pulgueta/wompi` is an unofficial SDK for the [Wompi payments API](https://docs.wompi.co), written in TypeScript and built around a few opinions that make payments code pleasant to write and review.
+
+## Design goals
+
+- **Error-first results.** Every method returns a `[error, data]` tuple, so the caller has to confront failure before reaching the data. No surprise exceptions.
+- **Validated inputs and lenient responses.** Inputs are checked with Zod before they hit the wire. Responses are parsed leniently — only stable identifiers are required, and unknown fields pass through so a Wompi API addition never breaks your client.
+- **Tree-shakeable subpaths.** Import the client, the schemas (with their types and error classes) and the server helper separately — pay only for the surface you actually use.
+- **No runtime dependencies.** The package uses the platform `fetch` and Node Crypto, so it runs unchanged on Node 22+, edge runtimes and modern serverless platforms.
+
+## What it covers
+
+The SDK is one client with focused sub-resources:
+
+- [`wompi.merchants`](/docs/merchants) — fetch merchant info and the presigned acceptance token.
+- [`wompi.transactions`](/docs/transactions) — create, get, list and void transactions.
+- [`wompi.tokens`](/docs/tokens) — tokenize cards and Nequi accounts.
+- [`wompi.paymentSources`](/docs/payment-sources) — store reusable tokens as payment sources.
+- [`wompi.paymentLinks`](/docs/payment-links) — create and manage hosted checkout links.
+- [`wompi.pse`](/docs/pse) — list PSE financial institutions.
+
+## A tiny example
+
+Here's the same shape every other page uses — instantiate the client once, then await methods that return a typed tuple.
+
+```ts title="example.ts"
+import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true, // hits sandbox.wompi.co; flip to false for production
+});
+
+// Every method returns [error, data] — no try/catch boilerplate.
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) {
+  console.error(error.message);
+  return;
+}
+
+response.presigned_acceptance?.acceptance_token;
+```
+
+:::tip[The discriminated tuple]
+Narrowing on `error` is enough: when `error` is `null`,
+TypeScript knows `response` is the success payload, and vice versa.
+:::
+
+## When to use it
+
+Reach for this SDK when you're calling Wompi from a Node or edge runtime — Astro endpoints, Next.js route handlers, NestJS controllers, Vercel/Cloudflare functions, BullMQ workers — and want the input parsing, error narrowing and types to happen for you instead of by hand.
+
+Reach for the raw HTTP API directly if you need a feature the SDK hasn't surfaced yet (or you're not on a JavaScript runtime). The SDK never hides the URL, headers or body shape — it just gives you a typed door to walk through.
+
+## Next
+
+[Install the package](/docs/installation), then follow the [quickstart](/docs/quickstart) to charge a sandbox card end-to-end.

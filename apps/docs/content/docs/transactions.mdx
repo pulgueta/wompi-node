@@ -1,0 +1,140 @@
+---
+title: Transactions
+description: Create, fetch, list and void transactions. The core of the Wompi payments surface.
+sidebar:
+  label: Transactions
+---
+
+The transactions resource handles the actual money movement. There are four methods — `createTransaction`, `getTransaction`, `listTransactions` and `voidTransaction` — with different authentication requirements depending on what you're doing.
+
+## Authentication matrix
+
+| Method                                         | HTTP                                     | Public key | Private key |
+| ---------------------------------------------- | ---------------------------------------- | ---------- | ----------- |
+| `getTransaction`                               | `GET /transactions/&#123;id&#125;`       | —          | —           |
+| `listTransactions`                             | `GET /transactions`                      | —          | Required    |
+| `createTransaction` (with `payment_method`)    | `POST /transactions`                     | Required   | —           |
+| `createTransaction` (with `payment_source_id`) | `POST /transactions`                     | —          | Required    |
+| `voidTransaction`                              | `POST /transactions/&#123;id&#125;/void` | —          | Required    |
+
+## createTransaction(input)
+
+Create a new transaction. You must include exactly one of `payment_method` or `payment_source_id` — the SDK validates the constraint locally before sending.
+
+```ts
+const [error, response] = await wompi.transactions.createTransaction({
+  acceptance_token: acceptance.acceptance_token,
+  amount_in_cents: 2_490_000,
+  currency: "COP",
+  signature,
+  customer_email: "buyer@example.com",
+  reference: `order-${Date.now()}`,
+  payment_method: { type: "CARD", token: cardToken, installments: 1 },
+});
+```
+
+:::warning[Always sign first]
+`signature` is mandatory. Compute it with `getSignatureKey` from
+`@pulgueta/wompi/server` — see [Integrity signature](/docs/integrity-signature).
+:::
+
+### Input fields
+
+| Field               | Type       | Notes                                              |
+| ------------------- | ---------- | -------------------------------------------------- |
+| `acceptance_token`  | `string`   | From `merchants.getMerchant()`.                    |
+| `amount_in_cents`   | `integer`  | 1 – 1 000 000 000 000.                             |
+| `currency`          | `"COP"`    | Only value Wompi accepts.                          |
+| `signature`         | `string`   | SHA-256 hex digest.                                |
+| `customer_email`    | `email`    | Receipts go here.                                  |
+| `reference`         | `string`   | Your own merchant reference.                       |
+| `payment_method`    | `object?`  | Exclusive with `payment_source_id`.                |
+| `payment_source_id` | `integer?` | Exclusive with `payment_method`.                   |
+| `redirect_url`      | `url?`     | Where to send the customer after off-site payment. |
+| `expiration_time`   | `string?`  | ISO-8601; must also be hashed in the signature.    |
+| `customer_data`     | `object?`  | `full_name`, `legal_id`, …                         |
+| `shipping_address`  | `object?`  | For physical-goods checkouts.                      |
+
+### Create with a stored payment source
+
+```ts
+// Re-charge a stored payment source — no card token, no signature handshake.
+const [error, response] = await wompi.transactions.createTransaction({
+  acceptance_token: acceptance.acceptance_token,
+  amount_in_cents: 1_990_000,
+  currency: "COP",
+  signature,
+  customer_email: "buyer@example.com",
+  reference: `recur-${Date.now()}`,
+  payment_source_id: 12_345, // requires the private key
+});
+```
+
+## getTransaction(id)
+
+Look a transaction up by id. Useful for polling a `PENDING` status from a webhook handler or a status page.
+
+```ts
+const [error, response] = await wompi.transactions.getTransaction("txn_abc123");
+if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") return notFound();
+  throw error;
+}
+
+response.status; // "PENDING" | "APPROVED" | "DECLINED" | "ERROR" | "VOIDED"
+```
+
+## listTransactions(params)
+
+Filtered list across all your merchant transactions. Requires the private key.
+
+```ts
+const [error, response] = await wompi.transactions.listTransactions({
+  from_date: "2026-01-01",
+  until_date: "2026-01-31",
+  status: "APPROVED",
+  page: 1,
+  page_size: 50,
+  order_by: "created_at",
+  order: "DESC",
+});
+if (error) throw error;
+
+response; // Transaction[] — the array directly; page through it with page/page_size
+```
+
+### List parameters
+
+- `reference` — exact match.
+- `from_date` / `until_date` — `YYYY-MM-DD`.
+- `page` (1 – 1 000 000), `page_size` (1 – 200).
+- `id`, `payment_method_type`, `status`, `customer_email`.
+- `order_by` (string), `order` (`"ASC"` / `"DESC"`).
+
+## voidTransaction(id, input?)
+
+Void or partially refund an approved `CARD` transaction. Without `input` the API voids the full amount; pass `&#123; amount_in_cents &#125;` for a partial refund.
+
+```ts
+// Full void.
+const [error, response] =
+  await wompi.transactions.voidTransaction("txn_abc123");
+
+// Partial void / refund.
+const [error, response] = await wompi.transactions.voidTransaction(
+  "txn_abc123",
+  {
+    amount_in_cents: 1_000_000,
+  },
+);
+
+// Wompi may answer with an empty 201 — response is undefined in that case.
+response?.transaction?.status; // optional
+```
+
+:::note[Empty 201 body]
+Wompi's spec documents an empty `201` on void. The SDK matches that —
+`response` carries the void outcome (with the voided transaction under
+`response.transaction`) most of the time, but can be `undefined` when the
+body is empty. Optional-chain accordingly.
+:::
