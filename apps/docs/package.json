@@ -8,10 +8,11 @@
   },
   "scripts": {
     "dev": "blume dev --host",
-    "build": "blume check --strict && blume validate --strict && blume build --strict --analyze --budget-js 4000 --budget-css 120",
+    "build": "pnpm format:check && blume check --strict && blume validate --strict && blume build --strict --analyze --budget-js 4000 --budget-css 120",
     "check": "blume check --strict",
     "validate": "blume validate --strict",
     "doctor": "blume doctor",
+    "format:check": "prettier --check 'content/**/*.mdx'",
     "preview": "blume preview"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "prettier": "^3.8.3",
     "typescript": "^5.9.3"
   }
 }
