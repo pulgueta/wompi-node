@@ -1,10 +1,10 @@
 # Developing guide
 
-## Running locally
+## Building
 
 ```sh
-npm i
-npm run dev
+pnpm install
+pnpm build
 ```
 
 ## Testing

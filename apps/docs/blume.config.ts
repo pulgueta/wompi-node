@@ -93,14 +93,8 @@ export default defineConfig({
   analytics: {
     vercel: true,
   },
-  // The two examples are tiny, isolated forms; compiling React itself costs far
-  // more build time than these islands can recover through auto-memoization.
-  react: {
-    compiler: false,
-  },
   deployment: {
-    output: "server",
-    adapter: "vercel",
+    output: "static",
     site: "https://wompi.pulgueta.com",
   },
 });

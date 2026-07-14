@@ -1,28 +1,18 @@
 ---
 title: Payment link
-description: A live Astro API route that creates a hosted Wompi checkout link and returns its public URL.
+description: Create a hosted Wompi checkout link from an Astro API route and return its public URL.
 sidebar:
   label: Payment link
-  badge: Live
 ---
 
-**Live** Generate a hosted checkout link without ever touching card details. Submit the form to call `POST /api/examples/payment-link`, which proxies to `wompi.paymentLinks.createPaymentLink` and returns the public URL.
-
-:::note[No credentials required]
-This demo uses sandbox credentials configured on the docs server. Nothing sensitive is requested
-from or sent to your browser. The returned URL is a real sandbox link you can open and run through
-the hosted checkout end to end.
-:::
-
-## Try it
-
-<PaymentLinkForm />
+Generate a hosted checkout link without ever touching card details. The route
+below calls `wompi.paymentLinks.createPaymentLink` and returns the public URL.
 
 ## The API route
 
 The route is intentionally tiny: a single SDK call, two branches, no integrity signature handshake. Wompi computes the signature server-side when you create the link.
 
-```ts title="src/pages/api/examples/payment-link.ts"
+```ts title="src/pages/api/payment-link.ts"
 import type { APIRoute } from "astro";
 import { WompiClient } from "@pulgueta/wompi";
 
@@ -68,7 +58,7 @@ export const POST: APIRoute = async ({ request }) => {
 ```
 
 :::warning[Production credentials belong on the server]
-This demo and your own application should read Wompi keys from **server environment variables**.
+Your application should read Wompi keys from **server environment variables**.
 Never send private or integrity keys to the client.
 :::
 

@@ -3,19 +3,15 @@ title: Card checkout
 description: Tokenize a card, sign the amount and create a Wompi sandbox transaction — shown for Astro, Next.js, TanStack Start and Elysia.
 sidebar:
   label: Card checkout
-  badge: Live
 ---
 
-**Live** The form below calls the same SDK methods you'd use in production. The docs server supplies its sandbox credentials, so you can charge a test card without entering any keys. Check the framework examples to adapt the route to your stack.
+The implementations below call the same SDK methods you'd use in production.
+Pick your framework and adapt the route to your application.
 
 :::note[Sandbox only]
-The route hard-codes `sandbox: true`. `4242 4242 4242 4242` is approved;
-`4111 1111 1111 1111` is declined. The form never accepts or exposes Wompi credentials.
+Each route uses `sandbox: true`. `4242 4242 4242 4242` is approved;
+`4111 1111 1111 1111` is declined.
 :::
-
-## Try it
-
-<CardCheckoutForm />
 
 ## Framework examples
 
