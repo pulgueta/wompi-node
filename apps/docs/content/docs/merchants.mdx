@@ -1,0 +1,70 @@
+---
+title: Merchants
+description: Fetch merchant info and the presigned acceptance token required for every transaction.
+sidebar:
+  label: Merchants
+---
+
+The merchant endpoint is the only one that needs no authentication header — the public key travels as part of the URL. Use it to fetch merchant metadata and, crucially, the presigned acceptance token you must include in every `createTransaction` call.
+
+## getMerchant()
+
+`GET /merchants/&#123;publicKey&#125;`. Returns the merchant record. Requires only the public key (passed at client construction).
+
+```ts
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) throw error;
+
+const merchant = response;
+
+merchant.name; // string | undefined
+merchant.legal_name; // string | undefined
+merchant.accepted_payment_methods; // string[] | undefined
+merchant.presigned_acceptance?.acceptance_token; // string
+```
+
+## Response shape
+
+| Field                        | Type        | Notes                           |
+| ---------------------------- | ----------- | ------------------------------- |
+| `id`                         | `number`    | Wompi merchant id.              |
+| `name`                       | `string?`   | Public merchant name.           |
+| `legal_name`                 | `string?`   | Legal entity name.              |
+| `legal_id` / `legal_id_type` | `string?`   | `NIT` or `CC`.                  |
+| `accepted_payment_methods`   | `string[]?` | `"CARD"`, `"NEQUI"`, `"PSE"`, … |
+| `accepted_currencies`        | `"COP"[]?`  | Always `["COP"]` today.         |
+| `presigned_acceptance`       | `object?`   | See below.                      |
+
+## Presigned acceptance
+
+The `presigned_acceptance` object proves the customer accepted the merchant's end-user policy. Show `permalink` to the customer; pass `acceptance_token` when you create a transaction.
+
+```ts
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) throw error;
+
+const acceptance = response.presigned_acceptance;
+
+// Persist for the duration of a single transaction — Wompi rotates these.
+return {
+  token: acceptance?.acceptance_token,
+  termsUrl: acceptance?.permalink,
+};
+```
+
+- `acceptance_token` — string, expires; fetch once per transaction.
+- `permalink` — URL to the merchant's terms.
+- `type` — always `"END_USER_POLICY"`.
+
+:::tip[Cache, but only briefly]
+The acceptance token is short-lived. Refetch it for every transaction rather than caching it
+across requests — the request is fast and cheap, and a stale token is a guaranteed
+`INPUT_VALIDATION_ERROR`.
+:::
+
+## Errors
+
+The endpoint is public, so authentication errors don't apply. Possible `error` values:
+
+- `WompiNotFoundError` — public key doesn't match any merchant.
+- `WompiRequestError` — any other non-2xx response.

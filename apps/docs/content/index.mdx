@@ -1,0 +1,67 @@
+---
+title: Wompi SDK for Node.js
+description: Integrate Wompi with a fully typed, error-first SDK for transactions, tokens, payment sources, payment links, and PSE.
+sidebar:
+  label: Overview
+  order: 0
+---
+
+Integrate Wompi in your Node.js applications with a small, fully typed client. Every request is validated with Zod and returns an error-first tuple, so success and failure stay explicit.
+
+```package-install
+@pulgueta/wompi zod
+```
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" href="/docs/quickstart" icon="rocket">
+    Tokenize a sandbox card, sign an amount, and create your first transaction.
+  </Card>
+  <Card
+    title="Live examples"
+    href="/docs/examples/card-checkout"
+    icon="credit-card"
+  >
+    Exercise the SDK against the Wompi sandbox without supplying credentials.
+  </Card>
+  <Card title="API reference" href="/docs/transactions" icon="book-open">
+    Explore merchants, transactions, tokens, payment sources, payment links, and
+    PSE.
+  </Card>
+  <Card title="Package exports" href="/docs/package-exports" icon="package">
+    Import the client, schemas, and server-only signature helpers from stable
+    entry points.
+  </Card>
+</CardGroup>
+
+## One client, every Wompi flow
+
+```ts title="example.ts"
+import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});
+
+const [error, transaction] = await wompi.transactions.getTransaction("txn_123");
+
+if (error) {
+  // Branch on error.type or statusCode without guessing response shapes.
+  throw error;
+}
+
+transaction.status; // "APPROVED" | "PENDING" | "DECLINED" | ...
+```
+
+## Why this SDK
+
+- **Typed end to end.** Request inputs and Wompi responses are validated with Zod.
+- **Error-first results.** Network and API failures are values you must handle, not surprises hidden in a catch block.
+- **Tree-shakeable exports.** Client, schemas, and server-only helpers have explicit package entry points.
+- **Framework neutral.** Use it from Astro, Next.js, TanStack Start, Elysia, Bun, or plain Node.js.
+
+<Card title="Get started" href="/docs/installation" icon="arrow-right">
+  Install the package, configure your environment, and verify your first Wompi
+  request.
+</Card>

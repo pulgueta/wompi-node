@@ -1,0 +1,132 @@
+---
+title: Error handling
+description: The error-first result tuple, how to narrow on error.type, and when each error subclass is returned.
+sidebar:
+  label: Error handling
+---
+
+Every method on the client returns a `Result<T>` — a discriminated tuple of either `[error, null]` or `[null, data]`. This makes failure a value, not a thrown exception, and narrows the types automatically.
+
+## The tuple
+
+```ts
+import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+const [error, response] =
+  await wompi.transactions.getTransaction("txn_does_not_exist");
+
+if (error) {
+  // Inside this branch, response is typed as null.
+  return;
+}
+
+// And inside this branch, response is fully typed.
+response.status;
+```
+
+:::tip[Why a tuple and not { error, data }?]
+Tuples let TypeScript infer that `response` is non-null after the
+`if&nbsp;(error)` guard. Object destructuring with optional fields would need extra
+narrowing on every access — the tuple gets it for free.
+:::
+
+## Error shapes
+
+Errors are one of four subclasses, all of which extend the base `WompiError`:
+
+| Class                  | Discriminant                        | Returned when                                                              |
+| ---------------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| `WompiError`           | —                                   | Local validation, missing key, anything before the request fires.          |
+| `WompiValidationError` | `type === "INPUT_VALIDATION_ERROR"` | Wompi rejected the body (HTTP 422). `messages` carries field-level errors. |
+| `WompiNotFoundError`   | `type === "NOT_FOUND_ERROR"`        | Wompi answered HTTP 404. `reason` is the human-readable cause.             |
+| `WompiRequestError`    | `statusCode`                        | Any other non-2xx response. `body` is the raw response body.               |
+
+## Branching on `type`
+
+The simplest pattern is to switch on the discriminant — no class import needed.
+
+```ts
+if (error) {
+  if ("type" in error && error.type === "NOT_FOUND_ERROR") {
+    return ctx.text("Transaction not found", 404);
+  }
+
+  if ("type" in error && error.type === "INPUT_VALIDATION_ERROR") {
+    return ctx.json({ messages: error.messages }, 400);
+  }
+
+  if ("statusCode" in error) {
+    // WompiRequestError — anything else the API replied with.
+    return ctx.json({ statusCode: error.statusCode, body: error.body }, 502);
+  }
+
+  // Generic WompiError — usually means a bad payload before we sent it.
+  return ctx.text(error.message, 422);
+}
+```
+
+## Or with `instanceof`
+
+If you prefer class-based branching, import the error classes from the `/schemas` subpath.
+
+```ts
+import {
+  WompiError,
+  WompiNotFoundError,
+  WompiRequestError,
+  WompiValidationError,
+} from "@pulgueta/wompi/schemas";
+
+if (error instanceof WompiValidationError) {
+  // error.messages is Record<string, string[]>
+}
+if (error instanceof WompiNotFoundError) {
+  // error.reason is the human-readable reason string
+}
+if (error instanceof WompiRequestError) {
+  // error.statusCode and error.body
+}
+if (error instanceof WompiError) {
+  // base class — every error above is also a WompiError
+}
+```
+
+## Pre-flight input validation
+
+Every method parses its arguments with Zod before sending them. A bad input never reaches the network — you get a `WompiError` with a flattened message instead, listing each bad field.
+
+```ts
+const [error] = await wompi.transactions.createTransaction({
+  // amount_in_cents missing on purpose
+  acceptance_token: "...",
+  currency: "COP",
+  signature: "...",
+  customer_email: "buyer@example.com",
+  reference: "ref-1",
+  payment_method: { type: "CARD", token: "tok_x", installments: 1 },
+});
+
+// error.message:
+// "Invalid input: amount_in_cents: Required"
+```
+
+:::note[Auth errors]
+Methods that need a private key (`listTransactions`, `voidTransaction`,
+payment sources, mutating payment links) return a `WompiError`
+_before_ the request fires if you haven't provided one. There's no separate
+`WompiAuthError` to import.
+:::
+
+## The SDK never throws (almost)
+
+Two exceptions:
+
+- `new WompiClient(options)` throws if the options fail Zod validation — usually missing or empty `publicKey`.
+- `getSignatureKey` from `/server` throws if `amountInCents` isn't a non-negative integer.
+
+Everywhere else, failure travels through the tuple.

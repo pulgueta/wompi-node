@@ -1,0 +1,80 @@
+---
+title: Installation
+description: Add @pulgueta/wompi to your project, set your environment variables and verify the install.
+sidebar:
+  label: Installation
+---
+
+## Install the package
+
+The SDK has zero runtime dependencies and one peer dependency: `zod ^4`. Install both with your package manager of choice.
+
+```package-install
+@pulgueta/wompi zod
+```
+
+## Get your API keys
+
+Sign in to your [Wompi merchant dashboard](https://comercios.wompi.co) and copy:
+
+- **Public key.** Prefixed `pub_test_` in sandbox, `pub_prod_` in production. Required for every request.
+- **Private key.** Prefixed `prv_test_` / `prv_prod_`. Optional, only needed for write operations.
+- **Integrity key.** Only needed if you sign transactions yourself (see [Integrity signature](/docs/integrity-signature)).
+
+```bash title=".env"
+# Required everywhere.
+WOMPI_PUBLIC_KEY=pub_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Required for write operations (list/void transactions, payment sources,
+# create/update payment links).
+WOMPI_PRIVATE_KEY=prv_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Required only when you sign transactions yourself.
+WOMPI_INTEGRITY_KEY=test_integrity_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+:::warning[Never ship your private key]
+The `privateKey` and `integrityKey` stay on the server. Public key is
+safe to expose in client code if you tokenize cards from the browser.
+:::
+
+## TypeScript
+
+The package ships its own types — no `@types/` install required. A minimum-viable `tsconfig.json` looks like this:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true
+  }
+}
+```
+
+## Verify the install
+
+Drop the snippet below into `verify.ts` and run it with `node --experimental-strip-types verify.ts` (or your favorite TS runner). A successful response confirms the SDK can reach Wompi and parse the merchant response.
+
+```ts title="verify.ts"
+import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  sandbox: true,
+});
+
+const [error, response] = await wompi.merchants.getMerchant();
+if (error) throw error;
+
+console.log("Merchant:", response.name);
+console.log(
+  "Acceptance token:",
+  response.presigned_acceptance?.acceptance_token,
+);
+```
+
+## Next
+
+Head over to the [Quickstart](/docs/quickstart) to charge a sandbox card end-to-end.

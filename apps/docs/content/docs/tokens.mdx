@@ -1,0 +1,80 @@
+---
+title: Tokens
+description: Tokenize credit cards and Nequi accounts so raw payment details never touch the transaction call.
+sidebar:
+  label: Tokens
+---
+
+Wompi tokens turn sensitive details (a PAN, a Nequi phone number) into opaque short-lived ids your server can pass into `createTransaction` or `createPaymentSource`. All token methods authenticate with the public key.
+
+## tokenizeCard(input)
+
+Exchange raw card details for a token id. Most teams tokenize cards from the browser using Wompi's drop-in widget — but this SDK works fine from the server too, e.g. for back-office flows.
+
+```ts
+const [error, response] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (error) throw error;
+
+const token = response;
+
+token.id; // tok_test_xxxx — pass into payment_method.token
+token.brand; // "VISA" | "MASTERCARD" | ...
+token.last_four; // "4242"
+token.expires_at;
+```
+
+### Input
+
+| Field         | Type                             |
+| ------------- | -------------------------------- |
+| `number`      | `string` — the PAN, digits only. |
+| `cvc`         | `string` — security code.        |
+| `exp_month`   | `string` — `"01"`…`"12"`.        |
+| `exp_year`    | `string` — two digits.           |
+| `card_holder` | `string` — cardholder name.      |
+
+:::warning[PCI scope]
+Calling `tokenizeCard` from your own server means the PAN passes through your
+runtime — that puts you in PCI DSS scope. If you can avoid it, tokenize in the browser with
+Wompi's drop-in widget instead.
+:::
+
+## tokenizeNequi(input)
+
+Tokenize a Nequi account by phone number. The resulting token starts as `PENDING`; the customer approves it in their Nequi app, after which it transitions to `APPROVED` (or `DECLINED`).
+
+```ts
+const [error, response] = await wompi.tokens.tokenizeNequi({
+  phone_number: "3001234567",
+});
+if (error) throw error;
+
+const token = response;
+token.id; // nequi_xxx
+token.status; // "PENDING" — the customer must approve in the Nequi app
+
+// Poll until APPROVED or DECLINED.
+const [pollError, pollResponse] = await wompi.tokens.getNequiToken(token.id);
+```
+
+## getNequiToken(id)
+
+Poll a Nequi token until its status resolves. There's no public webhook for this — polling every few seconds (with backoff) is the recommended pattern.
+
+```ts
+const [error, response] = await wompi.tokens.getNequiToken("nequi_token_id");
+
+response?.status; // "PENDING" | "APPROVED" | "DECLINED"
+```
+
+:::tip[No getCardToken]
+Card tokens are single-use unless you persist them as a payment source. Once you've used a
+card token in `createTransaction` or `createPaymentSource`, it can't be
+fetched back — there's intentionally no `getCardToken` method.
+:::

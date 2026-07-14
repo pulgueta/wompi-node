@@ -1,46 +1,30 @@
-# Astro Starter Kit: Basics
+# Wompi SDK documentation
+
+This app uses [Blume](https://useblume.dev). Documentation lives in `content/`, interactive examples in `islands/`, and their server-only endpoints in `pages/api/examples/`.
 
 ```sh
-pnpm create astro@latest -- --template basics
+pnpm --filter docs dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+The live sandbox examples use credentials owned by this deployment. Set the following variables in `.env.local` for local development and in the deployment environment for production:
 
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+```dotenv
+WOMPI_PUBLIC_KEY=pub_test_...
+WOMPI_PRIVATE_KEY=prv_test_...
+WOMPI_INTEGRITY_KEY=test_integrity_...
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+The endpoints return `503` with a configuration message when a required variable is absent. Wompi credentials are read only by server routes and are never included in browser assets or responses.
 
-## 🧞 Commands
+Optional Upstash variables enable per-IP rate limiting for the public examples:
 
-All commands are run from the root of the project, from a terminal:
+```dotenv
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+```
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
+Run the full documentation gate with:
 
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+```sh
+pnpm --filter docs build
+```

@@ -1,0 +1,107 @@
+---
+title: Quickstart
+description: Charge a sandbox card end-to-end in five steps using only @pulgueta/wompi.
+sidebar:
+  label: Quickstart
+---
+
+This walkthrough creates a working sandbox card charge. It assumes you've already [installed the SDK](/docs/installation) and exported `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY` and `WOMPI_INTEGRITY_KEY`.
+
+:::tip[Live demo]
+The same flow runs interactively in the [card checkout example](/docs/examples/card-checkout). Open that page in another tab if you want to compare requests and responses
+while you read.
+:::
+
+## 1. Instantiate the client
+
+Create the client once and reuse it. `sandbox: true` sends requests to `https://sandbox.wompi.co/v1`; set it to `false` to hit `https://production.wompi.co/v1`.
+
+```ts title="lib/wompi.ts"
+import { WompiClient } from "@pulgueta/wompi";
+
+export const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  privateKey: process.env.WOMPI_PRIVATE_KEY,
+  sandbox: true,
+});
+```
+
+## 2. Fetch the acceptance token
+
+Every transaction must include the merchant's presigned acceptance token — proof that the customer accepted the merchant's policies. Fetch it from the merchant endpoint.
+
+```ts
+const [merchantError, merchant] = await wompi.merchants.getMerchant();
+if (merchantError) throw merchantError;
+
+const acceptanceToken = merchant.presigned_acceptance?.acceptance_token;
+if (!acceptanceToken) throw new Error("Merchant has no acceptance token");
+```
+
+## 3. Tokenize the card
+
+The raw card number never touches the transaction call. Tokenize first; pass the resulting token id into the transaction body.
+
+```ts
+const [tokenError, token] = await wompi.tokens.tokenizeCard({
+  number: "4242424242424242",
+  cvc: "123",
+  exp_month: "12",
+  exp_year: "29",
+  card_holder: "PEDRO PEREZ",
+});
+if (tokenError) throw tokenError;
+
+token.id; // cardToken_xxx — pass this into the transaction
+```
+
+:::note[Test cards]
+In sandbox, the card number `4242 4242 4242 4242` is approved and
+`4111 1111 1111 1111` is declined. See the
+[Wompi test cards reference](https://docs.wompi.co/docs/colombia/widget-checkout-web/) for the full list.
+:::
+
+## 4. Sign the amount
+
+Wompi requires an SHA-256 signature over the reference, amount and currency, salted with your integrity key. `getSignatureKey` from the `/server` entry computes it for you.
+
+```ts
+import { getSignatureKey } from "@pulgueta/wompi/server";
+
+const reference = `order-${Date.now()}`;
+const amountInCents = 2_490_000;
+
+const signature = await getSignatureKey({
+  reference,
+  amountInCents,
+  integrityKey: process.env.WOMPI_INTEGRITY_KEY!,
+});
+```
+
+Read [Integrity signature](/docs/integrity-signature) for the full rules — including when to include `expiration_time`.
+
+## 5. Create the transaction
+
+Stitch it together: the acceptance token, the signed amount, the card token, the reference and a customer email. The response status starts at `PENDING` — poll `getTransaction(id)` until it resolves.
+
+```ts
+const [transactionError, transaction] =
+  await wompi.transactions.createTransaction({
+    acceptance_token: acceptanceToken,
+    amount_in_cents: amountInCents,
+    currency: "COP",
+    signature,
+    customer_email: "customer@example.com",
+    reference,
+    payment_method: { type: "CARD", token: token.id, installments: 1 },
+  });
+if (transactionError) throw transactionError;
+
+transaction.status; // "PENDING" — poll wompi.transactions.getTransaction(id)
+```
+
+## What next
+
+- [Error handling](/docs/error-handling) — branch on `error.type` to differentiate validation, not-found and HTTP errors.
+- [Payment links](/docs/payment-links) — skip card tokenization entirely and hand the customer a hosted checkout URL.
+- [Card checkout example](/docs/examples/card-checkout) — the same flow, but as a live Astro API route you can read and copy.
