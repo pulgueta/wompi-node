@@ -26,6 +26,8 @@
     "build": "tsc --project ./tsconfig.build.json",
     "build:codegen": "npx convex codegen --component-dir ./src/component && pnpm run build",
     "build:clean": "rm -rf dist *.tsbuildinfo && pnpm run build:codegen",
+    "predeploy": "pnpm --workspace-root build --filter @pulgueta/wompi-convex",
+    "deploy": "convex deploy",
     "typecheck": "tsc --noEmit && tsc -p example && tsc -p example/convex",
     "lint": "eslint .",
     "test": "vitest run --typecheck",
