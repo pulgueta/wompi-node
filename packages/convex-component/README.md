@@ -264,20 +264,6 @@ webhook, cron, or confirmation.
 | `payments` | One row per charge attempt, keyed by unique Wompi reference. |
 | `webhookEvents` | Verified deliveries, deduped by checksum, pruned by the cron. |
 
-## Example app
-
-[`example/`](./example) is a live demo storefront (Vite + React, es-CO):
-one-time checkout, card subscription with sandbox test cards
-(4242… approves, 4111… declines), a renewal/dunning simulator, and a realtime
-payments timeline.
-
-```sh
-npm i
-npm run dev            # convex dev + component rebuild watcher
-npm run dev:frontend   # vite
-npx convex run dev:seed
-```
-
 ## Current limitations
 
 - Cards only for subscriptions today. Nequi sources are accepted but
