@@ -7,11 +7,6 @@ sidebar:
 
 This walkthrough creates a working sandbox card charge. It assumes you've already [installed the SDK](/docs/installation) and exported `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY` and `WOMPI_INTEGRITY_KEY`.
 
-:::tip[Live demo]
-The same flow runs interactively in the [card checkout example](/docs/examples/card-checkout). Open that page in another tab if you want to compare requests and responses
-while you read.
-:::
-
 ## 1. Instantiate the client
 
 Create the client once and reuse it. `sandbox: true` sends requests to `https://sandbox.wompi.co/v1`; set it to `false` to hit `https://production.wompi.co/v1`.
@@ -104,4 +99,4 @@ transaction.status; // "PENDING" — poll wompi.transactions.getTransaction(id)
 
 - [Error handling](/docs/error-handling) — branch on `error.type` to differentiate validation, not-found and HTTP errors.
 - [Payment links](/docs/payment-links) — skip card tokenization entirely and hand the customer a hosted checkout URL.
-- [Card checkout example](/docs/examples/card-checkout) — the same flow, but as a live Astro API route you can read and copy.
+- [Card checkout example](/docs/examples/card-checkout) — complete framework implementations you can read and copy.
