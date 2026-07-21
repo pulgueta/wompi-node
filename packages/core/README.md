@@ -157,10 +157,64 @@ const signature = await getSignatureKey({
 `listTransactions`, `voidTransaction`, and every `paymentSources` / `paymentLinks`
 write requires a `privateKey`.
 
+### Payouts (Pagos a Terceros)
+
+Bank account dispersions live on their own Wompi API — different host,
+`x-api-key` + `user-principal-id` authentication and camelCase fields — so the
+SDK exposes them through a dedicated client:
+
+```typescript
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true,
+});
+
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "payroll-2026-07",
+    accountId: "account-id", // from payouts.listAccounts()
+    paymentType: "PAYROLL",
+    transactions: [
+      {
+        personType: "NATURAL",
+        legalIdType: "CC",
+        legalId: "1000000000",
+        bankId: "bank-id", // from payouts.listBanks()
+        accountType: "AHORROS",
+        accountNumber: "12345678",
+        name: "John Doe",
+        email: "john@example.com",
+        amount: 1_000_000, // cents
+      },
+    ],
+  },
+  { idempotencyKey: "payroll-2026-07" },
+);
+```
+
+Pass `personType` explicitly. Wompi's OpenAPI schema requires it, while Wompi's
+prose example omits it, so the SDK accepts omission for compatibility and does
+not choose a default. Idempotency keys prevent reuse for Wompi's 24-hour
+retention window; persist the returned payout ID and batch reference.
+
+Available operations: `createPayout`, `createPayoutFromFile`, `listPayouts`,
+`getPayout`, `listPayoutTransactions`, `getPayoutTransaction`,
+`listTransactionsByReference`, `listBanks`, `listAccounts`, `getLimits`,
+`listReports`, `getReportDownloadUrl`, `getHealth`, and the sandbox-only
+`rechargeAccountBalance`. Payout webhooks are verified with
+`verifyPayoutEvent` / `isPayoutUpdatedEvent` / `isPayoutTransactionUpdatedEvent`
+from `@pulgueta/wompi/server`.
+
+`listTransactionsByReference` accepts a payout batch reference, not an
+individual transaction reference.
+
 ### Subpath exports
 
-| Import                    | Contents                                                       |
-| ------------------------- | -------------------------------------------------------------- |
-| `@pulgueta/wompi`         | `WompiClient`                                                  |
-| `@pulgueta/wompi/server`  | `getSignatureKey`, `GetSignatureKeyOptions`                   |
-| `@pulgueta/wompi/schemas` | Zod schemas, inferred types, `WompiError` and its subclasses, `Result` |
+| Import                    | Contents                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `@pulgueta/wompi`         | `WompiClient`, `WompiPayoutsClient`                                              |
+| `@pulgueta/wompi/server`  | `getSignatureKey`, `verifyWebhookEvent`, `verifyPayoutEvent`, `buildCheckoutUrl` |
+| `@pulgueta/wompi/schemas` | Zod schemas, inferred types, `WompiError` and its subclasses, `Result`           |

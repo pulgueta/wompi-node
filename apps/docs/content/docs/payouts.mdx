@@ -1,0 +1,281 @@
+---
+title: Payouts
+description: Disperse money to third-party bank accounts with Wompi's Pagos a Terceros API — batches, banks, accounts, limits, reports and webhook events.
+sidebar:
+  label: Payouts
+---
+
+Payouts (Pagos a Terceros) let you disperse money from your Wompi account to
+third-party bank accounts — payroll, providers or any other outbound payment —
+in batches of one or more transactions.
+
+The Payouts API is a different product from the payments API: it lives on its
+own host (`api.payouts.wompi.co`), authenticates with an **API key** and a
+**user principal ID** instead of Bearer keys, and uses camelCase fields. That's
+why the SDK exposes it as its own client, `WompiPayoutsClient`.
+
+## Creating the client
+
+Grab both credentials from the **Pagos a Terceros** section under
+_Desarrollo → Programadores_ in the Wompi dashboard (switch the dashboard to
+sandbox mode for sandbox keys).
+
+```ts
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true, // optional, defaults to false (production)
+});
+```
+
+Every method returns the same error-first `Result` tuple as the rest of the
+SDK. Payouts API errors surface as `WompiPayoutApiError`, which carries the
+Wompi error `code` (`EXC_008` — insufficient balance, `EXC_017` — daily limit
+reached, `EXC_022` — idempotency key already processed, …) and the HTTP
+`statusCode`. Its `body` preserves diagnostics such as trace metadata and
+service-health details.
+
+## createPayout(input, options)
+
+Create a batch (`POST /payouts`) with the transaction detail as JSON. Wompi
+remembers each `idempotencyKey` (1–64 letters, numbers, or hyphens) for 24 hours
+and answers `EXC_022` when you reuse it during that window. Persist the returned
+`payoutId` and your batch `reference`; the same key can be accepted after 24
+hours.
+
+```ts
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "payroll-2026-07",
+    accountId: account.id, // from listAccounts()
+    paymentType: "PAYROLL", // PAYROLL | PROVIDERS | OTHER
+    transactions: [
+      {
+        personType: "NATURAL",
+        legalIdType: "CC",
+        legalId: "1000000000",
+        bankId: bank.id, // from listBanks()
+        accountType: "AHORROS",
+        accountNumber: "12345678",
+        name: "John Doe",
+        email: "john@example.com",
+        amount: 1_000_000, // cents: $10,000.00 COP
+        reference: "payroll-2026-07-jdoe",
+      },
+    ],
+  },
+  { idempotencyKey: "payroll-2026-07" },
+);
+
+if (!error) {
+  console.log(created.payoutId, created.success, created.failed);
+}
+```
+
+Set `personType` to `"NATURAL"` or `"JURIDICA"` for every transaction. [Wompi's
+OpenAPI contract](https://api.swaggerhub.com/apis/wompi/Payouts/1.0.0) marks it
+as required, but [Wompi's JSON batch
+guide](https://docs.wompi.co/docs/colombia/crea-tu-primer-lote/) omits it from
+the request example. The SDK keeps the field optional for compatibility and
+never infers a value, so provide it explicitly.
+
+### Scheduled batches
+
+Add `dispersionDatetime` (`YYYY-MM-DDTHH:mm`, at least the day after the
+request) to schedule the dispersion:
+
+```ts
+await payouts.createPayout(
+  { ...batch, dispersionDatetime: "2026-08-15T19:01" },
+  { idempotencyKey: "payroll-2026-08" },
+);
+```
+
+### Recurring batches
+
+Add `recurring` on top of `dispersionDatetime` for automatic repetition:
+
+```ts
+await payouts.createPayout(
+  {
+    ...batch,
+    dispersionDatetime: "2026-08-15T19:01",
+    recurring: { interval: "biweek", months: 3, description: "Nómina" },
+  },
+  { idempotencyKey: "payroll-recurring-2026" },
+);
+```
+
+`interval` is `biweek` or `month`; `months` is `3`, `6` or `12`.
+
+### Sandbox: forcing the outcome
+
+In sandbox, pass `transactionStatus: "APPROVED"` or `"FAILED"` to force the
+final state of every transaction in the batch. Omitted, transactions approve.
+
+## createPayoutFromFile(input, options)
+
+Create a batch from a bank file (`POST /payouts/file`). Supported `fileType`
+codes: `WOMPI` (CSV), `PAB`, `SAP`, `DISFON`, `BANCO_OCCIDENTE_FC`,
+`DAVIVIENDA`.
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const csv = await readFile("payroll.csv");
+
+const [error, created] = await payouts.createPayoutFromFile(
+  {
+    reference: "payroll-file-2026-07",
+    file: new Blob([csv], { type: "text/csv" }),
+    fileType: "WOMPI",
+    accountId: account.id,
+    paymentType: "PAYROLL",
+  },
+  { idempotencyKey: "payroll-file-2026-07" },
+);
+```
+
+The `WOMPI` format uses a `.csv` source file; every bank-specific format uses
+`.txt`. Gzipped uploads must use both the `.gz` extension and
+`application/gzip`, plus `fileName` and `fileMime` describing the original
+file. Recurring file batches require the complete flat tuple
+`dispersionDatetime`, `interval`, and `months`.
+
+## Consultas
+
+```ts
+// Batches, filtered and paginated
+const [, page] = await payouts.listPayouts({
+  status: ["PENDING", "PARTIAL_PAYMENT"], // joined as status=PENDING,PARTIAL_PAYMENT
+  fromDate: "2026-01-01",
+  toDate: "2026-02-01",
+  page: 1,
+  limit: 10,
+});
+page.records.forEach((p) => console.log(p.id, p.status, p.amountInCents));
+
+// One batch
+const [, payout] = await payouts.getPayout(page.records[0].id);
+
+// Its transactions
+const [, txs] = await payouts.listPayoutTransactions(payout.id, {
+  status: "FAILED",
+});
+
+// One transaction
+const [, tx] = await payouts.getPayoutTransaction(payout.id, txs.records[0].id);
+
+// Transactions for batches that use this batch reference
+const [, byRef] = await payouts.listTransactionsByReference("payroll-2026-07");
+```
+
+`listTransactionsByReference` expects the payout batch `reference`, not a
+transaction's own `reference`.
+
+List endpoints return a page object — `{ page, limit, total, pages, records }`
+— so you can paginate without guessing.
+
+## Banks, accounts and limits
+
+```ts
+// Destination banks — pass bank.id as each transaction's bankId
+const [, banks] = await payouts.listBanks();
+
+// Your origin accounts — pass account.id as the batch's accountId.
+// balanceInCents is the available balance, in cents.
+const [, accounts] = await payouts.listAccounts({ status: "ACTIVE" });
+
+// Daily dispersion limits and consumption, in cents
+const [, limits] = await payouts.getLimits();
+```
+
+## Reports
+
+```ts
+const [, reports] = await payouts.listReports({
+  periodicity: "weekly", // daily | weekly | biweekly | monthly
+  reportType: "payouts", // payouts | transactions
+});
+
+const [, url] = await payouts.getReportDownloadUrl({
+  reportExecutionId: reports.reports[0]._id,
+  reportIntegration: "payouts",
+});
+// url is a presigned link to the CSV
+```
+
+## Health
+
+```ts
+const [, health] = await payouts.getHealth();
+// health.status: HEALTHY | PARTIAL_OUTAGE | UNHEALTHY
+```
+
+## Sandbox: recharging balance
+
+The sandbox exposes `POST /accounts/balance-recharge` to top up test
+accounts, so you can simulate flows that need funds:
+
+```ts
+await payouts.rechargeAccountBalance({
+  accountId: account.id,
+  amountInCents: 10_000_000, // $100,000.00 COP
+});
+```
+
+Wompi's [sandbox
+guide](https://docs.wompi.co/docs/colombia/sandbox-pagos-a-terceros/) lists
+$1,000.00–$50,000,000.00 COP, while its [OpenAPI
+contract](https://api.swaggerhub.com/apis/wompi/Payouts/1.0.0) lists
+$100.00–$10,000,000.00 COP. Until Wompi reconciles those sources, the SDK
+accepts their combined range (`10_000`–`5_000_000_000` cents) and leaves the
+disputed bounds to the sandbox response.
+
+## Webhook events
+
+Payouts emit `payout.updated` and `transaction.updated` events to the URL you
+configure in the dashboard's Pagos a Terceros programmers section. Verify them
+with `verifyPayoutEvent` from `@pulgueta/wompi/server` — same signature scheme
+as payments webhooks, different envelope (no `environment`, camelCased
+`sentAt`), and a **different events secret**.
+
+```ts
+import {
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+  verifyPayoutEvent,
+} from "@pulgueta/wompi/server";
+
+export async function POST(request: Request) {
+  const [error, event] = await verifyPayoutEvent(await request.text(), {
+    eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+  });
+
+  if (error) return new Response("Invalid signature", { status: 403 });
+
+  if (isPayoutUpdatedEvent(event)) {
+    console.log("batch", event.data.payout.id, "→", event.data.payout.status);
+  }
+
+  if (isPayoutTransactionUpdatedEvent(event)) {
+    const tx = event.data.transaction;
+    console.log("transaction", tx.id, "→", tx.status, tx.failureReason);
+  }
+
+  return new Response("OK");
+}
+```
+
+:::warning[Reject unverified events]
+Anyone can POST to a public webhook URL. If `verifyPayoutEvent` returns an
+error, discard the event and don't process it.
+:::
+
+Wompi retries a delivery up to three times when your endpoint returns a
+non-2xx response. Process events idempotently and persist a delivery key, such
+as `event.event`, `event.timestamp`, and `event.signature.checksum`, before
+returning a success response. A retry must not repeat reconciliation side
+effects.

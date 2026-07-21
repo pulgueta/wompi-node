@@ -1,0 +1,172 @@
+---
+title: Payout batch
+description: Disperse a payroll batch end to end — pick an account, resolve the bank, create the batch, poll it and reconcile each transaction.
+sidebar:
+  label: Payout batch
+---
+
+This is a complete dispersion flow you can run as-is against the sandbox and
+later point at production. It tops up the sandbox account, creates a one-item
+batch, polls until Wompi settles it, and prints the per-transaction outcome.
+
+## Environment
+
+```dotenv title=".env.local"
+WOMPI_PAYOUTS_API_KEY=...
+WOMPI_PAYOUTS_USER_PRINCIPAL_ID=...
+WOMPI_PAYOUTS_EVENTS_KEY=...
+```
+
+These credentials come from _Desarrollo → Programadores → Pagos a Terceros_ in
+the dashboard; switch the dashboard to sandbox mode for the sandbox values.
+
+The request below sets `personType` explicitly. Wompi's OpenAPI contract marks
+it as required, while Wompi's prose example omits it. The SDK accepts omission
+for compatibility but doesn't infer a value.
+
+## The flow
+
+```ts title="scripts/payout-batch.ts"
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true, // flip to false (or omit) for production
+});
+
+// 1. Origin account — its id is the batch's accountId.
+const [accountsError, accounts] = await payouts.listAccounts({
+  status: "ACTIVE",
+});
+if (accountsError) throw accountsError;
+const account = accounts[0];
+console.log(
+  `Origin account ${account.number}: $${(account.balanceInCents ?? 0) / 100} COP`,
+);
+
+// 2. Sandbox only: top the account up so the batch clears.
+const [rechargeError] = await payouts.rechargeAccountBalance({
+  accountId: account.id,
+  amountInCents: 10_000_000, // $100,000.00 COP
+});
+if (rechargeError) throw rechargeError;
+
+// 3. Destination bank — its id is each transaction's bankId.
+const [banksError, banks] = await payouts.listBanks();
+if (banksError) throw banksError;
+const bank = banks.find((b) => b.code === "BANCOLOMBIA") ?? banks[0];
+
+// 4. Create the batch. Wompi rejects reuse of the idempotency key for 24 hours.
+//    Persist the returned payout id and reference before retrying later.
+const reference = `payroll-${new Date().toISOString().slice(0, 10)}`;
+const [createError, created] = await payouts.createPayout(
+  {
+    reference,
+    accountId: account.id,
+    paymentType: "PAYROLL",
+    transactionStatus: "APPROVED", // sandbox only: force the outcome
+    transactions: [
+      {
+        personType: "NATURAL",
+        legalIdType: "CC",
+        legalId: "1000000000",
+        bankId: bank.id,
+        accountType: "AHORROS",
+        accountNumber: "12345678",
+        name: "John Doe",
+        email: "john@example.com",
+        amount: 1_500_000, // $15,000.00 COP, in cents
+        reference: `${reference}-jdoe`,
+      },
+    ],
+  },
+  { idempotencyKey: reference },
+);
+if (createError) throw createError;
+console.log(
+  `Batch ${created.payoutId}: ${created.transactions} transaction(s) queued`,
+);
+
+// 5. Poll until Wompi reaches a terminal batch state.
+const isTerminal = (status: string) =>
+  status === "TOTAL_PAYMENT" || status === "REJECTED";
+let payout: Awaited<ReturnType<typeof payouts.getPayout>>[1] = null;
+for (let attempt = 0; attempt < 20; attempt++) {
+  const [error, fetched] = await payouts.getPayout(created.payoutId);
+  if (error) throw error;
+  payout = fetched;
+  if (isTerminal(payout.status)) break;
+  await sleep(2_000);
+}
+if (!payout || !isTerminal(payout.status)) {
+  throw new Error(`Batch did not settle: ${payout?.status ?? "UNKNOWN"}`);
+}
+console.log(`Batch settled as ${payout.status}`);
+
+// 6. Reconcile: read every transaction's final state.
+const [txError, txPage] = await payouts.listPayoutTransactions(
+  created.payoutId,
+);
+if (txError) throw txError;
+for (const tx of txPage.records) {
+  console.log(`  ${tx.reference}: ${tx.status}`, tx.failureReason ?? "");
+}
+```
+
+The 24-hour idempotency window isn't a durable record. In production, persist
+`created.payoutId` and `reference` before acknowledging the operation.
+
+Run it with your runtime of choice:
+
+```bash
+node --env-file=.env.local scripts/payout-batch.ts
+```
+
+## Listening for the result
+
+Polling works for a script; production systems should react to the
+`payout.updated` and `transaction.updated` webhooks instead. Configure the
+events URL in the dashboard and verify each delivery. Wompi retries non-2xx
+responses up to three times, so persist a delivery key and process duplicate
+events idempotently before applying side effects:
+
+```ts title="src/pages/api/payout-events.ts"
+import type { APIRoute } from "astro";
+import {
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+  verifyPayoutEvent,
+} from "@pulgueta/wompi/server";
+
+export const prerender = false;
+
+export const POST: APIRoute = async ({ request }) => {
+  const [error, event] = await verifyPayoutEvent(await request.text(), {
+    eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+  });
+
+  if (error) return new Response("Invalid signature", { status: 403 });
+
+  if (isPayoutUpdatedEvent(event)) {
+    // Reconcile the batch. PARTIAL_PAYMENT is not terminal.
+    console.log("batch", event.data.payout.id, "→", event.data.payout.status);
+  }
+
+  if (isPayoutTransactionUpdatedEvent(event)) {
+    // Reconcile a single payee, e.g. flag FAILED ones for retry.
+    const tx = event.data.transaction;
+    console.log("transaction", tx.id, "→", tx.status, tx.failureReason ?? "");
+  }
+
+  return new Response("OK");
+};
+```
+
+:::note[Going to production]
+Remove the `rechargeAccountBalance` and `transactionStatus` steps — both are
+sandbox-only — switch `sandbox: false`, and swap in the production API key,
+principal ID and events secret. Everything else stays identical.
+:::
