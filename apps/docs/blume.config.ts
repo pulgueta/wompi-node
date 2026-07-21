@@ -37,11 +37,16 @@ export default defineConfig({
           "/docs/payment-sources",
           "/docs/payment-links",
           "/docs/pse",
+          "/docs/breb",
         ],
       },
       {
         label: "Examples",
-        items: ["/docs/examples/card-checkout", "/docs/examples/payment-link"],
+        items: [
+          "/docs/examples/card-checkout",
+          "/docs/examples/payment-link",
+          "/docs/examples/breb-payout",
+        ],
       },
       {
         label: "Reference",

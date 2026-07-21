@@ -153,14 +153,17 @@ const signature = await getSignatureKey({
 | `wompi.paymentSources` | `getPaymentSource(id)`, `createPaymentSource(input)`                                                        |
 | `wompi.paymentLinks`   | `getPaymentLink(id)`, `createPaymentLink(input)`, `updatePaymentLink(id, input)`                            |
 | `wompi.pse`            | `getFinancialInstitutions()`                                                                                |
+| `wompi.breb`           | `resolveKey(keyValue, keyType?)`, `createPayout(input, idempotencyKey)`, `getPayout(id)`, `getPayoutTransactions(id, options?)` |
 
 `listTransactions`, `voidTransaction`, and every `paymentSources` / `paymentLinks`
-write requires a `privateKey`.
+write requires a `privateKey`. The `breb` namespace (BRE-B dispersals over the
+Pagos a Terceros API) requires its own credentials, passed as
+`payouts: { apiKey, userPrincipalId }` in the client options.
 
 ### Subpath exports
 
 | Import                    | Contents                                                       |
 | ------------------------- | -------------------------------------------------------------- |
 | `@pulgueta/wompi`         | `WompiClient`                                                  |
-| `@pulgueta/wompi/server`  | `getSignatureKey`, `GetSignatureKeyOptions`                   |
+| `@pulgueta/wompi/server`  | `getSignatureKey`, `GetSignatureKeyOptions`, `verifyWebhookEvent`, webhook event guards |
 | `@pulgueta/wompi/schemas` | Zod schemas, inferred types, `WompiError` and its subclasses, `Result` |

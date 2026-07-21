@@ -1,0 +1,141 @@
+---
+title: BRE-B payout
+description: Resolve a BRE-B key, confirm the beneficiary, create the dispersal, and settle it from the webhook.
+sidebar:
+  label: BRE-B payout
+---
+
+The full dispersal flow Wompi recommends: resolve the key so your user confirms the beneficiary, create the payout with an idempotency key derived from your own business id, and mark it paid when the webhook lands. Run it against the sandbox first — the same code works in production by swapping credentials and `sandbox: false`.
+
+## 1. Preview the beneficiary
+
+The customer types a key; you resolve it and show the masked holder back for confirmation. No money moves here.
+
+```ts title="src/pages/api/breb/resolve.ts"
+import type { APIRoute } from "astro";
+import { WompiClient } from "@pulgueta/wompi";
+
+export const prerender = false;
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  payouts: {
+    apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+    userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  },
+  sandbox: true,
+});
+
+export const POST: APIRoute = async ({ request }) => {
+  const { keyValue, keyType } = await request.json();
+
+  const [error, holder] = await wompi.breb.resolveKey(keyValue, keyType);
+
+  if (error) {
+    // EXC_034 (not registered) and EXC_033 (bad format) both land here.
+    return Response.json({ error: error.message }, { status: 422 });
+  }
+
+  // Render this and ask the user: "Is this who you want to pay?"
+  return Response.json({
+    holderName: holder.holderName, // "Eli*** Can*** Mor***"
+    bank: holder.financialEntity?.name, // "BANCO DAVIVIENDA"
+  });
+};
+```
+
+In sandbox, `@elias123` (type `ALPHANUMERIC`) resolves successfully; `noexiste@test.com` simulates a 404.
+
+## 2. Create the dispersal
+
+Only after the user confirms. Derive the idempotency key from your own order id so Wompi rejects duplicate submissions during its 24-hour window. Persist the resulting `payoutId` and reconcile it before retrying outside that window.
+
+```ts title="src/pages/api/breb/payout.ts"
+export const POST: APIRoute = async ({ request }) => {
+  const { orderId, keyValue, name, email, amountInCents } =
+    await request.json();
+
+  const [error, result] = await wompi.breb.createPayout(
+    {
+      reference: `order-${orderId}`,
+      accountId: process.env.WOMPI_PAYOUTS_ACCOUNT_ID!, // your funded source account
+      paymentType: "PROVIDERS",
+      transactions: [{ amount: amountInCents, name, email, key: keyValue }],
+    },
+    `payout-${orderId}`, // idempotency key: 1-64 chars, [a-zA-Z0-9-]
+  );
+
+  if (error) return Response.json({ error: error.message }, { status: 422 });
+
+  // Persist payoutId with status "PENDING"; the webhook settles it.
+  return Response.json({ payoutId: result.payoutId });
+};
+```
+
+:::tip[Simulating failures in sandbox]
+Add `transactionStatus: "FAILED"` to the batch body to make the sandbox fail every transaction, so you can exercise your `FAILED` handling end to end.
+:::
+
+## 3. Settle from the webhook
+
+Wompi POSTs `transaction.updated` (per dispersal) and `payout.updated` (per batch) to the events URL configured under Pagos a Terceros. Verify the signature exactly like payment events, then narrow with the payout guards.
+
+```ts title="src/pages/api/breb/events.ts"
+import type { APIRoute } from "astro";
+import {
+  verifyWebhookEvent,
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+} from "@pulgueta/wompi/server";
+
+export const prerender = false;
+
+export const POST: APIRoute = async ({ request }) => {
+  const [error, event] = await verifyWebhookEvent(await request.text(), {
+    eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+    api: "payouts",
+  });
+  if (error) return new Response("Invalid signature", { status: 403 });
+
+  if (isPayoutTransactionUpdatedEvent(event)) {
+    const tx = event.data.transaction;
+
+    if (tx.status === "APPROVED") {
+      // markPaid(tx.payoutId, tx.id);
+    } else if (tx.status === "FAILED") {
+      const reason =
+        typeof tx.failureReason === "string"
+          ? tx.failureReason
+          : tx.failureReason?.description;
+      // markFailed(tx.payoutId, tx.id, reason);
+    }
+  }
+
+  if (isPayoutUpdatedEvent(event)) {
+    // The batch changed status: "TOTAL_PAYMENT", "PARTIAL_PAYMENT", "REJECTED" —
+    // or "PENDING_APPROVAL" / "NOT_APPROVED" when the approval flow is enabled.
+    // reconcileBatch(event.data.payout.id, event.data.payout.status);
+  }
+
+  // Always 2xx fast — Wompi retries up to 3 more times otherwise.
+  return new Response("OK", { status: 200 });
+};
+```
+
+## 4. Reconcile without webhooks
+
+If events can't reach you (or as a safety net), poll the batch:
+
+```ts
+const [error, payout] = await wompi.breb.getPayout(payoutId);
+
+if (payout?.status === "PARTIAL_PAYMENT") {
+  // Find out which transactions failed and why.
+  const [, page] = await wompi.breb.getPayoutTransactions(payoutId);
+  const failed = page?.records.filter((tx) => tx.status === "FAILED") ?? [];
+}
+```
+
+:::warning[Go-live checklist]
+Before switching `sandbox: false`: production payouts credentials in place, beneficiary confirmation step in the UI, idempotency keys derived from stable business ids, webhook URL configured for production, and amounts verified to be in **cents**.
+:::

@@ -1,0 +1,179 @@
+---
+title: BRE-B dispersals
+description: Resolve BRE-B keys and send payouts through Wompi's Pagos a Terceros API.
+sidebar:
+  label: BRE-B dispersals
+---
+
+BRE-B is Colombia's instant-transfer rail: beneficiaries register a key (email, phone, alphanumeric alias, legal id, or establishment code) with their bank, and you pay them with just that key — no bank, account type, or account number needed.
+
+The `wompi.breb` namespace talks to the **payouts API** (`api.payouts.wompi.co/v2`), which is a different host and credential pair than the payments API. Get the credentials from the Wompi dashboard under **Desarrollo → Programadores → Pagos a Terceros** and pass them as `payouts` in the client options:
+
+```ts
+import { WompiClient } from "@pulgueta/wompi";
+
+const wompi = new WompiClient({
+  publicKey: process.env.WOMPI_PUBLIC_KEY!,
+  payouts: {
+    apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+    userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  },
+  sandbox: true, // uses api.sandbox.payouts.wompi.co
+});
+```
+
+Calling any `breb` method without `payouts` credentials resolves to a `WompiError` — the tuple pattern, never a throw.
+
+## resolveKey(keyValue, keyType?)
+
+Resolves a BRE-B key to its (masked) holder before you pay. Read-only: nothing moves. Show the result to your user and ask them to confirm the beneficiary — this is Wompi's recommended first step and it materially reduces failed payouts.
+
+```ts
+const [error, holder] = await wompi.breb.resolveKey(
+  "@JUANPEREZ",
+  "ALPHANUMERIC",
+);
+if (error) throw error;
+
+holder.holderName; // "JUA*** PER*** GAR***"
+holder.financialEntity?.name; // "BANCOLOMBIA"
+holder.keyType; // "ALPHANUMERIC"
+holder.keyValue; // "@JUA***"
+```
+
+`keyType` is optional — Wompi infers it from the format — but sending it avoids ambiguity (a 10-digit number could be a phone or a legal id).
+
+| `keyType`            | Format                        | Example          |
+| -------------------- | ----------------------------- | ---------------- |
+| `ALPHANUMERIC`       | `@` + 5–20 alphanumeric chars | `@JUANPEREZ`     |
+| `MAIL`               | Valid email                   | `juan@email.com` |
+| `PHONE`              | 10 digits, starts with 3      | `3001234567`     |
+| `IDENTIFICATION`     | 1–18 alphanumeric chars       | `1234567890`     |
+| `ESTABLISHMENT_CODE` | 8 digits                      | `12345678`       |
+
+An unknown or inactive key resolves to a `WompiRequestError` with `statusCode: 404`; the payouts error body (with `code: "EXC_034"`) is on `error.body`.
+
+## createPayout(input, idempotencyKey)
+
+Creates a payout batch. A BRE-B transaction sends `key` instead of `bankId` + `accountType` + `accountNumber`; `legalIdType` + `legalId` remain optional as a pair for BRE-B and are required for a bank transaction. Both destination methods can be mixed in one batch, but not within one transaction.
+
+```ts
+const [error, result] = await wompi.breb.createPayout(
+  {
+    reference: "payout-breb-001",
+    accountId: sourceAccountId, // from GET /accounts in the payouts dashboard/API
+    paymentType: "PROVIDERS", // "PAYROLL" | "PROVIDERS" | "OTHER"
+    transactions: [
+      {
+        amount: 150_000, // in COP cents
+        name: "Juan Perez",
+        email: "juan@example.com",
+        key: "@JUANPEREZ",
+      },
+    ],
+  },
+  `payout-${orderId}`, // idempotency key: unique, 1-64 chars, [a-zA-Z0-9-]
+);
+if (error) throw error;
+
+result.payoutId; // persist this — it identifies the batch
+result.success; // transactions accepted for processing
+result.failed; // transactions rejected by validation
+```
+
+:::warning[Idempotency]
+Every request needs an `idempotencyKey` (letters, numbers, and hyphens; max 64 chars). Reusing one within Wompi's 24-hour window resolves to a `WompiRequestError` with `statusCode: 409` and `code: "EXC_032"` in `error.body`. Derive it from a stable business id and persist the resulting `payoutId`; before retrying outside that window, reconcile the existing payout so you do not create a second one.
+:::
+
+Optional batch fields:
+
+- `dispersionDatetime` (`YYYY-MM-DDTHH:mm`) schedules the payout — must be at least the next day.
+- `recurring` (`{ interval: "biweek" | "month", months: 3 | 6 | 12, description? }`) makes a scheduled payout recur and requires `dispersionDatetime`.
+- `transactionStatus` (`"APPROVED" | "FAILED"`) — **sandbox only** — simulates the final status of every transaction in the batch. Defaults to approved.
+
+## getPayout(payoutId)
+
+Reads the batch — your alternative (or complement) to webhook events.
+
+```ts
+const [error, payout] = await wompi.breb.getPayout(payoutId);
+
+payout.status;
+// "PENDING" | "TOTAL_PAYMENT" | "PARTIAL_PAYMENT" | "REJECTED"
+// with the approval flow enabled: "PENDING_APPROVAL" | "NOT_APPROVED"
+// under anti-fraud review: "AFE_ON_HOLD" | "AFE_REJECTED"
+```
+
+## getPayoutTransactions(payoutId, options?)
+
+Returns Wompi's page metadata and the individual transactions in `records`. Pass positive integer `options.limit` and `options.page` values and continue while `page < pages`.
+
+```ts
+const [error, page] = await wompi.breb.getPayoutTransactions(payoutId, {
+  limit: 50,
+  page: 1,
+});
+
+for (const tx of page?.records ?? []) {
+  tx.status; // "PENDING" | "PROCESSING" | "APPROVED" | "FAILED" | "REJECTED" | "CANCELLED" | ...
+  tx.payeeInfo?.key ?? tx.payee?.key; // query and webhook-style payee fields
+  const failure =
+    typeof tx.failureReason === "string"
+      ? tx.failureReason
+      : tx.failureReason?.description;
+}
+
+page?.page;
+page?.pages;
+```
+
+## Webhook events
+
+Payout results arrive on the same events URL as your other Wompi webhooks (configured per environment in the dashboard's Pagos a Terceros section). Two event types matter — `transaction.updated` per transaction and `payout.updated` per batch — and `verifyWebhookEvent` authenticates both exactly like payment events:
+
+```ts
+import {
+  verifyWebhookEvent,
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+} from "@pulgueta/wompi/server";
+
+const [error, event] = await verifyWebhookEvent(await request.text(), {
+  eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+  api: "payouts",
+});
+if (error) return new Response("Invalid signature", { status: 403 });
+
+if (isPayoutTransactionUpdatedEvent(event)) {
+  // One dispersal settled or failed.
+  event.data.transaction.payoutId;
+  event.data.transaction.status; // "APPROVED" | "FAILED" | ...
+  const reason = event.data.transaction.failureReason;
+  const code = typeof reason === "string" ? undefined : reason?.code; // e.g. "C02"
+}
+
+if (isPayoutUpdatedEvent(event)) {
+  // The whole batch changed status.
+  event.data.payout.status; // "TOTAL_PAYMENT" | "PARTIAL_PAYMENT" | ...
+}
+```
+
+:::note[Same name, different payload]
+The payouts API also names its per-transaction event `transaction.updated`, but its envelope differs from a payment event (camelCase `sentAt` and no `environment`). Pass `api: "payouts"` to select that envelope and the payouts events key. The default verifier remains strict for payment events, so existing payment webhook handlers still require `environment`.
+:::
+
+## Sandbox
+
+Point the client at the sandbox with `sandbox: true` and use the sandbox payouts credentials. Only the documented test keys resolve — any other key returns `EXC_034`:
+
+| Key                 | Type             | Simulates                |
+| ------------------- | ---------------- | ------------------------ |
+| `@elias123`         | `ALPHANUMERIC`   | Successful resolution    |
+| `ecolon@wompi.com`  | `MAIL`           | Successful resolution    |
+| `3001234567`        | `PHONE`          | Successful resolution    |
+| `1020304050`        | `IDENTIFICATION` | Successful resolution    |
+| `noexiste@test.com` | `MAIL`           | 404 — key not found      |
+| `inactiva@test.com` | `MAIL`           | 400 — key inactive       |
+| `timeout@test.com`  | `MAIL`           | 503 — resolution timeout |
+
+See the [BRE-B payout example](/docs/examples/breb-payout) for the full resolve → confirm → pay → webhook flow.
