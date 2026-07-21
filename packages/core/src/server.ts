@@ -1,10 +1,20 @@
 import {
+  PayoutTransactionUpdatedEventSchema,
+  PayoutWebhookEventSchema,
+  PayoutUpdatedEventSchema,
   TransactionUpdatedEventSchema,
   WebhookEventSchema,
   WompiError,
   WompiWebhookVerificationError,
 } from "@/schemas";
-import type { Result, TransactionUpdatedEvent, WebhookEvent } from "@/schemas";
+import type {
+  PayoutTransactionUpdatedEvent,
+  PayoutUpdatedEvent,
+  PayoutWebhookEvent,
+  Result,
+  TransactionUpdatedEvent,
+  WebhookEvent,
+} from "@/schemas";
 
 /** SHA-256 hex digest (lowercase) of a UTF-8 string, via Web Crypto. */
 const sha256Hex = async (input: string): Promise<string> => {
@@ -123,6 +133,8 @@ export const computeEventChecksum = async (
 export type VerifyWebhookEventOptions = {
   /** The merchant events secret, available in the Wompi dashboard. */
   eventsKey: string;
+  /** Select the payouts envelope, which omits `environment` and uses `sentAt`. */
+  api?: "payments" | "payouts";
 };
 
 /**
@@ -132,7 +144,8 @@ export type VerifyWebhookEventOptions = {
  * validates the envelope shape, recomputes the checksum with the events secret
  * and compares it in constant time against `signature.checksum`. Events whose
  * checksum does not match must be discarded — anyone can POST to a public
- * webhook endpoint.
+ * webhook endpoint. Pass `api: "payouts"` with the payouts events secret for
+ * BRE-B and bank-dispersal events, whose envelope omits `environment`.
  *
  * @example
  * ```ts
@@ -145,10 +158,22 @@ export type VerifyWebhookEventOptions = {
  * }
  * ```
  */
-export const verifyWebhookEvent = async (
+export function verifyWebhookEvent(
+  payload: unknown,
+  options: VerifyWebhookEventOptions & { api: "payouts" }
+): Promise<Result<PayoutWebhookEvent>>;
+export function verifyWebhookEvent(
+  payload: unknown,
+  options: VerifyWebhookEventOptions & { api?: "payments" }
+): Promise<Result<WebhookEvent>>;
+export function verifyWebhookEvent(
   payload: unknown,
   options: VerifyWebhookEventOptions
-): Promise<Result<WebhookEvent>> => {
+): Promise<Result<WebhookEvent | PayoutWebhookEvent>>;
+export async function verifyWebhookEvent(
+  payload: unknown,
+  options: VerifyWebhookEventOptions
+): Promise<Result<WebhookEvent | PayoutWebhookEvent>> {
   let raw: unknown = payload;
 
   if (typeof payload === "string") {
@@ -159,7 +184,8 @@ export const verifyWebhookEvent = async (
     }
   }
 
-  const parsed = WebhookEventSchema.safeParse(raw);
+  const schema = options.api === "payouts" ? PayoutWebhookEventSchema : WebhookEventSchema;
+  const parsed = schema.safeParse(raw);
 
   if (!parsed.success) {
     return [
@@ -178,11 +204,30 @@ export const verifyWebhookEvent = async (
   }
 
   return [null, event];
-};
+}
 
-/** Narrow a verified {@link WebhookEvent} to a typed `transaction.updated` event. */
-export const isTransactionUpdatedEvent = (event: WebhookEvent): event is TransactionUpdatedEvent =>
+/** Narrow a verified payments or payouts event to a payment `transaction.updated` event. */
+export const isTransactionUpdatedEvent = (
+  event: WebhookEvent | PayoutWebhookEvent
+): event is TransactionUpdatedEvent =>
   event.event === "transaction.updated" && TransactionUpdatedEventSchema.safeParse(event).success;
+
+/**
+ * Narrow a verified {@link WebhookEvent} to a payouts-API (BRE-B/bank dispersal)
+ * `transaction.updated` event. The event name is shared with the payments API;
+ * the payload's `transaction.payoutId` is what tells them apart.
+ */
+export const isPayoutTransactionUpdatedEvent = (
+  event: WebhookEvent | PayoutWebhookEvent
+): event is PayoutTransactionUpdatedEvent =>
+  event.event === "transaction.updated" &&
+  PayoutTransactionUpdatedEventSchema.safeParse(event).success;
+
+/** Narrow a verified payments or payouts event to a typed `payout.updated` event. */
+export const isPayoutUpdatedEvent = (
+  event: WebhookEvent | PayoutWebhookEvent
+): event is PayoutUpdatedEvent =>
+  event.event === "payout.updated" && PayoutUpdatedEventSchema.safeParse(event).success;
 
 // ---------------------------------------------------------------------------
 // Web Checkout

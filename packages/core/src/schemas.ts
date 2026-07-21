@@ -348,6 +348,223 @@ export const wompiListResponse = <T extends z.ZodType>(itemSchema: T) =>
     })
     .transform((parsed) => (parsed as { data: z.output<T>[] }).data);
 
+// ---------------------------------------------------------------------------
+// Payouts (Pagos a Terceros) · BRE-B
+//
+// These endpoints live on the payouts API (`api.payouts.wompi.co/v2`), which
+// uses camelCase field names on the wire — unlike the snake_case payments API.
+// ---------------------------------------------------------------------------
+
+export const BrebKeyTypeSchema = z.enum([
+  "ALPHANUMERIC",
+  "MAIL",
+  "PHONE",
+  "IDENTIFICATION",
+  "ESTABLISHMENT_CODE",
+]);
+
+export const PayoutPaymentTypeSchema = z.enum(["PAYROLL", "PROVIDERS", "OTHER"]);
+
+export const PayoutTransactionStatusSchema = z.enum([
+  "PENDING",
+  "PROCESSING",
+  "APPROVED",
+  "FAILED",
+  "REJECTED",
+  "CANCELLED",
+  "READY_TO_FILE",
+  "ADDED_TO_FILE",
+  "UNKNOWN",
+]);
+
+export const PayoutStatusSchema = z.enum([
+  "PENDING",
+  "PENDING_APPROVAL",
+  "NOT_APPROVED",
+  "TOTAL_PAYMENT",
+  "PARTIAL_PAYMENT",
+  "REJECTED",
+  "AFE_REJECTED",
+  "AFE_ON_HOLD",
+]);
+
+export const PayoutLegalIdTypeSchema = z.enum(["CC", "CE", "NIT", "PP", "TI", "DNI"]);
+
+export const PayoutPersonTypeSchema = z.enum(["NATURAL", "JURIDICA"]);
+
+export const PayoutAccountTypeSchema = z.enum(["AHORROS", "CORRIENTE", "DEPOSITO_ELECTRONICO"]);
+
+export const BrebFinancialEntitySchema = z
+  .object({
+    name: z.string().optional(),
+    code: z.string().optional(),
+  })
+  .loose();
+
+/**
+ * Result of resolving a BRE-B key (`GET /breb/keys/resolve/{keyValue}`).
+ * Holder data comes back partially masked by design.
+ */
+export const BrebKeyResolutionSchema = z
+  .object({
+    holderName: z.string().optional(),
+    financialEntity: BrebFinancialEntitySchema.optional(),
+    keyType: z.string().optional(),
+    keyValue: z.string().optional(),
+  })
+  .loose();
+
+export const PayoutRecurringSchema = z.object({
+  interval: z.enum(["biweek", "month"]),
+  months: z.literal([3, 6, 12], { error: "Must be 3, 6, or 12" }),
+  description: z.string().optional(),
+});
+
+/**
+ * One transaction inside a payout batch. A BRE-B transaction sends `key` in
+ * place of `bankId` + `accountType` + `accountNumber`; the beneficiary document
+ * (`legalIdType` + `legalId`) remains optional as a pair for BRE-B and is
+ * required for a bank transaction. Both kinds can be mixed in one batch, but
+ * each transaction must use exactly one destination method.
+ */
+export const PayoutTransactionInputSchema = z
+  .object({
+    amount: z.number().int().positive(),
+    name: z.string().min(1),
+    email: z.email(),
+    key: z.string().min(1).optional(),
+    bankId: z.string().min(1).optional(),
+    accountType: PayoutAccountTypeSchema.optional(),
+    accountNumber: z.string().min(1).optional(),
+    legalIdType: PayoutLegalIdTypeSchema.optional(),
+    legalId: z.string().min(1).optional(),
+    phone: z.string().optional(),
+    description: z.string().optional(),
+    personType: PayoutPersonTypeSchema.optional(),
+    reference: z
+      .string()
+      .max(40)
+      .regex(/^[a-zA-Z0-9-]+$/, "Only letters, numbers, and hyphens")
+      .optional(),
+  })
+  .refine(
+    (t) =>
+      t.key !== undefined ||
+      (t.bankId !== undefined && t.accountType !== undefined && t.accountNumber !== undefined),
+    { message: "Provide key (BRE-B) or bankId + accountType + accountNumber (bank transfer)" }
+  )
+  .refine(
+    (t) =>
+      t.key === undefined ||
+      (t.bankId === undefined && t.accountType === undefined && t.accountNumber === undefined),
+    { message: "Provide either key (BRE-B) or bank fields, not both" }
+  )
+  .refine((t) => (t.legalIdType === undefined) === (t.legalId === undefined), {
+    message: "Provide both legalIdType and legalId, or neither",
+  })
+  .refine((t) => t.key !== undefined || (t.legalIdType !== undefined && t.legalId !== undefined), {
+    message: "Bank transfers require the beneficiary document: legalIdType + legalId",
+  });
+
+export const CreatePayoutInputSchema = z
+  .object({
+    reference: z.string().min(1),
+    accountId: z.string().min(1),
+    paymentType: PayoutPaymentTypeSchema,
+    transactions: z.array(PayoutTransactionInputSchema).min(1),
+    dispersionDatetime: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Must be YYYY-MM-DDTHH:mm format")
+      .optional(),
+    recurring: PayoutRecurringSchema.optional(),
+    /** Sandbox only: simulates the final status of every transaction in the batch. */
+    transactionStatus: z.enum(["APPROVED", "FAILED"]).optional(),
+  })
+  .refine((payout) => payout.recurring === undefined || payout.dispersionDatetime !== undefined, {
+    message: "dispersionDatetime is required for recurring payouts",
+    path: ["dispersionDatetime"],
+  });
+
+/**
+ * Response payload of `POST /payouts`. Lenient like every response schema:
+ * only `payoutId` — the identifier consumers persist — is required.
+ */
+export const CreatePayoutResultSchema = z
+  .object({
+    payoutId: z.string(),
+    transactions: z.number().int().optional(),
+    success: z.number().int().optional(),
+    failed: z.number().int().optional(),
+  })
+  .loose();
+
+/** Beneficiary data on a payout transaction, masked and enriched with the resolved BRE-B key. */
+export const PayoutPayeeSchema = z
+  .object({
+    bank: z.string().optional(),
+    bankCode: z.string().optional(),
+    key: z.string().optional(),
+    name: z.string().optional(),
+    email: z.string().optional(),
+    keyType: z.string().optional(),
+    legalId: z.string().optional(),
+    personType: z.string().optional(),
+    accountType: z.string().optional(),
+    legalIdType: z.string().optional(),
+    accountNumber: z.string().optional(),
+    keyResolutionId: z.string().optional(),
+    paymentMethodType: z.string().optional(),
+  })
+  .loose();
+
+export const PayoutFailureReasonSchema = z
+  .object({
+    code: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .loose();
+
+export const PayoutTransactionSchema = z
+  .object({
+    id: z.string(),
+    status: PayoutTransactionStatusSchema,
+    payoutId: z.string().optional(),
+    amountInCents: z.number().int().optional(),
+    payee: PayoutPayeeSchema.optional(),
+    payeeInfo: PayoutPayeeSchema.optional(),
+    failureReason: z.union([PayoutFailureReasonSchema, z.string()]).nullish(),
+    reference: z.string().optional(),
+    currency: z.string().optional(),
+    appliedAt: z.string().nullish(),
+    createdAt: z.string().optional(),
+  })
+  .loose();
+
+/** Paginated payload returned by `GET /payouts/{payoutId}/transactions`. */
+export const PayoutTransactionPageSchema = z
+  .object({
+    page: z.number().int().positive().optional(),
+    limit: z.number().int().positive().optional(),
+    total: z.number().int().nonnegative().optional(),
+    pages: z.number().int().nonnegative().optional(),
+    records: z.array(PayoutTransactionSchema),
+  })
+  .loose();
+
+export const PayoutSchema = z
+  .object({
+    id: z.string(),
+    status: PayoutStatusSchema,
+    reference: z.string().optional(),
+    amountInCents: z.number().int().optional(),
+    paymentType: z.string().optional(),
+    totalTransactions: z.number().int().optional(),
+    currency: z.string().optional(),
+    approvedAt: z.string().nullish(),
+    createdAt: z.string().optional(),
+  })
+  .loose();
+
 export const WebhookSignatureSchema = z.object({
   properties: z.array(z.string()),
   checksum: z.string(),
@@ -368,6 +585,17 @@ export const WebhookEventSchema = z
     signature: WebhookSignatureSchema,
     timestamp: z.number(),
     sent_at: z.string().optional(),
+  })
+  .loose();
+
+/** Generic envelope for payouts events, which use `sentAt` and omit `environment`. */
+export const PayoutWebhookEventSchema = z
+  .object({
+    event: z.string(),
+    data: z.record(z.string(), z.unknown()),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sentAt: z.string().optional(),
   })
   .loose();
 
@@ -393,6 +621,33 @@ export const NequiTokenUpdatedEventSchema = z
   })
   .loose();
 
+/**
+ * `transaction.updated` fired by the payouts API for a BRE-B/bank dispersal.
+ * It shares its name with the payments-API event; `transaction.payoutId` —
+ * required here — is what tells them apart. Uses camelCase `sentAt` and omits
+ * `environment`, unlike payments-API events.
+ */
+export const PayoutTransactionUpdatedEventSchema = z
+  .object({
+    event: z.literal("transaction.updated"),
+    data: z.object({ transaction: PayoutTransactionSchema.extend({ payoutId: z.string() }) }),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sentAt: z.string().optional(),
+  })
+  .loose();
+
+/** `payout.updated` fired by the payouts API when a whole batch changes status. */
+export const PayoutUpdatedEventSchema = z
+  .object({
+    event: z.literal("payout.updated"),
+    data: z.object({ payout: PayoutSchema }),
+    signature: WebhookSignatureSchema,
+    timestamp: z.number(),
+    sentAt: z.string().optional(),
+  })
+  .loose();
+
 export const NotFoundErrorResponseSchema = z.object({
   error: z.object({
     type: z.literal("NOT_FOUND_ERROR"),
@@ -407,9 +662,20 @@ export const InputValidationErrorResponseSchema = z.object({
   }),
 });
 
+/**
+ * Credentials for the payouts API (Pagos a Terceros / BRE-B). These are
+ * separate from the payments keys and come from the "Pagos a Terceros"
+ * section of the Wompi dashboard.
+ */
+export const PayoutsCredentialsSchema = z.object({
+  apiKey: z.string().min(1, "A payouts API key is required"),
+  userPrincipalId: z.string().min(1, "A payouts user principal id is required"),
+});
+
 export const WompiClientOptionsSchema = z.object({
   publicKey: z.string().min(1, "A public key is required"),
   privateKey: z.string().optional(),
+  payouts: PayoutsCredentialsSchema.optional(),
   sandbox: z.boolean().default(false),
 });
 
@@ -462,10 +728,33 @@ export type Merchant = z.output<typeof MerchantSchema>;
 
 export type FinancialInstitution = z.output<typeof FinancialInstitutionSchema>;
 
+export type BrebKeyType = z.output<typeof BrebKeyTypeSchema>;
+export type PayoutPaymentType = z.output<typeof PayoutPaymentTypeSchema>;
+export type PayoutTransactionStatus = z.output<typeof PayoutTransactionStatusSchema>;
+export type PayoutStatus = z.output<typeof PayoutStatusSchema>;
+export type PayoutLegalIdType = z.output<typeof PayoutLegalIdTypeSchema>;
+export type PayoutPersonType = z.output<typeof PayoutPersonTypeSchema>;
+export type PayoutAccountType = z.output<typeof PayoutAccountTypeSchema>;
+export type BrebFinancialEntity = z.output<typeof BrebFinancialEntitySchema>;
+export type BrebKeyResolution = z.output<typeof BrebKeyResolutionSchema>;
+export type PayoutRecurring = z.output<typeof PayoutRecurringSchema>;
+export type PayoutTransactionInput = z.output<typeof PayoutTransactionInputSchema>;
+export type CreatePayoutInput = z.output<typeof CreatePayoutInputSchema>;
+export type CreatePayoutResult = z.output<typeof CreatePayoutResultSchema>;
+export type PayoutPayee = z.output<typeof PayoutPayeeSchema>;
+export type PayoutFailureReason = z.output<typeof PayoutFailureReasonSchema>;
+export type PayoutTransaction = z.output<typeof PayoutTransactionSchema>;
+export type PayoutTransactionPage = z.output<typeof PayoutTransactionPageSchema>;
+export type Payout = z.output<typeof PayoutSchema>;
+export type PayoutsCredentials = z.output<typeof PayoutsCredentialsSchema>;
+
 export type WebhookSignature = z.output<typeof WebhookSignatureSchema>;
 export type WebhookEvent = z.output<typeof WebhookEventSchema>;
+export type PayoutWebhookEvent = z.output<typeof PayoutWebhookEventSchema>;
 export type TransactionUpdatedEvent = z.output<typeof TransactionUpdatedEventSchema>;
 export type NequiTokenUpdatedEvent = z.output<typeof NequiTokenUpdatedEventSchema>;
+export type PayoutTransactionUpdatedEvent = z.output<typeof PayoutTransactionUpdatedEventSchema>;
+export type PayoutUpdatedEvent = z.output<typeof PayoutUpdatedEventSchema>;
 
 export type NotFoundErrorResponse = z.output<typeof NotFoundErrorResponseSchema>;
 export type InputValidationErrorResponse = z.output<typeof InputValidationErrorResponseSchema>;

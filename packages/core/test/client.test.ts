@@ -13,6 +13,22 @@ describe("WompiClient", () => {
     expect(client.paymentSources).toBeDefined();
     expect(client.paymentLinks).toBeDefined();
     expect(client.pse).toBeDefined();
+    expect(client.breb).toBeDefined();
+  });
+
+  it("should accept payouts credentials", () => {
+    const client = new WompiClient({
+      publicKey: "pub_test_123",
+      payouts: { apiKey: "payouts_key", userPrincipalId: "principal-id" },
+    });
+
+    expect(client.breb).toBeDefined();
+  });
+
+  it("should throw WompiError on incomplete payouts credentials", () => {
+    expect(
+      () => new WompiClient({ publicKey: "pub_test_123", payouts: { apiKey: "payouts_key" } })
+    ).toThrow(WompiError);
   });
 
   it("should create a client with both public and private keys", () => {

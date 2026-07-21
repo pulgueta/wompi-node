@@ -11,13 +11,24 @@ import {
 import type { Result } from "@/schemas";
 
 const BASE_URLS = {
-  production: "https://production.wompi.co/v1",
-  sandbox: "https://sandbox.wompi.co/v1",
+  payments: {
+    production: "https://production.wompi.co/v1",
+    sandbox: "https://sandbox.wompi.co/v1",
+  },
+  payouts: {
+    production: "https://api.payouts.wompi.co/v2",
+    sandbox: "https://api.sandbox.payouts.wompi.co/v2",
+  },
 } as const;
 
 export type WompiRequestConfig = {
   sandbox?: boolean;
   timeoutMs?: number;
+  /**
+   * Which Wompi API the resource talks to. Payouts (Pagos a Terceros / BRE-B)
+   * lives on a different host than the payments API. Defaults to `"payments"`.
+   */
+  api?: keyof typeof BASE_URLS;
 };
 
 export class WompiRequest {
@@ -25,7 +36,8 @@ export class WompiRequest {
   private readonly timeoutMs: number;
 
   constructor(config?: WompiRequestConfig) {
-    this.baseUrl = config?.sandbox ? BASE_URLS.sandbox : BASE_URLS.production;
+    const urls = BASE_URLS[config?.api ?? "payments"];
+    this.baseUrl = config?.sandbox ? urls.sandbox : urls.production;
     this.timeoutMs = config?.timeoutMs ?? 30_000;
   }
 
