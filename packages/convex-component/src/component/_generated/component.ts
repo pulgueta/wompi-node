@@ -361,6 +361,192 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Name
       >;
     };
+    dispersions: {
+      applyPayoutUpdate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          amountInCents?: number;
+          paymentType?: string;
+          reference?: string;
+          status: string;
+          wompiPayoutId: string;
+        },
+        {
+          changed: boolean;
+          dispersion: {
+            _creationTime: number;
+            _id: string;
+            amountInCents?: number;
+            finalizedAt?: number;
+            metadata?: Record<string, any>;
+            paymentType: string;
+            reference: string;
+            status: string;
+            transactionsFailed: number;
+            transactionsSuccess: number;
+            transactionsTotal: number;
+            wompiPayoutId: string;
+          };
+        },
+        Name
+      >;
+      applyTransactionUpdate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          amountInCents: number;
+          failureReason?: string;
+          payeeKey?: string;
+          payeeName?: string;
+          reference?: string;
+          status: string;
+          wompiPayoutId: string;
+          wompiTransactionId: string;
+        },
+        {
+          changed: boolean;
+          dispersion: {
+            _creationTime: number;
+            _id: string;
+            amountInCents?: number;
+            finalizedAt?: number;
+            metadata?: Record<string, any>;
+            paymentType: string;
+            reference: string;
+            status: string;
+            transactionsFailed: number;
+            transactionsSuccess: number;
+            transactionsTotal: number;
+            wompiPayoutId: string;
+          };
+          dispersionChanged: boolean;
+          transaction: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            dispersionId: string;
+            failureReason?: string;
+            payeeKey?: string;
+            payeeName?: string;
+            reference?: string;
+            status: string;
+            updatedAt: number;
+            wompiTransactionId: string;
+          };
+        },
+        Name
+      >;
+      get: FunctionReference<
+        "query",
+        "internal",
+        { wompiPayoutId: string },
+        {
+          _creationTime: number;
+          _id: string;
+          amountInCents?: number;
+          finalizedAt?: number;
+          metadata?: Record<string, any>;
+          paymentType: string;
+          reference: string;
+          status: string;
+          transactionsFailed: number;
+          transactionsSuccess: number;
+          transactionsTotal: number;
+          wompiPayoutId: string;
+        } | null,
+        Name
+      >;
+      getByReference: FunctionReference<
+        "query",
+        "internal",
+        { reference: string },
+        {
+          _creationTime: number;
+          _id: string;
+          amountInCents?: number;
+          finalizedAt?: number;
+          metadata?: Record<string, any>;
+          paymentType: string;
+          reference: string;
+          status: string;
+          transactionsFailed: number;
+          transactionsSuccess: number;
+          transactionsTotal: number;
+          wompiPayoutId: string;
+        } | null,
+        Name
+      >;
+      list: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number; status?: string },
+        Array<{
+          _creationTime: number;
+          _id: string;
+          amountInCents?: number;
+          finalizedAt?: number;
+          metadata?: Record<string, any>;
+          paymentType: string;
+          reference: string;
+          status: string;
+          transactionsFailed: number;
+          transactionsSuccess: number;
+          transactionsTotal: number;
+          wompiPayoutId: string;
+        }>,
+        Name
+      >;
+      listTransactions: FunctionReference<
+        "query",
+        "internal",
+        { dispersionId: string; limit?: number },
+        Array<{
+          _creationTime: number;
+          _id: string;
+          amountInCents: number;
+          dispersionId: string;
+          failureReason?: string;
+          payeeKey?: string;
+          payeeName?: string;
+          reference?: string;
+          status: string;
+          updatedAt: number;
+          wompiTransactionId: string;
+        }>,
+        Name
+      >;
+      record: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          amountInCents?: number;
+          metadata?: Record<string, any>;
+          paymentType: string;
+          reference: string;
+          status: string;
+          transactionsFailed: number;
+          transactionsSuccess: number;
+          transactionsTotal: number;
+          wompiPayoutId: string;
+        },
+        {
+          _creationTime: number;
+          _id: string;
+          amountInCents?: number;
+          finalizedAt?: number;
+          metadata?: Record<string, any>;
+          paymentType: string;
+          reference: string;
+          status: string;
+          transactionsFailed: number;
+          transactionsSuccess: number;
+          transactionsTotal: number;
+          wompiPayoutId: string;
+        },
+        Name
+      >;
+    };
     payments: {
       createCheckout: FunctionReference<
         "mutation",
@@ -996,7 +1182,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           checksum: string;
-          environment: string;
+          environment?: string;
           eventType: string;
           reference?: string;
           sentAt?: string;

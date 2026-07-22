@@ -156,12 +156,49 @@ export default defineSchema({
     .index("by_wompi_transaction_id", ["wompiTransactionId"])
     .index("by_status", ["status"]),
 
+  // Payout batches (Pagos a Terceros), one row per Wompi payout, updated in
+  // place as `payout.updated` events land.
+  dispersions: defineTable({
+    wompiPayoutId: v.string(),
+    reference: v.string(),
+    // Kept a plain string: Wompi emits statuses beyond the documented set.
+    status: v.string(),
+    paymentType: v.string(),
+    transactionsTotal: v.number(),
+    transactionsSuccess: v.number(),
+    transactionsFailed: v.number(),
+    amountInCents: v.optional(v.number()),
+    finalizedAt: v.optional(v.number()),
+    metadata: v.optional(v.record(v.string(), v.any())),
+  })
+    .index("by_wompi_payout_id", ["wompiPayoutId"])
+    .index("by_reference", ["reference"])
+    .index("by_status", ["status"]),
+
+  // Per-beneficiary transactions of a dispersion batch, upserted from payout
+  // `transaction.updated` events.
+  dispersionTransactions: defineTable({
+    dispersionId: v.id("dispersions"),
+    wompiTransactionId: v.string(),
+    reference: v.optional(v.string()),
+    status: v.string(),
+    amountInCents: v.number(),
+    payeeName: v.optional(v.string()),
+    // The resolved BRE-B key, when the beneficiary was paid through one.
+    payeeKey: v.optional(v.string()),
+    failureReason: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_dispersion_id", ["dispersionId"])
+    .index("by_wompi_transaction_id", ["wompiTransactionId"]),
+
   // Verified webhook deliveries, keyed by Wompi's checksum for exactly-once
   // processing of app callbacks (Wompi retries up to 3 times).
   webhookEvents: defineTable({
     checksum: v.string(),
     eventType: v.string(),
-    environment: v.string(),
+    // Payments events carry test/prod; payout events have no environment.
+    environment: v.optional(v.string()),
     timestamp: v.number(),
     sentAt: v.optional(v.string()),
     transactionId: v.optional(v.string()),

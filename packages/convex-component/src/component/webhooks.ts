@@ -11,7 +11,8 @@ export const recordEvent = mutation({
   args: {
     checksum: v.string(),
     eventType: v.string(),
-    environment: v.string(),
+    // Absent on payout events — their envelope carries no environment field.
+    environment: v.optional(v.string()),
     timestamp: v.number(),
     sentAt: v.optional(v.string()),
     transactionId: v.optional(v.string()),
