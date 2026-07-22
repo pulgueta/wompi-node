@@ -1,3 +1,17 @@
+## 3.2.0
+
+### Minor Changes
+
+- [#29](https://github.com/pulgueta/wompi-node/pull/29) [`d94b031`](https://github.com/pulgueta/wompi-node/commit/d94b031a63513560a7144dd4c3136658463f84b9) Thanks [@pulgueta](https://github.com/pulgueta)! - Add BRE-B dispersions to `WompiPayoutsClient`.
+  - New `resolveBrebKey(keyValue, keyType?)` previews the masked holder of a BRE-B key (`GET /v2/breb/keys/resolve/{keyValue}`) before paying it.
+  - `createPayout` transactions now pay either a bank account or a BRE-B `key` — mixed batches included — and the batch is routed to `/v2/payouts` automatically whenever any transaction carries a `key`.
+  - New `BrebKeyType`, `BrebFinancialEntity` and `BrebKeyResolution` schemas/types in `@pulgueta/wompi/schemas`, plus typed BRE-B payee fields (`key`, `keyType`, `personType`, `keyResolutionId`, `paymentMethodType`) on payout `transaction.updated` webhook events.
+
+- [#28](https://github.com/pulgueta/wompi-node/pull/28) [`2c9f33f`](https://github.com/pulgueta/wompi-node/commit/2c9f33fdc61d4991827121f26986d9f216a47b8a) Thanks [@pulgueta](https://github.com/pulgueta)! - Add support for Wompi's Pagos a Terceros (Payouts) API — bank account dispersions.
+  - New `WompiPayoutsClient` targeting `api.payouts.wompi.co` (and its sandbox), authenticated with `x-api-key` + `user-principal-id` headers: `createPayout` (immediate, scheduled and recurring batches, idempotency-key protected), `createPayoutFromFile` (WOMPI/PAB/SAP/DISFON/BANCO_OCCIDENTE_FC/DAVIVIENDA formats), `listPayouts`, `getPayout`, `listPayoutTransactions`, `getPayoutTransaction`, `listTransactionsByReference`, `listBanks`, `listAccounts`, `getLimits`, `listReports`, `getReportDownloadUrl`, `getHealth` and the sandbox-only `rechargeAccountBalance`.
+  - New `verifyPayoutEvent`, `isPayoutUpdatedEvent` and `isPayoutTransactionUpdatedEvent` helpers in `@pulgueta/wompi/server` to authenticate `payout.updated` / `transaction.updated` webhook events.
+  - New payout Zod schemas, inferred types and `WompiPayoutApiError` (carrying the `EXC_*` code and HTTP status) in `@pulgueta/wompi/schemas`.
+
 ## 3.1.0
 
 ### Minor Changes
