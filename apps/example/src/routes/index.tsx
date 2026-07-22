@@ -1,5 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState, type FormEvent } from 'react'
+import { createFileRoute } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
 
 import {
   createDispersion,
@@ -7,68 +7,70 @@ import {
   listAccounts,
   listBanks,
   resolveKey,
-} from '#/server/payouts'
+} from "#/server/payouts";
 import type {
   AccountDto,
   BankDto,
   KeyResolutionDto,
   PayoutStatusDto,
   ResolveKeyInput,
-} from '#/server/payouts'
+} from "#/server/payouts";
 
 const KEY_TYPES = [
-  'ALPHANUMERIC',
-  'MAIL',
-  'PHONE',
-  'IDENTIFICATION',
-  'ESTABLISHMENT_CODE',
-] as const
+  "ALPHANUMERIC",
+  "MAIL",
+  "PHONE",
+  "IDENTIFICATION",
+  "ESTABLISHMENT_CODE",
+] as const;
 
-const LEGAL_ID_TYPES = ['CC', 'CE', 'NIT', 'PP', 'TI', 'DNI'] as const
-const ACCOUNT_TYPES = ['AHORROS', 'CORRIENTE'] as const
+const LEGAL_ID_TYPES = ["CC", "CE", "NIT", "PP", "TI", "DNI"] as const;
+const ACCOUNT_TYPES = ["AHORROS", "CORRIENTE"] as const;
 
-const copFormatter = new Intl.NumberFormat('es-CO', {
-  style: 'currency',
-  currency: 'COP',
-})
+const copFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+});
 
-export const Route = createFileRoute('/')({ component: Home })
+export const Route = createFileRoute("/")({ component: Home });
 
 function formatBalance(balanceInCents: number | undefined) {
   return balanceInCents === undefined
-    ? 'Balance unavailable'
-    : copFormatter.format(balanceInCents / 100)
+    ? "Balance unavailable"
+    : copFormatter.format(balanceInCents / 100);
 }
 
 function getRequestError(error: unknown) {
-  return error instanceof Error ? error.message : 'The request could not be completed.'
+  return error instanceof Error
+    ? error.message
+    : "The request could not be completed.";
 }
 
 function Home() {
-  const [accounts, setAccounts] = useState<AccountDto[]>([])
-  const [accountsError, setAccountsError] = useState<string | null>(null)
-  const [accountsLoading, setAccountsLoading] = useState(false)
+  const [accounts, setAccounts] = useState<AccountDto[]>([]);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [accountsLoading, setAccountsLoading] = useState(false);
 
   async function handleLoadAccounts() {
-    setAccountsLoading(true)
-    setAccountsError(null)
+    setAccountsLoading(true);
+    setAccountsError(null);
 
     try {
-      const result = await listAccounts()
+      const result = await listAccounts();
 
       if (result.error) {
-        setAccounts([])
-        setAccountsError(result.error)
+        setAccounts([]);
+        setAccountsError(result.error);
       } else if (result.data) {
-        setAccounts(result.data)
+        setAccounts(result.data);
       } else {
-        setAccountsError('Wompi did not return any account data.')
+        setAccountsError("Wompi did not return any account data.");
       }
     } catch (error) {
-      setAccounts([])
-      setAccountsError(getRequestError(error))
+      setAccounts([]);
+      setAccountsError(getRequestError(error));
     } finally {
-      setAccountsLoading(false)
+      setAccountsLoading(false);
     }
   }
 
@@ -94,7 +96,7 @@ function Home() {
             onClick={handleLoadAccounts}
             disabled={accountsLoading}
           >
-            {accountsLoading ? 'Loading…' : 'Load accounts'}
+            {accountsLoading ? "Loading…" : "Load accounts"}
           </button>
         </div>
 
@@ -121,7 +123,7 @@ function Home() {
       <BrebDispersion accounts={accounts} />
       <BankDispersion accounts={accounts} />
     </main>
-  )
+  );
 }
 
 function AccountSelect({ accounts }: { accounts: AccountDto[] }) {
@@ -137,7 +139,7 @@ function AccountSelect({ accounts }: { accounts: AccountDto[] }) {
         ))}
       </select>
     </label>
-  )
+  );
 }
 
 function PayoutResult({
@@ -147,11 +149,11 @@ function PayoutResult({
   refreshing,
   onRefresh,
 }: {
-  payoutId: string
-  status: PayoutStatusDto | null
-  error: string | null
-  refreshing: boolean
-  onRefresh: () => void
+  payoutId: string;
+  status: PayoutStatusDto | null;
+  error: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
 }) {
   return (
     <div className="payout-result" aria-live="polite">
@@ -160,7 +162,7 @@ function PayoutResult({
         <code>{payoutId}</code>
       </p>
       <button type="button" onClick={onRefresh} disabled={refreshing}>
-        {refreshing ? 'Refreshing…' : 'Refresh status'}
+        {refreshing ? "Refreshing…" : "Refresh status"}
       </button>
 
       {error ? (
@@ -190,110 +192,110 @@ function PayoutResult({
         </dl>
       ) : null}
     </div>
-  )
+  );
 }
 
 function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
-  type KeyType = NonNullable<ResolveKeyInput['keyType']>
+  type KeyType = NonNullable<ResolveKeyInput["keyType"]>;
 
-  const [key, setKey] = useState('')
-  const [keyType, setKeyType] = useState<KeyType | ''>('')
-  const [resolution, setResolution] = useState<KeyResolutionDto | null>(null)
-  const [resolveError, setResolveError] = useState<string | null>(null)
-  const [resolving, setResolving] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [payoutId, setPayoutId] = useState<string | null>(null)
-  const [status, setStatus] = useState<PayoutStatusDto | null>(null)
-  const [statusError, setStatusError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const [key, setKey] = useState("");
+  const [keyType, setKeyType] = useState<KeyType | "">("");
+  const [resolution, setResolution] = useState<KeyResolutionDto | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [payoutId, setPayoutId] = useState<string | null>(null);
+  const [status, setStatus] = useState<PayoutStatusDto | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function handleResolve(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setResolving(true)
-    setResolveError(null)
-    setResolution(null)
+    event.preventDefault();
+    setResolving(true);
+    setResolveError(null);
+    setResolution(null);
 
     const data: ResolveKeyInput = {
       key: key.trim(),
       ...(keyType ? { keyType } : {}),
-    }
+    };
 
     try {
-      const result = await resolveKey({ data })
+      const result = await resolveKey({ data });
 
       if (result.error) {
-        setResolveError(result.error)
+        setResolveError(result.error);
       } else if (result.data) {
-        setResolution(result.data)
+        setResolution(result.data);
       } else {
-        setResolveError('Wompi did not return a key resolution.')
+        setResolveError("Wompi did not return a key resolution.");
       }
     } catch (error) {
-      setResolveError(getRequestError(error))
+      setResolveError(getRequestError(error));
     } finally {
-      setResolving(false)
+      setResolving(false);
     }
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
 
-    setCreating(true)
-    setCreateError(null)
-    setPayoutId(null)
-    setStatus(null)
-    setStatusError(null)
+    setCreating(true);
+    setCreateError(null);
+    setPayoutId(null);
+    setStatus(null);
+    setStatusError(null);
 
     try {
       const result = await createDispersion({
         data: {
-          accountId: String(formData.get('accountId')),
-          reference: String(formData.get('reference')).trim(),
+          accountId: String(formData.get("accountId")),
+          reference: String(formData.get("reference")).trim(),
           transaction: {
             key: key.trim(),
-            name: String(formData.get('name')).trim(),
-            email: String(formData.get('email')).trim(),
-            amount: Number(formData.get('amount')),
+            name: String(formData.get("name")).trim(),
+            email: String(formData.get("email")).trim(),
+            amount: Number(formData.get("amount")),
           },
         },
-      })
+      });
 
       if (result.error) {
-        setCreateError(result.error)
+        setCreateError(result.error);
       } else if (result.data?.payoutId) {
-        setPayoutId(result.data.payoutId)
+        setPayoutId(result.data.payoutId);
       } else {
-        setCreateError('Wompi did not return a payout ID.')
+        setCreateError("Wompi did not return a payout ID.");
       }
     } catch (error) {
-      setCreateError(getRequestError(error))
+      setCreateError(getRequestError(error));
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
   }
 
   async function handleRefreshStatus() {
-    if (!payoutId) return
+    if (!payoutId) return;
 
-    setRefreshing(true)
-    setStatusError(null)
+    setRefreshing(true);
+    setStatusError(null);
 
     try {
-      const result = await getPayoutStatus({ data: { payoutId } })
+      const result = await getPayoutStatus({ data: { payoutId } });
 
       if (result.error) {
-        setStatusError(result.error)
+        setStatusError(result.error);
       } else if (result.data) {
-        setStatus(result.data)
+        setStatus(result.data);
       } else {
-        setStatusError('Wompi did not return a payout status.')
+        setStatusError("Wompi did not return a payout status.");
       }
     } catch (error) {
-      setStatusError(getRequestError(error))
+      setStatusError(getRequestError(error));
     } finally {
-      setRefreshing(false)
+      setRefreshing(false);
     }
   }
 
@@ -313,9 +315,9 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
             name="key"
             value={key}
             onChange={(event) => {
-              setKey(event.currentTarget.value)
-              setResolution(null)
-              setResolveError(null)
+              setKey(event.currentTarget.value);
+              setResolution(null);
+              setResolveError(null);
             }}
             placeholder="ecolon@wompi.com"
             required
@@ -327,9 +329,9 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
             name="keyType"
             value={keyType}
             onChange={(event) => {
-              setKeyType(event.currentTarget.value as KeyType | '')
-              setResolution(null)
-              setResolveError(null)
+              setKeyType(event.currentTarget.value as KeyType | "");
+              setResolution(null);
+              setResolveError(null);
             }}
           >
             <option value="">Auto-detect</option>
@@ -342,7 +344,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
         </label>
         <div className="form-actions">
           <button type="submit" disabled={resolving}>
-            {resolving ? 'Resolving…' : 'Resolve'}
+            {resolving ? "Resolving…" : "Resolve"}
           </button>
         </div>
       </form>
@@ -358,15 +360,15 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
           <dl className="resolution-details" aria-live="polite">
             <div>
               <dt>Masked holder</dt>
-              <dd>{resolution.holderName || 'Not provided'}</dd>
+              <dd>{resolution.holderName || "Not provided"}</dd>
             </div>
             <div>
               <dt>Financial entity</dt>
               <dd>
-                {resolution.financialEntityName || 'Not provided'}
+                {resolution.financialEntityName || "Not provided"}
                 {resolution.financialEntityCode
                   ? ` (${resolution.financialEntityCode})`
-                  : ''}
+                  : ""}
               </dd>
             </div>
             <div>
@@ -375,7 +377,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
             </div>
             <div>
               <dt>Key type</dt>
-              <dd>{resolution.keyType || keyType || 'Auto-detected'}</dd>
+              <dd>{resolution.keyType || keyType || "Auto-detected"}</dd>
             </div>
           </dl>
 
@@ -406,7 +408,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
                 type="submit"
                 disabled={creating || accounts.length === 0}
               >
-                {creating ? 'Creating…' : 'Create BRE-B dispersion'}
+                {creating ? "Creating…" : "Create BRE-B dispersion"}
               </button>
             </div>
           </form>
@@ -429,106 +431,110 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
         />
       ) : null}
     </section>
-  )
+  );
 }
 
 function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
-  const [banks, setBanks] = useState<BankDto[]>([])
-  const [banksError, setBanksError] = useState<string | null>(null)
-  const [banksLoading, setBanksLoading] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [payoutId, setPayoutId] = useState<string | null>(null)
-  const [status, setStatus] = useState<PayoutStatusDto | null>(null)
-  const [statusError, setStatusError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const [banks, setBanks] = useState<BankDto[]>([]);
+  const [banksError, setBanksError] = useState<string | null>(null);
+  const [banksLoading, setBanksLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [payoutId, setPayoutId] = useState<string | null>(null);
+  const [status, setStatus] = useState<PayoutStatusDto | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function handleLoadBanks() {
-    setBanksLoading(true)
-    setBanksError(null)
+    setBanksLoading(true);
+    setBanksError(null);
 
     try {
-      const result = await listBanks()
+      const result = await listBanks();
 
       if (result.error) {
-        setBanks([])
-        setBanksError(result.error)
+        setBanks([]);
+        setBanksError(result.error);
       } else if (result.data) {
-        setBanks(result.data)
+        setBanks(result.data);
       } else {
-        setBanksError('Wompi did not return any bank data.')
+        setBanksError("Wompi did not return any bank data.");
       }
     } catch (error) {
-      setBanks([])
-      setBanksError(getRequestError(error))
+      setBanks([]);
+      setBanksError(getRequestError(error));
     } finally {
-      setBanksLoading(false)
+      setBanksLoading(false);
     }
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const email = String(formData.get('email')).trim()
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get("email")).trim();
 
-    setCreating(true)
-    setCreateError(null)
-    setPayoutId(null)
-    setStatus(null)
-    setStatusError(null)
+    setCreating(true);
+    setCreateError(null);
+    setPayoutId(null);
+    setStatus(null);
+    setStatusError(null);
 
     try {
       const result = await createDispersion({
         data: {
-          accountId: String(formData.get('accountId')),
-          reference: String(formData.get('reference')).trim(),
+          accountId: String(formData.get("accountId")),
+          reference: String(formData.get("reference")).trim(),
           transaction: {
-            legalIdType: String(formData.get('legalIdType')) as (typeof LEGAL_ID_TYPES)[number],
-            legalId: String(formData.get('legalId')).trim(),
-            bankId: String(formData.get('bankId')),
-            accountType: String(formData.get('accountType')) as (typeof ACCOUNT_TYPES)[number],
-            accountNumber: String(formData.get('accountNumber')).trim(),
-            name: String(formData.get('name')).trim(),
-            amount: Number(formData.get('amount')),
+            legalIdType: String(
+              formData.get("legalIdType"),
+            ) as (typeof LEGAL_ID_TYPES)[number],
+            legalId: String(formData.get("legalId")).trim(),
+            bankId: String(formData.get("bankId")),
+            accountType: String(
+              formData.get("accountType"),
+            ) as (typeof ACCOUNT_TYPES)[number],
+            accountNumber: String(formData.get("accountNumber")).trim(),
+            name: String(formData.get("name")).trim(),
+            amount: Number(formData.get("amount")),
             ...(email ? { email } : {}),
           },
         },
-      })
+      });
 
       if (result.error) {
-        setCreateError(result.error)
+        setCreateError(result.error);
       } else if (result.data?.payoutId) {
-        setPayoutId(result.data.payoutId)
+        setPayoutId(result.data.payoutId);
       } else {
-        setCreateError('Wompi did not return a payout ID.')
+        setCreateError("Wompi did not return a payout ID.");
       }
     } catch (error) {
-      setCreateError(getRequestError(error))
+      setCreateError(getRequestError(error));
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
   }
 
   async function handleRefreshStatus() {
-    if (!payoutId) return
+    if (!payoutId) return;
 
-    setRefreshing(true)
-    setStatusError(null)
+    setRefreshing(true);
+    setStatusError(null);
 
     try {
-      const result = await getPayoutStatus({ data: { payoutId } })
+      const result = await getPayoutStatus({ data: { payoutId } });
 
       if (result.error) {
-        setStatusError(result.error)
+        setStatusError(result.error);
       } else if (result.data) {
-        setStatus(result.data)
+        setStatus(result.data);
       } else {
-        setStatusError('Wompi did not return a payout status.')
+        setStatusError("Wompi did not return a payout status.");
       }
     } catch (error) {
-      setStatusError(getRequestError(error))
+      setStatusError(getRequestError(error));
     } finally {
-      setRefreshing(false)
+      setRefreshing(false);
     }
   }
 
@@ -540,7 +546,7 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
           <p>Send one sandbox transaction to a Colombian bank account.</p>
         </div>
         <button type="button" onClick={handleLoadBanks} disabled={banksLoading}>
-          {banksLoading ? 'Loading…' : 'Load banks'}
+          {banksLoading ? "Loading…" : "Load banks"}
         </button>
       </div>
 
@@ -572,7 +578,7 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
             {banks.map((bank) => (
               <option key={bank.id} value={bank.id}>
                 {bank.name || bank.id}
-                {bank.code ? ` (${bank.code})` : ''}
+                {bank.code ? ` (${bank.code})` : ""}
               </option>
             ))}
           </select>
@@ -623,7 +629,7 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
             type="submit"
             disabled={creating || accounts.length === 0 || banks.length === 0}
           >
-            {creating ? 'Creating…' : 'Create bank dispersion'}
+            {creating ? "Creating…" : "Create bank dispersion"}
           </button>
         </div>
       </form>
@@ -644,5 +650,5 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
         />
       ) : null}
     </section>
-  )
+  );
 }
