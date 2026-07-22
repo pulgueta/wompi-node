@@ -69,6 +69,17 @@ so Wompi rejects duplicate submissions during its 24-hour window. Persist the
 resulting `payoutId` and reconcile it before retrying outside that window.
 
 ```ts title="src/pages/api/breb/payout.ts"
+import type { APIRoute } from "astro";
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+export const prerender = false;
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true,
+});
+
 export const POST: APIRoute = async ({ request }) => {
   const { orderId, keyValue, name, email, amountInCents } =
     await request.json();
@@ -126,7 +137,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (tx.status === "APPROVED") {
       // markPaid(tx.payoutId, tx.id);
-    } else if (tx.status === "FAILED") {
+    } else if (tx.status === "FAILED" || tx.status === "REJECTED") {
       // BRE-B events word the failure as { code, description }.
       const reason =
         typeof tx.failureReason === "string"
@@ -152,15 +163,23 @@ export const POST: APIRoute = async ({ request }) => {
 If events can't reach you (or as a safety net), poll the batch:
 
 ```ts
-const [payoutError, payout] = await payouts.getPayout(payoutId);
+const [payoutError, payout] = await payouts.getPayout(payoutId, {
+  apiVersion: "v2",
+});
 if (payoutError) throw payoutError;
 
 if (payout.status === "PARTIAL_PAYMENT") {
   // Find out which transactions failed and why.
-  const [pageError, page] = await payouts.listPayoutTransactions(payoutId);
+  const [pageError, page] = await payouts.listPayoutTransactions(
+    payoutId,
+    {},
+    { apiVersion: "v2" },
+  );
   if (pageError) throw pageError;
 
-  const failed = page.records.filter((tx) => tx.status === "FAILED");
+  const failed = page.records.filter((tx) =>
+    ["FAILED", "REJECTED"].includes(tx.status),
+  );
 }
 ```
 

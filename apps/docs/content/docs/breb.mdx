@@ -12,9 +12,10 @@ number needed.
 
 BRE-B lives on the [same `WompiPayoutsClient`](/docs/payouts) as bank
 dispersions, with the same credential pair from **Desarrollo → Programadores →
-Pagos a Terceros** in the Wompi dashboard. The BRE-B endpoints sit on `/v2` of
-the Payouts API while bank endpoints sit on `/v1`; the client routes each call
-to the right version, so nothing changes in how you construct it:
+Pagos a Terceros** in the Wompi dashboard. BRE-B creation, key resolution and
+lifecycle reads sit on `/v2`, while bank endpoints sit on `/v1`. Creation and
+key resolution route automatically; batch reads default to `/v1`, so pass
+`apiVersion: "v2"` when reading BRE-B or mixed batches:
 
 ```ts
 import { WompiPayoutsClient } from "@pulgueta/wompi";
@@ -169,10 +170,12 @@ Scheduled (`dispersionDatetime`), recurring (`recurring`) and the sandbox-only
 
 ## Reading the result
 
-The `/v1` consultas cover BRE-B batches too — same methods, same page shapes:
+BRE-B lifecycle reads use `/v2` with the same methods and page shapes:
 
 ```ts
-const [payoutError, payout] = await payouts.getPayout(created.payoutId);
+const [payoutError, payout] = await payouts.getPayout(created.payoutId, {
+  apiVersion: "v2",
+});
 if (payoutError) throw payoutError;
 
 payout.status;
@@ -183,6 +186,7 @@ payout.status;
 const [pageError, page] = await payouts.listPayoutTransactions(
   created.payoutId,
   { limit: 50, page: 1 },
+  { apiVersion: "v2" },
 );
 if (pageError) throw pageError;
 

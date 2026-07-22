@@ -207,6 +207,11 @@ transaction's own `reference`.
 List endpoints return a page object — `&#123; page, limit, total, pages, records &#125;`
 — so you can paginate without guessing.
 
+`getPayout` and `listPayoutTransactions` default to `/v1` for bank batches.
+For a BRE-B or mixed batch created through `/v2/payouts`, pass
+`{ apiVersion: "v2" }` as the second argument to `getPayout` and the third
+argument to `listPayoutTransactions`; see the [BRE-B guide](/docs/breb#reading-the-result).
+
 ## Banks, accounts and limits
 
 ```ts

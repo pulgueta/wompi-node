@@ -102,7 +102,7 @@ console.log(
 
 // 5. Poll until Wompi reaches a terminal batch state.
 const isTerminal = (status: string) =>
-  status === "TOTAL_PAYMENT" || status === "REJECTED";
+  ["TOTAL_PAYMENT", "REJECTED"].includes(status);
 let payout: Awaited<ReturnType<typeof payouts.getPayout>>[1] = null;
 for (let attempt = 0; attempt < 20; attempt++) {
   const [error, fetched] = await payouts.getPayout(created.payoutId);
@@ -161,7 +161,9 @@ export const POST: APIRoute = async ({ request }) => {
   if (error) return new Response("Invalid signature", { status: 403 });
 
   if (isPayoutUpdatedEvent(event)) {
-    // Reconcile the batch. PARTIAL_PAYMENT is not terminal.
+    // Persist every transition. For bank batches Wompi documents only
+    // TOTAL_PAYMENT and REJECTED as final; PARTIAL_PAYMENT and NOT_APPROVED
+    // can still advance.
     console.log("batch", event.data.payout.id, "→", event.data.payout.status);
   }
 
