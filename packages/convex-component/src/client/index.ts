@@ -33,6 +33,7 @@ import type {
   BrebKeyType,
   CreatePayoutInput,
   CreatePayoutResult,
+  Payout,
   Transaction,
   WebhookEvent,
 } from "@pulgueta/wompi/schemas";
@@ -955,33 +956,60 @@ export class Wompi {
   /**
    * Look the batch up after an idempotency conflict and track it only when
    * reference, payment type, transaction count and amount identify exactly
-   * one payout. References are reusable, so taking the first result is unsafe.
+   * one payout across every result page. References are reusable, so taking
+   * the first result is unsafe.
    */
   private async recoverDispersion(
     ctx: RunMutationCtx,
     input: CreatePayoutInput,
   ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc } | null> {
-    const [listError, page] = await this.payoutsClient.listTransactionsByReference(
-      input.reference,
-    );
-    if (listError) return null;
-
     const expectedAmount = input.transactions.reduce((sum, transaction) => {
       return sum + transaction.amount;
     }, 0);
-    const candidates = new Map<string, NonNullable<(typeof page.records)[number]["payout"]>>();
+    const candidates = new Map<string, Payout>();
+    let pageNumber = 1;
+    let totalPages = 1;
 
-    for (const transaction of page.records) {
-      const payout = transaction.payout;
-      if (
-        payout?.reference !== input.reference ||
-        payout.paymentType !== input.paymentType ||
-        payout.totalTransactions !== input.transactions.length ||
-        payout.amountInCents !== expectedAmount
-      ) {
-        continue;
+    while (pageNumber <= totalPages) {
+      const [listError, page] = await this.payoutsClient.listPayouts({
+        reference: input.reference,
+        page: pageNumber,
+      });
+      if (listError) return null;
+
+      for (const payout of page.records) {
+        if (
+          payout.reference !== input.reference ||
+          payout.paymentType !== input.paymentType ||
+          payout.totalTransactions !== input.transactions.length ||
+          payout.amountInCents !== expectedAmount
+        ) {
+          continue;
+        }
+        candidates.set(payout.id, payout);
       }
-      candidates.set(payout.id, payout);
+
+      if (page.page !== undefined && page.page !== pageNumber) return null;
+
+      let advertisedPages: number;
+      if (page.pages !== undefined) {
+        advertisedPages = page.pages;
+      } else if (
+        page.total !== undefined &&
+        page.total >= 0 &&
+        page.limit !== undefined &&
+        page.limit > 0
+      ) {
+        advertisedPages = Math.ceil(page.total / page.limit);
+      } else {
+        // Recovery must prove uniqueness across the complete result set. A
+        // response without pagination metadata cannot establish that this is
+        // the last page, so preserve the original idempotency conflict.
+        return null;
+      }
+      if (advertisedPages < pageNumber) return null;
+      totalPages = Math.max(totalPages, advertisedPages);
+      pageNumber += 1;
     }
 
     if (candidates.size !== 1) return null;

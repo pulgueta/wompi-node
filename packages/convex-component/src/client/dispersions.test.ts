@@ -41,17 +41,6 @@ const payout = (id: string, amountInCents = 500_000) => ({
   createdAt: new Date(Date.now() + 1_000).toISOString(),
 });
 
-const transaction = (
-  id: string,
-  payoutId: string,
-  amountInCents = 500_000,
-) => ({
-  id,
-  status: "PENDING",
-  amountInCents,
-  payout: payout(payoutId, amountInCents),
-});
-
 const makeWompi = () =>
   new Wompi(
     {
@@ -103,9 +92,11 @@ describe("createDispersion idempotency recovery", () => {
       new Response(
         JSON.stringify({
           data: {
+            page: 1,
+            pages: 1,
             records: [
-              transaction("transaction-1", "payout-1"),
-              transaction("transaction-2", "payout-2"),
+              payout("payout-1"),
+              payout("payout-2"),
             ],
           },
         }),
@@ -120,13 +111,51 @@ describe("createDispersion idempotency recovery", () => {
     ).rejects.toMatchObject({ code: "EXC_032" });
   });
 
+  test("rejects recovery when another matching payout is on a later page", async () => {
+    mockFetch
+      .mockResolvedValueOnce(conflictResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              page: 1,
+              pages: 2,
+              records: [payout("payout-1")],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              page: 2,
+              pages: 2,
+              records: [payout("payout-2")],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    await expect(
+      makeWompi().createDispersion(makeCtx() as never, PAYOUT_INPUT, {
+        idempotencyKey: "providers-2026-07",
+      }),
+    ).rejects.toMatchObject({ code: "EXC_032" });
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("page=2");
+  });
+
   test("rejects recovery when the candidate does not match the attempted payout", async () => {
     mockFetch
       .mockResolvedValueOnce(conflictResponse())
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: { records: [transaction("transaction-1", "payout-1", 1)] },
+            data: { page: 1, pages: 1, records: [payout("payout-1", 1)] },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -144,15 +173,13 @@ describe("createDispersion idempotency recovery", () => {
       new Response(
         JSON.stringify({
           data: {
+            page: 1,
+            pages: 1,
             records: [
               {
-                id: "transaction-1",
+                id: "payout-1",
                 status: "PENDING",
-                payout: {
-                  id: "payout-1",
-                  status: "PENDING",
-                  reference: PAYOUT_INPUT.reference,
-                },
+                reference: PAYOUT_INPUT.reference,
               },
             ],
           },
@@ -168,13 +195,33 @@ describe("createDispersion idempotency recovery", () => {
     ).rejects.toMatchObject({ code: "EXC_032" });
   });
 
+  test("rejects recovery when Wompi omits pagination metadata", async () => {
+    mockFetch.mockResolvedValueOnce(conflictResponse()).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: { records: [payout("payout-1")] },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const ctx = makeCtx();
+
+    await expect(
+      makeWompi().createDispersion(ctx as never, PAYOUT_INPUT, {
+        idempotencyKey: "providers-2026-07",
+      }),
+    ).rejects.toMatchObject({ code: "EXC_032" });
+
+    expect(ctx.runMutation).not.toHaveBeenCalled();
+  });
+
   test("recovers only one fully matching payout candidate", async () => {
     mockFetch
       .mockResolvedValueOnce(conflictResponse())
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: { records: [transaction("transaction-1", "payout-1")] },
+            data: { page: 1, pages: 1, records: [payout("payout-1")] },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -191,5 +238,8 @@ describe("createDispersion idempotency recovery", () => {
 
     expect(recovered.result.payoutId).toBe("payout-1");
     expect(ctx.runMutation).toHaveBeenCalledOnce();
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+      "/v1/payouts?reference=providers-2026-07&page=1",
+    );
   });
 });
