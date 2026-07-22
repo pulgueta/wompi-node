@@ -34,6 +34,8 @@ import type {
   CreatePayoutInput,
   CreatePayoutResult,
   Payout,
+  PayoutPage,
+  Result,
   Transaction,
   WebhookEvent,
 } from "@pulgueta/wompi/schemas";
@@ -939,8 +941,9 @@ export class Wompi {
     if (error) {
       // A consumed idempotency key can mean a previous attempt created the
       // batch at Wompi but died before recording it here. Recover only when
-      // the reference query proves one matching payout; otherwise preserve
-      // the conflict so an unrelated batch is never attached locally.
+      // the reference query proves one matching payout that pays these very
+      // beneficiaries; otherwise preserve the conflict so an unrelated batch
+      // is never attached locally.
       const conflict =
         error instanceof WompiPayoutApiError &&
         (error.code === "EXC_022" || error.code === "EXC_032");
@@ -956,40 +959,77 @@ export class Wompi {
   /**
    * Look the batch up after an idempotency conflict and track it only when
    * reference, payment type, transaction count and amount identify exactly
-   * one payout across every result page. References are reusable, so taking
-   * the first result is unsafe.
+   * one payout across every result page, and that payout's transaction
+   * detail pays the attempted beneficiaries. References are reusable and a
+   * key can be reused with a different payload, so neither the first result
+   * nor a totals-only match is safe.
    */
   private async recoverDispersion(
     ctx: RunMutationCtx,
     input: CreatePayoutInput,
   ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc } | null> {
+    // BRE-B and mixed batches are created through `/v2/payouts`, and Wompi
+    // documents no v2 collection or reference listing to find them again.
+    // The `/v1` search below can never prove such a batch, so preserve the
+    // conflict instead of querying the wrong collection.
+    if (input.transactions.some((transaction) => transaction.key !== undefined)) {
+      return null;
+    }
+
     const expectedAmount = input.transactions.reduce((sum, transaction) => {
       return sum + transaction.amount;
     }, 0);
     const candidates = new Map<string, Payout>();
-    let pageNumber = 1;
-    let totalPages = 1;
 
-    while (pageNumber <= totalPages) {
-      const [listError, page] = await this.payoutsClient.listPayouts({
-        reference: input.reference,
-        page: pageNumber,
-      });
-      if (listError) return null;
-
-      for (const payout of page.records) {
+    const scanned = await this.scanPayoutPages(
+      (page) => this.payoutsClient.listPayouts({ reference: input.reference, page }),
+      (payout) => {
         if (
           payout.reference !== input.reference ||
           payout.paymentType !== input.paymentType ||
           payout.totalTransactions !== input.transactions.length ||
           payout.amountInCents !== expectedAmount
         ) {
-          continue;
+          return;
         }
         candidates.set(payout.id, payout);
-      }
+      },
+    );
+    if (!scanned) return null;
 
-      if (page.page !== undefined && page.page !== pageNumber) return null;
+    if (candidates.size !== 1) return null;
+    const [candidate] = candidates.values();
+    if (!candidate) return null;
+    if (!(await this.candidatePaysBeneficiaries(candidate.id, input))) return null;
+
+    const result: CreatePayoutResult = {
+      payoutId: candidate.id,
+      transactions: candidate.totalTransactions,
+    };
+    const dispersion = await this.recordDispersion(ctx, input, candidate.id, result);
+    return { result, dispersion };
+  }
+
+  /**
+   * Walk every page of a payout listing, feeding each record to `visit`.
+   * False when the complete result set cannot be proven — a page fails,
+   * echoes a different page number, or omits pagination metadata — so the
+   * caller preserves the original idempotency conflict.
+   */
+  private async scanPayoutPages<T>(
+    fetchPage: (page: number) => Promise<Result<PayoutPage<T>>>,
+    visit: (record: T) => void,
+  ): Promise<boolean> {
+    let pageNumber = 1;
+    let totalPages = 1;
+
+    while (pageNumber <= totalPages) {
+      const [listError, page] = await fetchPage(pageNumber);
+      if (listError) return false;
+
+      for (const record of page.records) visit(record);
+
+      if (page.page !== undefined && page.page !== pageNumber) return false;
 
       let advertisedPages: number;
       if (page.pages !== undefined) {
@@ -1002,26 +1042,82 @@ export class Wompi {
       ) {
         advertisedPages = Math.ceil(page.total / page.limit);
       } else {
-        // Recovery must prove uniqueness across the complete result set. A
-        // response without pagination metadata cannot establish that this is
-        // the last page, so preserve the original idempotency conflict.
-        return null;
+        return false;
       }
-      if (advertisedPages < pageNumber) return null;
+      if (advertisedPages < pageNumber) return false;
       totalPages = Math.max(totalPages, advertisedPages);
       pageNumber += 1;
     }
 
-    if (candidates.size !== 1) return null;
-    const [candidate] = candidates.values();
-    if (!candidate) return null;
+    return true;
+  }
 
-    const result: CreatePayoutResult = {
-      payoutId: candidate.id,
-      transactions: candidate.totalTransactions,
-    };
-    const dispersion = await this.recordDispersion(ctx, input, candidate.id, result);
-    return { result, dispersion };
+  /**
+   * True only when the candidate batch's transaction detail pays exactly the
+   * attempted beneficiaries: every listed transaction matched one-to-one on
+   * account number and amount. Listings may mask account numbers, so the
+   * listed digits must be a suffix of the attempted account. Anything
+   * unprovable — a failed listing, a missing account or amount, a listed
+   * account matching several attempted ones — rejects the candidate.
+   */
+  private async candidatePaysBeneficiaries(
+    payoutId: string,
+    input: CreatePayoutInput,
+  ): Promise<boolean> {
+    const pending = new Map<string, { accountDigits: string; amount: number; count: number }>();
+    for (const transaction of input.transactions) {
+      const accountNumber = transaction.accountNumber;
+      if (accountNumber === undefined) return false;
+      const key = `${accountNumber}:${transaction.amount}`;
+      const entry = pending.get(key);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        pending.set(key, {
+          accountDigits: accountNumber.replace(/\D/g, ""),
+          amount: transaction.amount,
+          count: 1,
+        });
+      }
+    }
+
+    let remaining = input.transactions.length;
+    let provable = true;
+    const seenTransactionIds = new Set<string>();
+
+    const scanned = await this.scanPayoutPages(
+      (page) => this.payoutsClient.listPayoutTransactions(payoutId, { page }),
+      (transaction) => {
+        if (!provable) return;
+        // A transaction repeated across pages means the listing shifted mid-
+        // scan; it cannot count twice, and the scan can no longer prove the
+        // complete detail. A blank id cannot be told apart from any other
+        // transaction, so it is just as unprovable.
+        if (transaction.id === "" || seenTransactionIds.has(transaction.id)) {
+          provable = false;
+          return;
+        }
+        seenTransactionIds.add(transaction.id);
+        const listedDigits = transaction.payeeInfo?.accountNumber?.replace(/\D/g, "") ?? "";
+        const amount = transaction.amountInCents;
+        if (listedDigits.length === 0 || amount === undefined) {
+          provable = false;
+          return;
+        }
+        const matches = [...pending.values()].filter((entry) => {
+          return entry.count > 0 && entry.amount === amount && entry.accountDigits.endsWith(listedDigits);
+        });
+        const match = matches.length === 1 ? matches[0] : undefined;
+        if (!match) {
+          provable = false;
+          return;
+        }
+        match.count -= 1;
+        remaining -= 1;
+      },
+    );
+
+    return scanned && provable && remaining === 0;
   }
 
   private async recordDispersion(
