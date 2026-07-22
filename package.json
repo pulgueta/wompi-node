@@ -23,7 +23,7 @@
     "typescript": "^5.9.3"
   },
   "workspaces": {
-    "packages": ["packages/*", "packages/core/*", "packages/ts/*"]
+    "packages": ["apps/*", "packages/*", "packages/core/*", "packages/ts/*"]
   },
   "packageManager": "pnpm@11.1.2",
   "engines": {

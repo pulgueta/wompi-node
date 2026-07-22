@@ -58,10 +58,10 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       '@tanstack/react-router':
-        specifier: latest
+        specifier: ^1.170.18
         version: 1.170.18(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-start':
-        specifier: latest
+        specifier: ^1.168.32
         version: 1.168.32(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.1.5)(rollup@4.60.4)(vite@8.0.9(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
       react:
         specifier: ^19.2.0

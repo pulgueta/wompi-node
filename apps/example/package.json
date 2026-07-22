@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@pulgueta/wompi": "workspace:*",
-    "@tanstack/react-router": "latest",
-    "@tanstack/react-start": "latest",
+    "@tanstack/react-router": "^1.170.18",
+    "@tanstack/react-start": "^1.168.32",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
