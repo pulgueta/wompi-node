@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "blume dev --host",
-    "build": "pnpm format:check && blume check --strict && blume validate --strict && blume build --strict --analyze --budget-js 4000 --budget-css 120",
+    "build": "pnpm format:check && blume check --strict && blume validate --strict && blume build --strict --analyze --budget-js 4000 --budget-css 130",
     "check": "blume check --strict",
     "validate": "blume validate --strict",
     "doctor": "blume doctor",

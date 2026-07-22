@@ -5,28 +5,30 @@ sidebar:
   label: Package exports
 ---
 
-The package is published as ESM and CJS with separate type declarations for each subpath. There are three: the client, the schemas (with their types and error classes) and the server helper. Pull in only the entry you need — the others stay out of your bundle.
+The package publishes ECMAScript modules (ESM) and CommonJS (CJS) with separate type declarations for each subpath. The three code entry points contain the clients, schemas, and server helpers. Import only the entry you need.
 
 :::note[Changed in v3]
-The package was flattened to three entries. `WompiClient` is the only root export, and
-the former `/client`, `/types` and `/errors` subpaths were
-folded into `/schemas`. If you're upgrading from v2, repoint type and error imports at
+The package was flattened to three code entry points. The root exports both client
+classes, and the former `/client`, `/types`, and `/errors` subpaths were folded
+into `/schemas`. If you're upgrading from v2, import types and errors from
 `@pulgueta/wompi/schemas`.
 :::
 
 ## `@pulgueta/wompi`
 
-The default entry. Exports the client — the one class you construct to call the API.
+The default entry exports the Payments and Payouts clients.
 
 ```ts
-import { WompiClient } from "@pulgueta/wompi";
+import { WompiClient, WompiPayoutsClient } from "@pulgueta/wompi";
 ```
 
-- `WompiClient` — the high-level client used in every other doc page. It owns the `merchants`, `transactions`, `tokens`, `paymentSources`, `paymentLinks` and `pse` sub-resources.
+- `WompiClient`: calls the Payments API through the `merchants`, `transactions`, `tokens`, `paymentSources`, `paymentLinks`, and `pse` resources
+- `WompiPayoutsClient`: calls the separate Pagos a Terceros API for bank and BRE-B dispersion batches, transactions, banks, accounts, limits, reports, health, and sandbox recharges
 
 ## `@pulgueta/wompi/schemas`
 
-Everything derived from the API contract: the Zod schemas, the types inferred from them (return shapes, input shapes, enums, the `Result` tuple) and the four error classes.
+Everything derived from both API contracts: the Zod schemas, inferred types,
+the `Result` tuple, and error classes.
 
 ```ts
 import {
@@ -34,9 +36,11 @@ import {
   CreateTransactionInputSchema,
   TokenizeCardInputSchema,
   CreatePaymentLinkInputSchema,
+  CreatePayoutInputSchema,
   // Error classes — for instanceof branching.
   WompiError,
   WompiNotFoundError,
+  WompiPayoutApiError,
   WompiValidationError,
   WompiRequestError,
 } from "@pulgueta/wompi/schemas";
@@ -47,6 +51,9 @@ import type {
   Transaction,
   TransactionStatus,
   CreateTransactionInput,
+  CreatePayoutInput,
+  Payout,
+  PayoutTransaction,
   PaymentLink,
   PaymentSource,
   CardToken,
@@ -73,17 +80,26 @@ The error classes (`WompiError` and its subclasses) live here too. See [Error ha
 
 ## `@pulgueta/wompi/server`
 
-The server-only helper: `getSignatureKey`, the integrity signature builder. Kept in its own entry so the client bundle stays free of the signing code.
+The server-only entry contains checkout signing, URL construction, and payment
+or payout webhook verification.
 
 ```ts
-import { getSignatureKey } from "@pulgueta/wompi/server";
+import {
+  buildCheckoutUrl,
+  getSignatureKey,
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+  isTransactionUpdatedEvent,
+  verifyPayoutEvent,
+  verifyWebhookEvent,
+} from "@pulgueta/wompi/server";
 ```
 
 ## Subpath summary
 
 | Subpath          | Exports                                              | Notes                                                 |
 | ---------------- | ---------------------------------------------------- | ----------------------------------------------------- |
-| `.`              | `WompiClient`                                        | The client. The only entry most apps import.          |
+| `.`              | `WompiClient`, `WompiPayoutsClient`                  | Clients for the Payments and Payouts APIs.            |
 | `./schemas`      | Zod schemas, inferred types, error classes, `Result` | Validation layers, typing and `instanceof` branching. |
-| `./server`       | `getSignatureKey`                                    | Web Crypto, server-only.                              |
+| `./server`       | Signing, checkout URL, and webhook helpers           | Web Crypto, server-only.                              |
 | `./package.json` | The manifest                                         | Exposed for tooling that reads the version.           |
