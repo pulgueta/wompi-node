@@ -21,13 +21,7 @@ const userPrincipalId = process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID;
 const canRun = Boolean(apiKey && userPrincipalId);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const TERMINAL_PAYOUT_STATUSES = new Set([
-  "TOTAL_PAYMENT",
-  "PARTIAL_PAYMENT",
-  "REJECTED",
-  "NOT_APPROVED",
-  "AFE_REJECTED",
-]);
+const TERMINAL_PAYOUT_STATUSES = new Set(["TOTAL_PAYMENT", "REJECTED"]);
 
 const sandboxClient = () =>
   new WompiPayoutsClient({

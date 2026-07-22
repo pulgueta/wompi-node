@@ -187,4 +187,38 @@ describe("payout event guards", () => {
 
     expect(isPayoutTransactionUpdatedEvent(event)).toBe(true);
   });
+
+  it("narrows transaction.updated events with the documented BRE-B key payee", () => {
+    const event = transactionEvent();
+    const transaction = event.data.transaction as Record<string, unknown>;
+
+    // The BRE-B payee of the official eventos-breb example: resolved key
+    // fields, masked document, no `bank`, and a `description` failure.
+    transaction.payee = {
+      key: "@elias123",
+      name: "Elias P",
+      email: "test@wompi.com",
+      keyType: "ALPHANUMERIC",
+      legalId: "******4155",
+      personType: "NATURAL",
+      accountType: "AHORROS",
+      legalIdType: "CC",
+      accountNumber: "**2893",
+      keyResolutionId: "c6dc06b0-646c-11f1-82b1-1bb0e4b41a19",
+      paymentMethodType: "SAVING_ACCOUNT",
+    };
+    transaction.failureReason = {
+      code: "MOL-5021",
+      description: "El monto ingresado es menor al mínimo permitido. El valor mínimo es $1.",
+    };
+
+    expect(isPayoutTransactionUpdatedEvent(event)).toBe(true);
+
+    if (isPayoutTransactionUpdatedEvent(event)) {
+      expect(event.data.transaction.payee.key).toBe("@elias123");
+      expect(event.data.transaction.payee.keyType).toBe("ALPHANUMERIC");
+      expect(event.data.transaction.payee.paymentMethodType).toBe("SAVING_ACCOUNT");
+      expect(event.data.transaction.failureReason).toMatchObject({ code: "MOL-5021" });
+    }
+  });
 });

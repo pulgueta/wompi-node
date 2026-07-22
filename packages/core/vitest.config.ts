@@ -10,6 +10,9 @@ export default defineConfig({
   test: {
     setupFiles: ["./test/setup.ts"],
     clearMocks: true,
+    typecheck: {
+      tsconfig: "./tsconfig.test.json",
+    },
     coverage: {
       clean: true,
       provider: "v8",
