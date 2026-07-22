@@ -45,8 +45,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest",
-    "test:cov": "vitest run --coverage"
+    "test": "vitest --typecheck",
+    "test:cov": "vitest run --typecheck --coverage"
   },
   "keywords": [
     "wompi",

@@ -37,6 +37,18 @@ export const paymentDoc = v.object({
   _creationTime: v.number(),
 });
 
+export const dispersionDoc = v.object({
+  ...schema.tables.dispersions.validator.fields,
+  _id: v.id("dispersions"),
+  _creationTime: v.number(),
+});
+
+export const dispersionTransactionDoc = v.object({
+  ...schema.tables.dispersionTransactions.validator.fields,
+  _id: v.id("dispersionTransactions"),
+  _creationTime: v.number(),
+});
+
 export const subscriptionWithProduct = v.object({
   ...subscriptionDoc.fields,
   product: v.union(productDoc, v.null()),
@@ -110,6 +122,26 @@ export const CHARGEABLE_STATUSES: SubscriptionStatus[] = ["active", "trialing", 
 
 export const isTerminalPaymentStatus = (status: PaymentStatus): boolean =>
   status !== "pending";
+
+/** Batch statuses that Wompi explicitly documents as final across payout rails. */
+export const TERMINAL_PAYOUT_STATUSES: readonly string[] = [
+  "TOTAL_PAYMENT",
+  "REJECTED",
+];
+
+export const isTerminalPayoutStatus = (status: string): boolean =>
+  TERMINAL_PAYOUT_STATUSES.includes(status);
+
+/** Per-beneficiary statuses after which Wompi never moves the transaction again. */
+export const TERMINAL_PAYOUT_TRANSACTION_STATUSES: readonly string[] = [
+  "APPROVED",
+  "FAILED",
+  "REJECTED",
+  "CANCELLED",
+];
+
+export const isTerminalPayoutTransactionStatus = (status: string): boolean =>
+  TERMINAL_PAYOUT_TRANSACTION_STATUSES.includes(status);
 
 // ---------------------------------------------------------------------------
 // Period math

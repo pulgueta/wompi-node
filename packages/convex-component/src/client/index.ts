@@ -1,5 +1,6 @@
 import {
   actionGeneric,
+  createFunctionHandle,
   httpActionGeneric,
   internalActionGeneric,
   mutationGeneric,
@@ -13,20 +14,36 @@ import type {
   GenericMutationCtx,
   GenericQueryCtx,
   HttpRouter,
+  FunctionReference,
 } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
-import { WompiClient } from "@pulgueta/wompi";
+import { WompiClient, WompiPayoutsClient } from "@pulgueta/wompi";
 import {
   buildCheckoutUrl,
   getSignatureKey,
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
   isTransactionUpdatedEvent,
+  verifyPayoutEvent,
   verifyWebhookEvent,
 } from "@pulgueta/wompi/server";
-import type { Transaction, WebhookEvent } from "@pulgueta/wompi/schemas";
-import { WompiValidationError } from "@pulgueta/wompi/schemas";
+import type {
+  BrebKeyResolution,
+  BrebKeyType,
+  CreatePayoutInput,
+  CreatePayoutResult,
+  Payout,
+  PayoutPage,
+  Result,
+  Transaction,
+  WebhookEvent,
+} from "@pulgueta/wompi/schemas";
+import { WompiPayoutApiError, WompiValidationError } from "@pulgueta/wompi/schemas";
 import type { ComponentApi } from "../component/_generated/component.js";
 import {
+  dispersionDoc,
+  dispersionTransactionDoc,
   paymentDoc,
   paymentSourceInputValidator,
   productInputValidator,
@@ -39,6 +56,20 @@ import {
 // ---------------------------------------------------------------------------
 
 export type PaymentDoc = Infer<typeof paymentDoc>;
+export type DispersionDoc = Infer<typeof dispersionDoc>;
+export type DispersionTransactionDoc = Infer<typeof dispersionTransactionDoc>;
+export type DispersionChange = Pick<
+  DispersionDoc,
+  | "wompiPayoutId"
+  | "reference"
+  | "status"
+  | "paymentType"
+  | "transactionsTotal"
+  | "transactionsSuccess"
+  | "transactionsFailed"
+  | "amountInCents"
+  | "finalizedAt"
+>;
 export type SubscriptionDoc = Infer<typeof subscriptionDoc>;
 export type SubscriptionWithProduct = Infer<typeof subscriptionWithProduct>;
 export type WompiProductConfig = Infer<typeof productInputValidator>;
@@ -81,6 +112,25 @@ export type WompiEventCallbacks = {
     ctx: RunMutationCtx,
     subscription: SubscriptionDoc,
   ) => void | Promise<void>;
+  /**
+   * Internal app mutation called atomically whenever a dispersion row's state
+   * actually changes. It receives `{ dispersion }`.
+   */
+  onDispersionChange?: FunctionReference<
+    "mutation",
+    "internal",
+    { dispersion: DispersionChange },
+    unknown
+  >;
+};
+
+export type WompiPayoutsCredentials = {
+  /** Defaults to `process.env.WOMPI_PAYOUTS_API_KEY`. */
+  apiKey?: string;
+  /** Defaults to `process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID`. */
+  userPrincipalId?: string;
+  /** Defaults to `process.env.WOMPI_PAYOUTS_EVENTS_KEY`. */
+  eventsKey?: string;
 };
 
 export type WompiBillingOptions = {
@@ -122,6 +172,12 @@ export type WompiConfig = {
    * from the public key prefix (`pub_test_…` ⇒ sandbox).
    */
   sandbox?: boolean;
+  /**
+   * Pagos a Terceros (payout dispersion) credentials, from the Payouts
+   * developers section of the Wompi dashboard. Fully optional — only checked
+   * when a dispersion feature is actually used.
+   */
+  payouts?: WompiPayoutsCredentials;
   /** Static catalog pushed to the component via `syncProducts`. */
   products?: WompiProductConfig[];
   billing?: WompiBillingOptions;
@@ -170,8 +226,12 @@ export class Wompi {
   private readonly privateKey: string;
   private readonly eventsKey: string;
   private readonly integrityKey: string;
+  private readonly payoutsApiKey: string;
+  private readonly payoutsUserPrincipalId: string;
+  private readonly payoutsEventsKey: string;
   private readonly billingOptions: Required<WompiBillingOptions>;
   private wompiClient: WompiClient | null = null;
+  private wompiPayoutsClient: WompiPayoutsClient | null = null;
 
   constructor(
     public component: ComponentApi,
@@ -181,6 +241,11 @@ export class Wompi {
     this.privateKey = config.privateKey ?? process.env.WOMPI_PRIVATE_KEY ?? "";
     this.eventsKey = config.eventsKey ?? process.env.WOMPI_EVENTS_KEY ?? "";
     this.integrityKey = config.integrityKey ?? process.env.WOMPI_INTEGRITY_KEY ?? "";
+    this.payoutsApiKey = config.payouts?.apiKey ?? process.env.WOMPI_PAYOUTS_API_KEY ?? "";
+    this.payoutsUserPrincipalId =
+      config.payouts?.userPrincipalId ?? process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "";
+    this.payoutsEventsKey =
+      config.payouts?.eventsKey ?? process.env.WOMPI_PAYOUTS_EVENTS_KEY ?? "";
     this.sandbox =
       config.sandbox ??
       (process.env.WOMPI_SANDBOX !== undefined
@@ -203,6 +268,22 @@ export class Wompi {
       });
     }
     return this.wompiClient;
+  }
+
+  private get payoutsClient(): WompiPayoutsClient {
+    if (!this.wompiPayoutsClient) {
+      if (!this.payoutsApiKey || !this.payoutsUserPrincipalId) {
+        throw new Error(
+          "Wompi payouts credentials missing. Set WOMPI_PAYOUTS_API_KEY and WOMPI_PAYOUTS_USER_PRINCIPAL_ID (npx convex env set WOMPI_PAYOUTS_API_KEY ...) or pass payouts.apiKey / payouts.userPrincipalId in the Wompi() config.",
+        );
+      }
+      this.wompiPayoutsClient = new WompiPayoutsClient({
+        apiKey: this.payoutsApiKey,
+        userPrincipalId: this.payoutsUserPrincipalId,
+        sandbox: this.sandbox,
+      });
+    }
+    return this.wompiPayoutsClient;
   }
 
   private requireKey(key: string, name: string, envVar: string): string {
@@ -838,14 +919,262 @@ export class Wompi {
   }
 
   // -------------------------------------------------------------------------
+  // Dispersions (Pagos a Terceros)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a payout batch — bank accounts, BRE-B keys, or both mixed —
+   * through the Payouts API and record it as a `dispersions` row, updated
+   * reactively as payout webhooks land.
+   *
+   * Wompi rejects a reused `idempotencyKey` within 24 hours and re-recording
+   * an already-tracked payout is a no-op, so a retried action never creates a
+   * duplicate batch or row.
+   */
+  async createDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+    options: { idempotencyKey: string },
+  ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc }> {
+    const [error, result] = await this.payoutsClient.createPayout(input, options);
+
+    if (error) {
+      // A consumed idempotency key can mean a previous attempt created the
+      // batch at Wompi but died before recording it here. Recover only when
+      // the reference query proves one matching payout that pays these very
+      // beneficiaries; otherwise preserve the conflict so an unrelated batch
+      // is never attached locally.
+      const conflict =
+        error instanceof WompiPayoutApiError &&
+        (error.code === "EXC_022" || error.code === "EXC_032");
+      const recovered = conflict ? await this.recoverDispersion(ctx, input) : null;
+      if (!recovered) throw error;
+      return recovered;
+    }
+
+    const dispersion = await this.recordDispersion(ctx, input, result.payoutId, result);
+    return { result, dispersion };
+  }
+
+  /**
+   * Look the batch up after an idempotency conflict and track it only when
+   * reference, payment type, transaction count and amount identify exactly
+   * one payout across every result page, and that payout's transaction
+   * detail pays the attempted beneficiaries. References are reusable and a
+   * key can be reused with a different payload, so neither the first result
+   * nor a totals-only match is safe.
+   */
+  private async recoverDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+  ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc } | null> {
+    // BRE-B and mixed batches are created through `/v2/payouts`, and Wompi
+    // documents no v2 collection or reference listing to find them again.
+    // The `/v1` search below can never prove such a batch, so preserve the
+    // conflict instead of querying the wrong collection.
+    if (input.transactions.some((transaction) => transaction.key !== undefined)) {
+      return null;
+    }
+
+    const expectedAmount = input.transactions.reduce((sum, transaction) => {
+      return sum + transaction.amount;
+    }, 0);
+    const candidates = new Map<string, Payout>();
+
+    const scanned = await this.scanPayoutPages(
+      (page) => this.payoutsClient.listPayouts({ reference: input.reference, page }),
+      (payout) => {
+        if (
+          payout.reference !== input.reference ||
+          payout.paymentType !== input.paymentType ||
+          payout.totalTransactions !== input.transactions.length ||
+          payout.amountInCents !== expectedAmount
+        ) {
+          return;
+        }
+        candidates.set(payout.id, payout);
+      },
+    );
+    if (!scanned) return null;
+
+    if (candidates.size !== 1) return null;
+    const [candidate] = candidates.values();
+    if (!candidate) return null;
+    if (!(await this.candidatePaysBeneficiaries(candidate.id, input))) return null;
+
+    const result: CreatePayoutResult = {
+      payoutId: candidate.id,
+      transactions: candidate.totalTransactions,
+    };
+    const dispersion = await this.recordDispersion(ctx, input, candidate.id, result);
+    return { result, dispersion };
+  }
+
+  /**
+   * Walk every page of a payout listing, feeding each record to `visit`.
+   * False when the complete result set cannot be proven — a page fails,
+   * echoes a different page number, or omits pagination metadata — so the
+   * caller preserves the original idempotency conflict.
+   */
+  private async scanPayoutPages<T>(
+    fetchPage: (page: number) => Promise<Result<PayoutPage<T>>>,
+    visit: (record: T) => void,
+  ): Promise<boolean> {
+    let pageNumber = 1;
+    let totalPages = 1;
+
+    while (pageNumber <= totalPages) {
+      const [listError, page] = await fetchPage(pageNumber);
+      if (listError) return false;
+
+      for (const record of page.records) visit(record);
+
+      if (page.page !== undefined && page.page !== pageNumber) return false;
+
+      let advertisedPages: number;
+      if (page.pages !== undefined) {
+        advertisedPages = page.pages;
+      } else if (
+        page.total !== undefined &&
+        page.total >= 0 &&
+        page.limit !== undefined &&
+        page.limit > 0
+      ) {
+        advertisedPages = Math.ceil(page.total / page.limit);
+      } else {
+        return false;
+      }
+      if (advertisedPages < pageNumber) return false;
+      totalPages = Math.max(totalPages, advertisedPages);
+      pageNumber += 1;
+    }
+
+    return true;
+  }
+
+  /**
+   * True only when the candidate batch's transaction detail pays exactly the
+   * attempted beneficiaries: every listed transaction matched one-to-one on
+   * account number and amount. Listings may mask account numbers, so the
+   * listed digits must be a suffix of the attempted account. Anything
+   * unprovable — a failed listing, a missing account or amount, a listed
+   * account matching several attempted ones — rejects the candidate.
+   */
+  private async candidatePaysBeneficiaries(
+    payoutId: string,
+    input: CreatePayoutInput,
+  ): Promise<boolean> {
+    const pending = new Map<string, { accountDigits: string; amount: number; count: number }>();
+    for (const transaction of input.transactions) {
+      const accountNumber = transaction.accountNumber;
+      if (accountNumber === undefined) return false;
+      const key = `${accountNumber}:${transaction.amount}`;
+      const entry = pending.get(key);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        pending.set(key, {
+          accountDigits: accountNumber.replace(/\D/g, ""),
+          amount: transaction.amount,
+          count: 1,
+        });
+      }
+    }
+
+    let remaining = input.transactions.length;
+    let provable = true;
+    const seenTransactionIds = new Set<string>();
+
+    const scanned = await this.scanPayoutPages(
+      (page) => this.payoutsClient.listPayoutTransactions(payoutId, { page }),
+      (transaction) => {
+        if (!provable) return;
+        // A transaction repeated across pages means the listing shifted mid-
+        // scan; it cannot count twice, and the scan can no longer prove the
+        // complete detail. A blank id cannot be told apart from any other
+        // transaction, so it is just as unprovable.
+        if (transaction.id === "" || seenTransactionIds.has(transaction.id)) {
+          provable = false;
+          return;
+        }
+        seenTransactionIds.add(transaction.id);
+        const listedDigits = transaction.payeeInfo?.accountNumber?.replace(/\D/g, "") ?? "";
+        const amount = transaction.amountInCents;
+        if (listedDigits.length === 0 || amount === undefined) {
+          provable = false;
+          return;
+        }
+        const matches = [...pending.values()].filter((entry) => {
+          return entry.count > 0 && entry.amount === amount && entry.accountDigits.endsWith(listedDigits);
+        });
+        const match = matches.length === 1 ? matches[0] : undefined;
+        if (!match) {
+          provable = false;
+          return;
+        }
+        match.count -= 1;
+        remaining -= 1;
+      },
+    );
+
+    return scanned && provable && remaining === 0;
+  }
+
+  private async recordDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+    payoutId: string,
+    result: CreatePayoutResult,
+  ): Promise<DispersionDoc> {
+    return (await ctx.runMutation(this.component.dispersions.record, {
+      wompiPayoutId: payoutId,
+      reference: input.reference,
+      // The create response carries no status; every batch starts PENDING.
+      status: "PENDING",
+      paymentType: input.paymentType,
+      transactionsTotal: result.transactions ?? input.transactions.length,
+      transactionsSuccess: result.success ?? 0,
+      transactionsFailed: result.failed ?? 0,
+      amountInCents: input.transactions.reduce((sum, t) => sum + t.amount, 0),
+    })) as DispersionDoc;
+  }
+
+  /**
+   * Resolve a BRE-B key to its masked holder information, to confirm the
+   * beneficiary before paying. Read-only passthrough to the Payouts API —
+   * nothing is persisted.
+   */
+  async resolveBrebKey(keyValue: string, keyType?: BrebKeyType): Promise<BrebKeyResolution> {
+    const [error, resolution] = await this.payoutsClient.resolveBrebKey(keyValue, keyType);
+    if (error) throw error;
+    return resolution;
+  }
+
+  async getDispersion(ctx: RunQueryCtx, args: { wompiPayoutId: string }) {
+    return await ctx.runQuery(this.component.dispersions.get, {
+      wompiPayoutId: args.wompiPayoutId,
+    });
+  }
+
+  async listDispersions(ctx: RunQueryCtx, args?: { status?: string; limit?: number }) {
+    return await ctx.runQuery(this.component.dispersions.list, {
+      status: args?.status,
+      limit: args?.limit,
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Webhooks
   // -------------------------------------------------------------------------
 
   /**
-   * Mount the Wompi events endpoint on your app's HTTP router. Point the
+   * Mount the Wompi events endpoints on your app's HTTP router. Point the
    * "Eventos" URL in the Wompi dashboard at
    * `https://<deployment>.convex.site/wompi/webhook` (sandbox and production
-   * are configured separately there).
+   * are configured separately there). If you use dispersions, also point the
+   * events URL of the Payouts developers section at
+   * `https://<deployment>.convex.site/wompi/payouts-webhook` — payout events
+   * are signed with their own secret (`WOMPI_PAYOUTS_EVENTS_KEY`).
    *
    * Deliveries are checksum-verified, deduplicated, applied through the same
    * state machine as everything else, and then handed to your callbacks.
@@ -854,10 +1183,13 @@ export class Wompi {
     http: HttpRouter,
     options?: {
       path?: string;
+      /** Payouts events endpoint; only used with `payouts` credentials. */
+      payoutsPath?: string;
       onEvent?: (ctx: RunMutationCtx, event: WebhookEvent) => void | Promise<void>;
     },
   ) {
     const path = options?.path ?? "/wompi/webhook";
+    const payoutsPath = options?.payoutsPath ?? "/wompi/payouts-webhook";
 
     http.route({
       path,
@@ -917,6 +1249,102 @@ export class Wompi {
         }
 
         return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    });
+
+    http.route({
+      path: payoutsPath,
+      method: "POST",
+      handler: httpActionGeneric(async (ctx, request) => {
+        const eventsKey = this.requireKey(
+          this.payoutsEventsKey,
+          "payouts events key",
+          "WOMPI_PAYOUTS_EVENTS_KEY",
+        );
+        const body = await request.text();
+
+        const [error, event] = await verifyPayoutEvent(body, { eventsKey });
+        if (error) {
+          return new Response(JSON.stringify({ error: "Invalid signature" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const onDispersionChange = this.config.events?.onDispersionChange;
+        const callbackHandle = onDispersionChange
+          ? await createFunctionHandle(onDispersionChange)
+          : undefined;
+        let processed: { duplicate: boolean; outcome: string };
+
+        if (isPayoutUpdatedEvent(event)) {
+          const payout = event.data.payout;
+          processed = (await ctx.runMutation(
+            this.component.webhooks.processPayoutUpdate,
+            {
+              checksum: event.signature.checksum,
+              eventType: event.event,
+              timestamp: event.timestamp,
+              sentAt: event.sentAt,
+              callbackHandle,
+              payout: {
+                wompiPayoutId: payout.id,
+                status: payout.status,
+                reference: payout.reference,
+                paymentType: payout.paymentType,
+                transactionsTotal: payout.totalTransactions,
+                amountInCents: payout.amountInCents,
+              },
+            },
+          )) as { duplicate: boolean; outcome: string };
+        } else if (isPayoutTransactionUpdatedEvent(event)) {
+          const transaction = event.data.transaction;
+          const failureReason = transaction.failureReason;
+          processed = (await ctx.runMutation(
+            this.component.webhooks.processPayoutTransactionUpdate,
+            {
+              checksum: event.signature.checksum,
+              eventType: event.event,
+              timestamp: event.timestamp,
+              sentAt: event.sentAt,
+              callbackHandle,
+              transaction: {
+                wompiPayoutId: transaction.payoutId,
+                wompiTransactionId: transaction.id,
+                status: transaction.status,
+                amountInCents: transaction.amountInCents,
+                reference:
+                  typeof transaction.reference === "string" ? transaction.reference : undefined,
+                payeeName: transaction.payee.name,
+                payeeKey: transaction.payee.key,
+                // Bank events word failures as `message`, BRE-B as `description`.
+                failureReason:
+                  typeof failureReason === "string"
+                    ? failureReason
+                    : (failureReason?.message ?? failureReason?.description),
+              },
+            },
+          )) as { duplicate: boolean; outcome: string };
+        } else {
+          const delivery = (await ctx.runMutation(this.component.webhooks.recordEvent, {
+            checksum: event.signature.checksum,
+            eventType: event.event,
+            timestamp: event.timestamp,
+            sentAt: event.sentAt,
+          })) as { duplicate: boolean; eventId: string; outcome?: string };
+          if (delivery.outcome === undefined) {
+            await ctx.runMutation(this.component.webhooks.markOutcome, {
+              eventId: delivery.eventId as never,
+              outcome: "ignored",
+            });
+          }
+          processed = { duplicate: delivery.duplicate, outcome: delivery.outcome ?? "ignored" };
+        }
+
+        return new Response(JSON.stringify({ received: true, duplicate: processed.duplicate }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });

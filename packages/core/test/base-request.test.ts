@@ -177,6 +177,23 @@ describe("WompiRequest", () => {
     expect(error).toBeInstanceOf(WompiRequestError);
   });
 
+  it("does not classify a flat payments error as a payouts error", async () => {
+    const request = new TestableWompiRequest();
+
+    mockFetch.mockResolvedValueOnce(
+      errorJson(400, { code: "PAYMENTS_ERROR", message: "Payments request failed" })
+    );
+
+    const [error, data] = await request.testGet("/test", TestSchema);
+
+    expect(data).toBeNull();
+    expect(error).toBeInstanceOf(WompiRequestError);
+    expect((error as WompiRequestError).body).toEqual({
+      code: "PAYMENTS_ERROR",
+      message: "Payments request failed",
+    });
+  });
+
   it("should return [WompiRequestError, null] on network error", async () => {
     const request = new TestableWompiRequest();
 
