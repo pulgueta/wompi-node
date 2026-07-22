@@ -1,0 +1,340 @@
+---
+title: Payouts
+description: Disperse money to third-party bank accounts with Wompi's Pagos a Terceros API — batches, banks, accounts, limits, reports and webhook events.
+sidebar:
+  label: Payouts
+---
+
+Payouts (Pagos a Terceros) let you disperse money from your Wompi account to
+third parties — payroll, providers or any other outbound payment — in batches
+of one or more transactions. Each transaction pays its beneficiary either into
+a bank account or through a [BRE-B key](/docs/breb).
+
+The Payouts API is a different product from the payments API: it lives on its
+own host (`api.payouts.wompi.co`), authenticates with an **API key** and a
+**user principal ID** instead of Bearer keys, and uses camelCase fields. That's
+why the SDK exposes it as its own client, `WompiPayoutsClient`. The host serves
+two API versions — bank endpoints on `/v1`, BRE-B endpoints on `/v2` — and the
+client picks the right one per call, so you never deal with the split.
+
+## Creating the client
+
+Grab both credentials from the **Pagos a Terceros** section under
+_Desarrollo → Programadores_ in the Wompi dashboard (switch the dashboard to
+sandbox mode for sandbox keys). The same credential pair covers bank and BRE-B
+dispersions.
+
+```ts
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true, // optional, defaults to false (production)
+});
+```
+
+Every method returns the same error-first `Result` tuple as the rest of the
+SDK. Payouts API errors surface as `WompiPayoutApiError`, which carries the
+Wompi error `code` (`EXC_008` — insufficient balance, `EXC_017` — daily limit
+reached, `EXC_022`/`EXC_032` — idempotency key already processed, …) and the
+HTTP `statusCode`. Its `body` preserves diagnostics such as trace metadata and
+service-health details.
+
+## createPayout(input, options)
+
+Create a batch (`POST /payouts`) with the transaction detail as JSON. Wompi
+remembers each `idempotencyKey` (1–64 letters, numbers, or hyphens) for 24 hours
+and answers with an idempotency-conflict error (`EXC_022` on bank batches,
+`EXC_032` on BRE-B batches) when you reuse it during that window. Persist the
+returned `payoutId` and your batch `reference`; the same key can be accepted
+after 24 hours.
+
+```ts
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "payroll-2026-07",
+    accountId: account.id, // from listAccounts()
+    paymentType: "PAYROLL", // PAYROLL | PROVIDERS | OTHER
+    transactions: [
+      {
+        personType: "NATURAL",
+        legalIdType: "CC",
+        legalId: "1000000000",
+        bankId: bank.id, // from listBanks()
+        accountType: "AHORROS",
+        accountNumber: "12345678",
+        name: "John Doe",
+        email: "john@example.com",
+        amount: 1_000_000, // cents: $10,000.00 COP
+        reference: "payroll-2026-07-jdoe",
+      },
+    ],
+  },
+  { idempotencyKey: "payroll-2026-07" },
+);
+
+if (error) throw error;
+console.log(created.payoutId, created.success, created.failed);
+```
+
+`personType` (`"NATURAL"` or `"JURIDICA"`) is optional. [Wompi's OpenAPI
+contract](https://app.swaggerhub.com/apis-docs/wompi/Payouts/1.0.0/#/) and
+Postman collection include it, while [Wompi's JSON batch
+guide](https://docs.wompi.co/docs/colombia/crea-tu-primer-lote/) omits it from
+the request example. The SDK keeps the field optional and never infers a value,
+so provide it explicitly when you have it.
+
+### BRE-B key transactions
+
+Instead of the bank trio (`bankId` + `accountType` + `accountNumber`), a
+transaction can carry a BRE-B `key` — Wompi resolves it and routes the payment.
+As soon as any transaction in the batch has a `key`, the SDK posts the batch to
+`/v2/payouts`; bank-only batches go to `/v1/payouts`. Mixed bank + key batches
+are supported; a single transaction must use one destination method, never
+both. See [BRE-B dispersions](/docs/breb) for the key-specific fields and the
+resolve-before-paying flow.
+
+### Scheduled batches
+
+Add `dispersionDatetime` (`YYYY-MM-DDTHH:mm`, at least the day after the
+request) to schedule the dispersion:
+
+```ts
+const [scheduledError] = await payouts.createPayout(
+  { ...batch, dispersionDatetime: "2026-08-15T19:01" },
+  { idempotencyKey: "payroll-2026-08" },
+);
+if (scheduledError) throw scheduledError;
+```
+
+### Recurring batches
+
+Add `recurring` on top of `dispersionDatetime` for automatic repetition:
+
+```ts
+const [recurringError] = await payouts.createPayout(
+  {
+    ...batch,
+    dispersionDatetime: "2026-08-15T19:01",
+    recurring: { interval: "biweek", months: 3, description: "Nómina" },
+  },
+  { idempotencyKey: "payroll-recurring-2026" },
+);
+if (recurringError) throw recurringError;
+```
+
+`interval` is `biweek` or `month`; `months` is `3`, `6` or `12`.
+
+### Sandbox: forcing the outcome
+
+In sandbox, pass `transactionStatus: "APPROVED"` or `"FAILED"` to force the
+final state of every transaction in the batch. Omitted, transactions approve.
+The field is sandbox-only — a production client rejects it locally with a
+`WompiError` before any request fires.
+
+## createPayoutFromFile(input, options)
+
+Create a batch from a bank file (`POST /payouts/file`). Supported `fileType`
+codes: `WOMPI` (CSV), `PAB`, `SAP`, `DISFON`, `BANCO_OCCIDENTE_FC`,
+`DAVIVIENDA`.
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const csv = await readFile("payroll.csv");
+
+const [error, created] = await payouts.createPayoutFromFile(
+  {
+    reference: "payroll-file-2026-07",
+    file: new Blob([csv], { type: "text/csv" }),
+    fileType: "WOMPI",
+    accountId: account.id,
+    paymentType: "PAYROLL",
+  },
+  { idempotencyKey: "payroll-file-2026-07" },
+);
+if (error) throw error;
+console.log(created.payoutId);
+```
+
+The `WOMPI` format uses a `.csv` source file; every bank-specific format uses
+`.txt`. Gzipped uploads must use both the `.gz` extension and
+`application/gzip`, plus `fileName` and `fileMime` describing the original
+file. Recurring file batches require the complete flat tuple
+`dispersionDatetime`, `interval`, and `months`.
+
+## Consultas
+
+```ts
+// Batches, filtered and paginated
+const [listError, page] = await payouts.listPayouts({
+  status: ["PENDING", "PARTIAL_PAYMENT"], // joined as status=PENDING,PARTIAL_PAYMENT
+  fromDate: "2026-01-01",
+  toDate: "2026-02-01",
+  page: 1,
+  limit: 10,
+});
+if (listError) throw listError;
+page.records.forEach((p) => console.log(p.id, p.status, p.amountInCents));
+
+// One batch
+const [payoutError, payout] = await payouts.getPayout("payout-id");
+if (payoutError) throw payoutError;
+
+// Its transactions
+const [txsError, txs] = await payouts.listPayoutTransactions(payout.id, {
+  status: "FAILED",
+});
+if (txsError) throw txsError;
+
+// One transaction
+const [txError, tx] = await payouts.getPayoutTransaction(
+  payout.id,
+  "transaction-id",
+);
+if (txError) throw txError;
+
+// Transactions for batches that use this batch reference
+const [byRefError, byRef] =
+  await payouts.listTransactionsByReference("payroll-2026-07");
+if (byRefError) throw byRefError;
+```
+
+`listTransactionsByReference` expects the payout batch `reference`, not a
+transaction's own `reference`.
+
+List endpoints return a page object — `&#123; page, limit, total, pages, records &#125;`
+— so you can paginate without guessing.
+
+`getPayout` and `listPayoutTransactions` default to `/v1` for bank batches.
+For a BRE-B or mixed batch created through `/v2/payouts`, pass
+`{ apiVersion: "v2" }` as the second argument to `getPayout` and the third
+argument to `listPayoutTransactions`; see the [BRE-B guide](/docs/breb#reading-the-result).
+
+## Banks, accounts and limits
+
+```ts
+// Destination banks — pass bank.id as each transaction's bankId
+const [banksError, banks] = await payouts.listBanks();
+if (banksError) throw banksError;
+
+// Your origin accounts — pass account.id as the batch's accountId.
+// balanceInCents is the available balance, in cents.
+const [accountsError, accounts] = await payouts.listAccounts({
+  status: "ACTIVE",
+});
+if (accountsError) throw accountsError;
+
+// Daily dispersion limits and consumption, in cents
+const [limitsError, limits] = await payouts.getLimits();
+if (limitsError) throw limitsError;
+```
+
+## Reports
+
+```ts
+const [reportsError, reportPage] = await payouts.listReports({
+  periodicity: "weekly", // daily | weekly | biweekly | monthly
+  reportType: "payouts", // payouts | transactions
+});
+if (reportsError) throw reportsError;
+
+const execution = reportPage.reports.at(0);
+if (execution) {
+  const [urlError, url] = await payouts.getReportDownloadUrl({
+    reportExecutionId: execution._id,
+    reportIntegration: "payouts",
+  });
+  if (urlError) throw urlError;
+  // url is a presigned link to the CSV
+}
+```
+
+## Health
+
+```ts
+const [healthError, health] = await payouts.getHealth();
+if (healthError) throw healthError;
+// health.status: HEALTHY | PARTIAL_OUTAGE | UNHEALTHY
+```
+
+During an outage the API can answer with an error status whose envelope still
+carries the health payload. `getHealth` unwraps it and returns it as data, so
+an outage reads as `UNHEALTHY` in `health.status` instead of surfacing as a
+request error.
+
+## Sandbox: recharging balance
+
+The sandbox exposes `POST /accounts/balance-recharge` to top up test
+accounts, so you can simulate flows that need funds:
+
+```ts
+const [rechargeError] = await payouts.rechargeAccountBalance({
+  accountId: account.id,
+  amountInCents: 10_000_000, // $100,000.00 COP
+});
+if (rechargeError) throw rechargeError;
+```
+
+The endpoint doesn't exist in production, and the SDK enforces that client-side:
+calling it on a production client resolves to a `WompiError` without a request.
+Wompi's [sandbox
+guide](https://docs.wompi.co/docs/colombia/sandbox-pagos-a-terceros/) lists
+$1,000.00–$50,000,000.00 COP as the accepted range, while its [OpenAPI
+contract](https://app.swaggerhub.com/apis-docs/wompi/Payouts/1.0.0/#/) lists
+$100.00–$10,000,000.00 COP. Until Wompi reconciles those sources, the SDK
+accepts their combined range (`10_000`–`5_000_000_000` cents) and leaves the
+disputed bounds to the sandbox response.
+
+## Webhook events
+
+Payouts emit `payout.updated` and `transaction.updated` events to the URL you
+configure in the dashboard's Pagos a Terceros programmers section. Verify them
+with `verifyPayoutEvent` from `@pulgueta/wompi/server` — same signature scheme
+as payments webhooks, different envelope (no `environment`, camelCased
+`sentAt`), and a **different events secret**. The payouts events secret lives
+next to the payouts API key in the dashboard; the payments events secret will
+not verify these deliveries.
+
+```ts
+import {
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+  verifyPayoutEvent,
+} from "@pulgueta/wompi/server";
+
+export async function POST(request: Request) {
+  const [error, event] = await verifyPayoutEvent(await request.text(), {
+    eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+  });
+
+  if (error) return new Response("Invalid signature", { status: 403 });
+
+  if (isPayoutUpdatedEvent(event)) {
+    console.log("batch", event.data.payout.id, "→", event.data.payout.status);
+  }
+
+  if (isPayoutTransactionUpdatedEvent(event)) {
+    const tx = event.data.transaction;
+    console.log("transaction", tx.id, "→", tx.status, tx.failureReason);
+  }
+
+  return new Response("OK");
+}
+```
+
+:::warning[Reject unverified events]
+Anyone can POST to a public webhook URL. If `verifyPayoutEvent` returns an
+error, discard the event and don't process it.
+:::
+
+Bank and BRE-B dispersions deliver to the same URL with the same event names,
+but their `payee` and `failureReason` shapes differ per rail — see
+[BRE-B webhook payloads](/docs/breb#webhook-events) for the split.
+
+Wompi retries a delivery up to three times when your endpoint returns a
+non-2xx response. Process events idempotently and persist a delivery key, such
+as `event.event`, `event.timestamp`, and `event.signature.checksum`, before
+returning a success response. A retry must not repeat reconciliation side
+effects.

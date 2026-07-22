@@ -628,7 +628,7 @@ describe("WompiPayoutsClient", () => {
       expect(data!.amountInCents).toBe(1_000_000);
 
       const [url, options] = mockFetch.mock.calls[0]!;
-      expect(url).toContain("/payouts/payout-1");
+      expect(url).toBe("https://api.sandbox.payouts.wompi.co/v1/payouts/payout-1");
       expect(options.method).toBe("GET");
     });
   });
@@ -662,7 +662,9 @@ describe("WompiPayoutsClient", () => {
       expect(data!.records[0]!.payeeInfo?.name).toBe("John Doe");
 
       const [url] = mockFetch.mock.calls[0]!;
-      expect(url).toContain("/payouts/payout-1/transactions?");
+      expect(url).toContain(
+        "https://api.sandbox.payouts.wompi.co/v1/payouts/payout-1/transactions?"
+      );
       expect(url).toContain("status=APPROVED");
       expect(url).toContain("payeeName=John");
     });

@@ -1,0 +1,280 @@
+---
+title: BRE-B dispersions
+description: Resolve BRE-B keys and disperse to them with the same WompiPayoutsClient — key preview, automatic /v2 routing, mixed batches, webhooks and sandbox keys.
+sidebar:
+  label: BRE-B
+---
+
+BRE-B is Colombia's instant-transfer rail: beneficiaries register a key
+(email, phone, alphanumeric alias, legal id, or establishment code) with their
+bank, and you pay them with just that key — no bank, account type, or account
+number needed.
+
+BRE-B lives on the [same `WompiPayoutsClient`](/docs/payouts) as bank
+dispersions, with the same credential pair from **Desarrollo → Programadores →
+Pagos a Terceros** in the Wompi dashboard. BRE-B creation, key resolution and
+lifecycle reads sit on `/v2`, while bank endpoints sit on `/v1`. Creation and
+key resolution route automatically; batch reads default to `/v1`, so pass
+`apiVersion: "v2"` when reading BRE-B or mixed batches:
+
+```ts
+import { WompiPayoutsClient } from "@pulgueta/wompi";
+
+const payouts = new WompiPayoutsClient({
+  apiKey: process.env.WOMPI_PAYOUTS_API_KEY!,
+  userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID!,
+  sandbox: true, // uses api.sandbox.payouts.wompi.co
+});
+```
+
+## resolveBrebKey(keyValue, keyType?)
+
+Resolves a BRE-B key (`GET /v2/breb/keys/resolve/&#123;keyValue&#125;`) to its masked
+holder before you pay. Read-only: nothing moves, and no idempotency key is
+involved. Show the result to your user and ask them to confirm the beneficiary
+— this is Wompi's recommended first step and it materially reduces failed
+payouts. Full holder details are never returned through this endpoint.
+
+```ts
+const [error, holder] = await payouts.resolveBrebKey(
+  "@JUANPEREZ",
+  "ALPHANUMERIC",
+);
+if (error) throw error;
+
+holder.holderName; // "JUA*** PER*** GAR***"
+holder.financialEntity?.name; // "BANCOLOMBIA"
+holder.keyType; // "ALPHANUMERIC"
+holder.keyValue; // "@JUA***"
+```
+
+`keyType` is optional — Wompi infers it from the format — but sending it avoids
+ambiguity (a 10-digit number could be a phone or a legal id).
+
+| `keyType`            | Format                        | Example          |
+| -------------------- | ----------------------------- | ---------------- |
+| `ALPHANUMERIC`       | `@` + 5–20 alphanumeric chars | `@JUANPEREZ`     |
+| `MAIL`               | Valid email                   | `juan@email.com` |
+| `PHONE`              | 10 digits, starts with 3      | `3001234567`     |
+| `IDENTIFICATION`     | 1–18 alphanumeric chars       | `1234567890`     |
+| `ESTABLISHMENT_CODE` | 8 digits                      | `12345678`       |
+
+Resolution failures surface as `WompiPayoutApiError` with the Wompi `code` and
+HTTP `statusCode`: `EXC_033` (invalid format, 400), `EXC_034` (key not
+registered or not active, 404), `EXC_035` (key exists but inactive, 400),
+`EXC_036` (resolution service unavailable, 503) and `EXC_037` (resolution
+timeout, 503). Wompi classifies `EXC_036`/`EXC_037` as technical — retry those
+with backoff, never the business codes.
+
+## Paying a key with createPayout
+
+There is no separate BRE-B create method: [`createPayout`](/docs/payouts#createpayoutinput-options)
+takes BRE-B transactions in the same `transactions` array. A BRE-B transaction
+sends `key` instead of the bank trio (`bankId` + `accountType` +
+`accountNumber`); the SDK posts the batch to `/v2/payouts` as soon as any
+transaction carries a `key`, and to `/v1/payouts` otherwise.
+
+```ts
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "providers-2026-07",
+    accountId: account.id, // from listAccounts()
+    paymentType: "PROVIDERS", // PAYROLL | PROVIDERS | OTHER
+    transactions: [
+      {
+        key: "@JUANPEREZ",
+        name: "Juan Perez",
+        email: "juan@example.com", // required on BRE-B transactions
+        amount: 150_000, // cents: $1,500.00 COP
+        reference: "providers-2026-07-jperez",
+      },
+    ],
+  },
+  { idempotencyKey: "providers-2026-07" },
+);
+if (error) throw error;
+
+created.payoutId; // persist this — it identifies the batch
+created.success; // transactions accepted for processing
+created.failed; // transactions rejected by validation
+```
+
+### BRE-B transaction fields
+
+| Field                   | Required | Notes                                                                      |
+| ----------------------- | -------- | -------------------------------------------------------------------------- |
+| `key`                   | Yes      | The registered BRE-B key. Excludes the bank destination trio.              |
+| `amount`                | Yes      | Positive integer, in COP cents.                                            |
+| `name`                  | Yes      | Beneficiary name.                                                          |
+| `email`                 | Yes      | Required here — unlike bank transactions, where it's optional.             |
+| `legalIdType` `legalId` | No       | Optional, but as a pair: both or neither. `CC` `CE` `NIT` `PP` `TI` `DNI`. |
+| `personType`            | No       | `NATURAL` or `JURIDICA`.                                                   |
+| `phone` `description`   | No       |                                                                            |
+| `reference`             | No       | Max 40 characters; letters, numbers and hyphens only.                      |
+
+There is no `keyType` field when creating — that's a query parameter of
+`resolveBrebKey` only. Wompi resolves the key on its own and rejects the
+individual transaction if the key is invalid or inactive.
+
+The SDK validates all of this locally before the request fires: a transaction
+mixing `key` with the bank trio, a missing `email`, an unpaired
+`legalIdType`/`legalId`, or an over-long `reference` resolves to a `WompiError`
+without touching the network.
+
+### Mixed batches
+
+Bank and BRE-B transactions can share one batch (it goes to `/v2`); a single
+transaction must pay either a `key` or a bank account, never both:
+
+```ts
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "mixed-2026-07",
+    accountId: account.id,
+    paymentType: "PROVIDERS",
+    transactions: [
+      {
+        key: "@JUANPEREZ",
+        name: "Juan Perez",
+        email: "juan@example.com",
+        amount: 150_000,
+      },
+      {
+        legalIdType: "CC",
+        legalId: "1234567890",
+        bankId: bank.id, // from listBanks()
+        accountType: "AHORROS",
+        accountNumber: "9876543210",
+        name: "Carlos Gomez",
+        email: "carlos@example.com",
+        amount: 250_000,
+      },
+    ],
+  },
+  { idempotencyKey: "mixed-2026-07" },
+);
+```
+
+:::warning[Idempotency]
+Every batch needs an `idempotencyKey` (1–64 characters; letters, numbers and
+hyphens). Reusing one within Wompi's 24-hour window resolves to a
+`WompiPayoutApiError` with `statusCode: 409` and `code: "EXC_032"` (BRE-B
+batches) or `"EXC_022"` (bank batches). Derive it from a stable business id and
+persist the resulting `payoutId`; before retrying outside that window,
+reconcile the existing payout so you don't create a second one.
+:::
+
+Scheduled (`dispersionDatetime`), recurring (`recurring`) and the sandbox-only
+`transactionStatus` batch fields work exactly as they do for
+[bank batches](/docs/payouts#scheduled-batches).
+
+## Reading the result
+
+BRE-B lifecycle reads use `/v2` with the same methods and page shapes:
+
+```ts
+const [payoutError, payout] = await payouts.getPayout(created.payoutId, {
+  apiVersion: "v2",
+});
+if (payoutError) throw payoutError;
+
+payout.status;
+// "PENDING" | "TOTAL_PAYMENT" | "PARTIAL_PAYMENT" | "REJECTED"
+// with the approval flow enabled: "PENDING_APPROVAL" | "NOT_APPROVED"
+// under anti-fraud review: "AFE_ON_HOLD" | "AFE_REJECTED"
+
+const [pageError, page] = await payouts.listPayoutTransactions(
+  created.payoutId,
+  { limit: 50, page: 1 },
+  { apiVersion: "v2" },
+);
+if (pageError) throw pageError;
+
+for (const tx of page.records) {
+  // A string on the REST API; webhook events send an object instead.
+  const failure =
+    typeof tx.failureReason === "string"
+      ? tx.failureReason
+      : tx.failureReason?.description;
+  console.log(tx.reference, tx.status, failure ?? "");
+}
+```
+
+Continue paginating while `page.page < page.pages`.
+
+## Webhook events
+
+BRE-B results arrive on the same events URL as bank dispersions, with the same
+two event names — `transaction.updated` per dispersal and `payout.updated` per
+batch. Verify them with `verifyPayoutEvent` from `@pulgueta/wompi/server` and
+the **payouts events secret** (not the payments one), then narrow with the
+payout guards:
+
+```ts
+import {
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
+  verifyPayoutEvent,
+} from "@pulgueta/wompi/server";
+
+export async function POST(request: Request) {
+  const [error, event] = await verifyPayoutEvent(await request.text(), {
+    eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+  });
+  if (error) return new Response("Invalid signature", { status: 403 });
+
+  if (isPayoutTransactionUpdatedEvent(event)) {
+    const tx = event.data.transaction;
+
+    if (tx.payee.key) {
+      // BRE-B dispersal — bank events have no payee.key.
+      const reason =
+        typeof tx.failureReason === "string"
+          ? tx.failureReason
+          : tx.failureReason?.description;
+      console.log("BRE-B", tx.id, "→", tx.status, reason ?? "");
+    }
+  }
+
+  if (isPayoutUpdatedEvent(event)) {
+    console.log("batch", event.data.payout.id, "→", event.data.payout.status);
+  }
+
+  return new Response("OK");
+}
+```
+
+The two rails share event names but not payload shapes. Branch on the presence
+of `payee.key`:
+
+|                 | Bank dispersal event                                                | BRE-B dispersal event                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `payee`         | `name`, `document`, `bank`, `accountType`, `accountNumber`, `email` | `key`, `keyType`, `name`, `email`, masked `legalId`, `legalIdType`, `personType`, masked `accountNumber`, `keyResolutionId`, `paymentMethodType` — no `bank` |
+| `failureReason` | Object with `code` and `message`                                    | Object with `code` and `description` (e.g. `MOL-5021` — amount below minimum, `C01` — account inactive)                                                      |
+
+## Sandbox
+
+Point the client at the sandbox with `sandbox: true` and the sandbox payouts
+credentials. Only the documented test keys resolve — any other key returns
+`EXC_034`:
+
+| Key                 | Type                   | Simulates                           |
+| ------------------- | ---------------------- | ----------------------------------- |
+| `@elias123`         | `ALPHANUMERIC`         | Resolves — BANCO DAVIVIENDA         |
+| `ecolon@wompi.com`  | `MAIL`                 | Resolves — BANCOLOMBIA              |
+| `3001234567`        | `PHONE`                | Resolves — BANCO POPULAR            |
+| `1020304050`        | `IDENTIFICATION`       | Resolves — BANCO POPULAR            |
+| `900123456`         | `IDENTIFICATION` (NIT) | Resolves — BANCO DAVIVIENDA         |
+| `noexiste@test.com` | `MAIL`                 | 404 `EXC_034` — key not found       |
+| `12345`             | —                      | 400 `EXC_033` — invalid key format  |
+| `inactiva@test.com` | `MAIL`                 | 400 `EXC_035` — key inactive        |
+| `timeout@test.com`  | `MAIL`                 | 503 `EXC_037` — resolution timeout  |
+| `error@test.com`    | `MAIL`                 | 503 `EXC_036` — service unavailable |
+
+`transactionStatus: "APPROVED" | "FAILED"` forces the outcome of every
+transaction in a sandbox batch, exactly as with bank batches, and the
+sandbox-only [`rechargeAccountBalance`](/docs/payouts#sandbox-recharging-balance)
+tops up the origin account.
+
+See the [BRE-B payout example](/docs/examples/breb-payout) for the full
+resolve → confirm → pay → webhook flow.

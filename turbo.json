@@ -11,12 +11,15 @@
         "WOMPI_PRIVATE_KEY",
         "WOMPI_EVENTS_KEY",
         "WOMPI_INTEGRITY_KEY",
+        "WOMPI_PAYOUTS_API_KEY",
+        "WOMPI_PAYOUTS_USER_PRINCIPAL_ID",
+        "WOMPI_PAYOUTS_EVENTS_KEY",
         "UPSTASH_REDIS_REST_URL",
         "UPSTASH_REDIS_REST_TOKEN"
       ]
     },
     "test": {
-      "dependsOn": ["^test"]
+      "dependsOn": ["^build", "^test"]
     },
     "test:cov": {
       "outputs": ["coverage/**"],
@@ -24,7 +27,13 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "WOMPI_PAYOUTS_API_KEY",
+        "WOMPI_PAYOUTS_USER_PRINCIPAL_ID",
+        "WOMPI_PAYOUTS_EVENTS_KEY"
+      ]
     },
     "clean": {
       "cache": false

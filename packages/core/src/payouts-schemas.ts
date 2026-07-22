@@ -40,6 +40,14 @@ export const PayoutLegalIdTypeSchema = z.enum(["CC", "NIT", "PP", "CE", "TI", "D
 
 export const PayoutPersonTypeSchema = z.enum(["NATURAL", "JURIDICA"]);
 
+export const BrebKeyTypeSchema = z.enum([
+  "ALPHANUMERIC",
+  "MAIL",
+  "PHONE",
+  "IDENTIFICATION",
+  "ESTABLISHMENT_CODE",
+]);
+
 export const PayoutAccountStatusSchema = z.enum(["IN_REVIEW", "ACTIVE", "INACTIVE"]);
 
 export const PayoutFileTypeSchema = z.enum([
@@ -80,7 +88,12 @@ export const PayoutRecurringSchema = z.object({
   description: z.string().optional(),
 });
 
-export const CreatePayoutTransactionSchema = z.object({
+/**
+ * Bank-destination transaction: the trio `bankId` + `accountType` +
+ * `accountNumber` plus the beneficiary document. Rejects `key` so a single
+ * transaction cannot mix both destination methods.
+ */
+const BankPayoutTransactionSchema = z.object({
   legalIdType: PayoutLegalIdTypeSchema,
   legalId: z.string(),
   bankId: z.string(),
@@ -96,7 +109,48 @@ export const CreatePayoutTransactionSchema = z.object({
   phone: z.string().optional(),
   email: z.email().optional(),
   reference: z.string().optional(),
+  key: z.never().optional(),
 });
+
+/**
+ * BRE-B-destination transaction: `key` replaces the bank trio, which is
+ * rejected outright. The beneficiary document stays optional but must arrive
+ * as a pair. There is no `keyType` here — Wompi resolves the key on its own.
+ * Unlike bank transactions, `email` is required by the BRE-B contract.
+ */
+const BrebPayoutTransactionSchema = z
+  .object({
+    key: z.string().min(1, "Must not be blank"),
+    name: z.string(),
+    amount: z.number().int().min(1).max(MAX_AMOUNT_IN_CENTS),
+    email: z.email(),
+    legalIdType: PayoutLegalIdTypeSchema.optional(),
+    legalId: z.string().optional(),
+    personType: PayoutPersonTypeSchema.optional(),
+    description: z.string().optional(),
+    phone: z.string().optional(),
+    reference: z
+      .string()
+      .max(40, "Must be at most 40 characters")
+      .regex(/^[a-zA-Z0-9-]+$/, "Must contain only letters, numbers and hyphens")
+      .optional(),
+    bankId: z.never().optional(),
+    accountType: z.never().optional(),
+    accountNumber: z.never().optional(),
+  })
+  .refine((t) => (t.legalIdType === undefined) === (t.legalId === undefined), {
+    message: "Provide both legalIdType and legalId, or neither",
+  });
+
+/**
+ * One transaction inside a payout batch: either a bank account destination or
+ * a BRE-B `key`, never both in the same transaction. Both kinds can be mixed
+ * in one `transactions` array.
+ */
+export const CreatePayoutTransactionSchema = z.union(
+  [BankPayoutTransactionSchema, BrebPayoutTransactionSchema],
+  "Each transaction requires either a BRE-B key or bankId + accountType + accountNumber, not both"
+);
 
 export const CreatePayoutInputSchema = z
   .object({
@@ -286,6 +340,26 @@ export const CreatePayoutResultSchema = z
   })
   .loose();
 
+export const BrebFinancialEntitySchema = z
+  .object({
+    name: z.string().optional(),
+    code: z.string().optional(),
+  })
+  .loose();
+
+/**
+ * Result of resolving a BRE-B key (`GET /v2/breb/keys/resolve/{keyValue}`).
+ * `holderName` and `keyValue` come back partially masked by design.
+ */
+export const BrebKeyResolutionSchema = z
+  .object({
+    holderName: z.string().optional(),
+    financialEntity: BrebFinancialEntitySchema.optional(),
+    keyType: z.string().optional(),
+    keyValue: z.string().optional(),
+  })
+  .loose();
+
 export const PayoutPayerInfoSchema = z
   .object({
     name: z.string().optional(),
@@ -377,8 +451,8 @@ export const PayoutTransactionSchema = z
  * Beneficiary shape emitted by Payouts `transaction.updated` webhooks. The
  * official event example identifies the payee as `document`, while other
  * payloads carry `legalId`/`legalIdType`; BRE-B events on the same URL have
- * no `bank`. Everything beyond `name` and `accountNumber` is optional so no
- * documented variant fails the guard.
+ * no `bank` and add the resolved key fields instead. Everything beyond `name`
+ * and `accountNumber` is optional so no documented variant fails the guard.
  */
 export const PayoutEventPayeeSchema = z
   .object({
@@ -390,6 +464,11 @@ export const PayoutEventPayeeSchema = z
     legalId: z.string().optional(),
     legalIdType: z.string().optional(),
     email: z.string().optional(),
+    key: z.string().optional(),
+    keyType: z.string().optional(),
+    personType: z.string().optional(),
+    keyResolutionId: z.string().optional(),
+    paymentMethodType: z.string().optional(),
   })
   .loose();
 
@@ -554,6 +633,7 @@ export type PayoutLegalIdType = z.output<typeof PayoutLegalIdTypeSchema>;
 export type PayoutPersonType = z.output<typeof PayoutPersonTypeSchema>;
 export type PayoutAccountStatus = z.output<typeof PayoutAccountStatusSchema>;
 export type PayoutFileType = z.output<typeof PayoutFileTypeSchema>;
+export type BrebKeyType = z.output<typeof BrebKeyTypeSchema>;
 
 export type PayoutRecurring = z.output<typeof PayoutRecurringSchema>;
 export type CreatePayoutTransaction = z.output<typeof CreatePayoutTransactionSchema>;
@@ -571,6 +651,8 @@ export type PayoutReportListParams = z.input<typeof PayoutReportListParamsSchema
 export type PayoutReportUrlParams = z.input<typeof PayoutReportUrlParamsSchema>;
 export type RechargePayoutAccountInput = z.output<typeof RechargePayoutAccountInputSchema>;
 
+export type BrebFinancialEntity = z.output<typeof BrebFinancialEntitySchema>;
+export type BrebKeyResolution = z.output<typeof BrebKeyResolutionSchema>;
 export type PayoutPayerInfo = z.output<typeof PayoutPayerInfoSchema>;
 export type Payout = z.output<typeof PayoutSchema>;
 export type PayoutPayeeInfo = z.output<typeof PayoutPayeeInfoSchema>;

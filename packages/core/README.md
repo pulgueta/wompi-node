@@ -200,8 +200,8 @@ prose example omits it, so the SDK accepts omission for compatibility and does
 not choose a default. Idempotency keys prevent reuse for Wompi's 24-hour
 retention window; persist the returned payout ID and batch reference.
 
-Available operations: `createPayout`, `createPayoutFromFile`, `listPayouts`,
-`getPayout`, `listPayoutTransactions`, `getPayoutTransaction`,
+Available operations: `createPayout`, `createPayoutFromFile`, `resolveBrebKey`,
+`listPayouts`, `getPayout`, `listPayoutTransactions`, `getPayoutTransaction`,
 `listTransactionsByReference`, `listBanks`, `listAccounts`, `getLimits`,
 `listReports`, `getReportDownloadUrl`, `getHealth`, and the sandbox-only
 `rechargeAccountBalance`. Payout webhooks are verified with
@@ -210,6 +210,34 @@ from `@pulgueta/wompi/server`.
 
 `listTransactionsByReference` accepts a payout batch reference, not an
 individual transaction reference.
+
+### BRE-B dispersions
+
+The same client and credentials also disperse through BRE-B keys, served on
+`/v2` of the Payouts API. Resolve the key first, confirm the masked holder
+data with your user, then pay the `key` instead of the bank destination trio:
+
+```typescript
+const [resolveError, holder] = await payouts.resolveBrebKey("@JUANPEREZ", "ALPHANUMERIC");
+// holder → { holderName: "JUA*** PER*** GAR***", financialEntity: { name: "BANCOLOMBIA", code: "001" }, ... }
+
+const [error, created] = await payouts.createPayout(
+  {
+    reference: "providers-2026-07",
+    accountId: "account-id",
+    paymentType: "PROVIDERS",
+    transactions: [
+      { key: "@JUANPEREZ", name: "Juan Perez", email: "juan@example.com", amount: 150_000 },
+    ],
+  },
+  { idempotencyKey: "providers-2026-07" },
+);
+```
+
+`createPayout` posts to `/v2/payouts` as soon as any transaction carries a
+`key`, and to `/v1/payouts` otherwise. Batches mixing BRE-B and bank
+transactions in one `transactions` array are supported (they go to `/v2`);
+a single transaction must pay either a `key` or a bank account, never both.
 
 ### Subpath exports
 
