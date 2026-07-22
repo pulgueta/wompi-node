@@ -5,7 +5,7 @@ sidebar:
   label: Error handling
 ---
 
-Every method on the client returns a `Result<T>` — a discriminated tuple of either `[error, null]` or `[null, data]`. This makes failure a value, not a thrown exception, and narrows the types automatically.
+Every method on `WompiClient` and `WompiPayoutsClient` returns a `Result<T>`: a discriminated tuple of either `[error, null]` or `[null, data]`. This makes failure a value, not a thrown exception, and narrows the types automatically.
 
 ## The tuple
 
@@ -37,14 +37,17 @@ narrowing on every access — the tuple gets it for free.
 
 ## Error shapes
 
-Errors are one of four subclasses, all of which extend the base `WompiError`:
+Every SDK error extends the base `WompiError`. The response source determines
+which subclass you receive:
 
-| Class                  | Discriminant                        | Returned when                                                              |
-| ---------------------- | ----------------------------------- | -------------------------------------------------------------------------- |
-| `WompiError`           | —                                   | Local validation, missing key, anything before the request fires.          |
-| `WompiValidationError` | `type === "INPUT_VALIDATION_ERROR"` | Wompi rejected the body (HTTP 422). `messages` carries field-level errors. |
-| `WompiNotFoundError`   | `type === "NOT_FOUND_ERROR"`        | Wompi answered HTTP 404. `reason` is the human-readable cause.             |
-| `WompiRequestError`    | `statusCode`                        | Any other non-2xx response. `body` is the raw response body.               |
+| Class                           | Discriminant                                                    | Returned when                                                        |
+| ------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `WompiError`                    | —                                                               | Local validation, missing key, or another pre-request failure.       |
+| `WompiValidationError`          | `type === "INPUT_VALIDATION_ERROR"`                             | The Payments API rejects the body with HTTP 422.                     |
+| `WompiNotFoundError`            | `type === "NOT_FOUND_ERROR"`                                    | The Payments API answers HTTP 404.                                   |
+| `WompiRequestError`             | `statusCode` and `body`                                         | Another Payments API response has a non-2xx status.                  |
+| `WompiPayoutApiError`           | `type === "PAYOUT_API_ERROR"`; `code`, `statusCode`, and `body` | The Payouts API returns a structured error.                          |
+| `WompiWebhookVerificationError` | `type === "WEBHOOK_VERIFICATION_ERROR"`                         | A payment or payout webhook fails parsing or signature verification. |
 
 ## Branching on `type`
 
@@ -60,8 +63,12 @@ if (error) {
     return ctx.json({ messages: error.messages }, 400);
   }
 
-  if ("statusCode" in error) {
-    // WompiRequestError — anything else the API replied with.
+  if ("type" in error && error.type === "PAYOUT_API_ERROR") {
+    return ctx.json({ statusCode: error.statusCode, code: error.code }, 502);
+  }
+
+  if ("statusCode" in error && "body" in error) {
+    // WompiRequestError exposes the raw response as body.
     return ctx.json({ statusCode: error.statusCode, body: error.body }, 502);
   }
 
@@ -78,8 +85,10 @@ If you prefer class-based branching, import the error classes from the `/schemas
 import {
   WompiError,
   WompiNotFoundError,
+  WompiPayoutApiError,
   WompiRequestError,
   WompiValidationError,
+  WompiWebhookVerificationError,
 } from "@pulgueta/wompi/schemas";
 
 if (error instanceof WompiValidationError) {
@@ -88,8 +97,14 @@ if (error instanceof WompiValidationError) {
 if (error instanceof WompiNotFoundError) {
   // error.reason is the human-readable reason string
 }
+if (error instanceof WompiPayoutApiError) {
+  // error.code and error.statusCode identify it; error.body keeps diagnostics
+}
 if (error instanceof WompiRequestError) {
   // error.statusCode and error.body
+}
+if (error instanceof WompiWebhookVerificationError) {
+  // Reject the webhook without processing its payload
 }
 if (error instanceof WompiError) {
   // base class — every error above is also a WompiError
@@ -124,9 +139,10 @@ _before_ the request fires if you haven't provided one. There's no separate
 
 ## The SDK never throws (almost)
 
-Two exceptions:
+Three exceptions:
 
 - `new WompiClient(options)` throws if the options fail Zod validation — usually missing or empty `publicKey`.
+- `new WompiPayoutsClient(options)` throws if its API key or user principal ID fails Zod validation.
 - `getSignatureKey` from `/server` throws if `amountInCents` isn't a non-negative integer.
 
 Everywhere else, failure travels through the tuple.
