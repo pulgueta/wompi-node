@@ -26,6 +26,7 @@ const TERMINAL_PAYOUT_STATUSES = new Set([
   "PARTIAL_PAYMENT",
   "REJECTED",
   "NOT_APPROVED",
+  "AFE_REJECTED",
 ]);
 
 const sandboxClient = () =>

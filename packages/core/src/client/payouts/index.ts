@@ -212,6 +212,10 @@ export class WompiPayoutsClient extends WompiRequest {
     const [inputError, parsed] = parseWith(CreatePayoutFileInputSchema, input, "Invalid input");
     if (inputError) return [inputError, null];
 
+    if (!this.sandbox && parsed.transactionStatus !== undefined) {
+      return [new WompiError("transactionStatus is available only in sandbox"), null];
+    }
+
     const { file, ...fields } = parsed;
     const form = new FormData();
 

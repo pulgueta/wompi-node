@@ -244,6 +244,28 @@ describe("WompiPayoutsClient", () => {
   });
 
   describe("createPayoutFromFile", () => {
+    it("rejects the sandbox-only transactionStatus on a production client", async () => {
+      const [error, data] = await new WompiPayoutsClient({
+        apiKey: API_KEY,
+        userPrincipalId: USER_PRINCIPAL_ID,
+      }).createPayoutFromFile(
+        {
+          reference: "batch-file-1",
+          file: new Blob(["header\nrow"], { type: "text/csv" }),
+          fileType: "WOMPI",
+          accountId: "account-id",
+          paymentType: "PROVIDERS",
+          transactionStatus: "APPROVED",
+        },
+        { idempotencyKey: "batch-file-1" }
+      );
+
+      expect(data).toBeNull();
+      expect(error).toBeInstanceOf(WompiError);
+      expect(error!.message).toContain("sandbox");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("posts a multipart body without a JSON content type", async () => {
       const payouts = makeClient();
 
