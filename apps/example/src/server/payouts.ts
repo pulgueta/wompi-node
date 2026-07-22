@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { env } from "node:process";
 
 import { WompiPayoutsClient } from "@pulgueta/wompi";
@@ -8,6 +7,8 @@ import type {
   Result,
 } from "@pulgueta/wompi/schemas";
 import { createServerFn } from "@tanstack/react-start";
+
+import { createDispersionIdempotencyKey } from "./idempotency";
 
 type ServerResult<T> = { error: string; data: null } | { error: null; data: T };
 
@@ -58,9 +59,17 @@ export type CreateDispersionInput = {
   transaction: CreatePayoutTransaction;
 };
 
+export type PayoutRail = "bank" | "breb";
+
 let payoutsClient: WompiPayoutsClient | null = null;
 
 function getPayoutsClient() {
+  if (env.NODE_ENV !== "development") {
+    throw new Error(
+      "The unauthenticated payouts demo is available only in local development",
+    );
+  }
+
   payoutsClient ??= new WompiPayoutsClient({
     apiKey: env.WOMPI_PAYOUTS_API_KEY ?? "",
     userPrincipalId: env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "",
@@ -133,18 +142,22 @@ export const resolveKey = createServerFn({ method: "POST" })
 export const createDispersion = createServerFn({ method: "POST" })
   .validator((data: CreateDispersionInput) => data)
   .handler(async ({ data }): Promise<ServerResult<CreateResultDto>> => {
-    const idempotencyKey = createHash("sha256")
-      .update(data.reference)
-      .digest("hex");
+    const operation = {
+      accountId: data.accountId,
+      reference: data.reference,
+      paymentType: "OTHER" as const,
+      transaction: data.transaction,
+    };
+    const idempotencyKey = createDispersionIdempotencyKey(operation);
 
     return runPayoutRequest(
       (client) =>
         client.createPayout(
           {
-            reference: data.reference,
-            accountId: data.accountId,
-            paymentType: "OTHER",
-            transactions: [data.transaction],
+            reference: operation.reference,
+            accountId: operation.accountId,
+            paymentType: operation.paymentType,
+            transactions: [operation.transaction],
           },
           { idempotencyKey },
         ),
@@ -158,11 +171,14 @@ export const createDispersion = createServerFn({ method: "POST" })
   });
 
 export const getPayoutStatus = createServerFn({ method: "POST" })
-  .validator((data: { payoutId: string }) => data)
+  .validator((data: { payoutId: string; rail: PayoutRail }) => data)
   .handler(
     async ({ data }): Promise<ServerResult<PayoutStatusDto>> =>
       runPayoutRequest(
-        (client) => client.getPayout(data.payoutId),
+        (client) =>
+          client.getPayout(data.payoutId, {
+            apiVersion: data.rail === "breb" ? "v2" : "v1",
+          }),
         ({ id, status, reference, createdAt }) => ({
           id,
           status,

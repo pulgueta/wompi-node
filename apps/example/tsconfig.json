@@ -12,7 +12,7 @@
     "types": ["vite/client"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": false,
     "noEmit": true,
     "skipLibCheck": true,
     "strict": true,

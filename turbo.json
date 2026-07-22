@@ -27,7 +27,13 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "WOMPI_PAYOUTS_API_KEY",
+        "WOMPI_PAYOUTS_USER_PRINCIPAL_ID",
+        "WOMPI_PAYOUTS_EVENTS_KEY"
+      ]
     },
     "clean": {
       "cache": false

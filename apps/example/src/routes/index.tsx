@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import {
   createDispersion,
@@ -197,10 +197,16 @@ function PayoutResult({
 
 function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
   type KeyType = NonNullable<ResolveKeyInput["keyType"]>;
+  type ConfirmedResolution = {
+    resolution: KeyResolutionDto;
+    key: string;
+    keyType?: KeyType;
+  };
 
   const [key, setKey] = useState("");
   const [keyType, setKeyType] = useState<KeyType | "">("");
-  const [resolution, setResolution] = useState<KeyResolutionDto | null>(null);
+  const [confirmedResolution, setConfirmedResolution] =
+    useState<ConfirmedResolution | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -209,40 +215,60 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
   const [status, setStatus] = useState<PayoutStatusDto | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const resolveRequestId = useRef(0);
+  const statusRequestId = useRef(0);
+  const resolution = confirmedResolution?.resolution ?? null;
 
   async function handleResolve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const requestId = ++resolveRequestId.current;
+    const requestedKey = key.trim();
+    const requestedKeyType = keyType || undefined;
     setResolving(true);
     setResolveError(null);
-    setResolution(null);
+    setConfirmedResolution(null);
 
     const data: ResolveKeyInput = {
-      key: key.trim(),
-      ...(keyType ? { keyType } : {}),
+      key: requestedKey,
+      ...(requestedKeyType ? { keyType: requestedKeyType } : {}),
     };
 
     try {
       const result = await resolveKey({ data });
 
+      if (requestId !== resolveRequestId.current) return;
+
       if (result.error) {
         setResolveError(result.error);
       } else if (result.data) {
-        setResolution(result.data);
+        setConfirmedResolution({
+          resolution: result.data,
+          key: requestedKey,
+          ...(requestedKeyType ? { keyType: requestedKeyType } : {}),
+        });
       } else {
         setResolveError("Wompi did not return a key resolution.");
       }
     } catch (error) {
-      setResolveError(getRequestError(error));
+      if (requestId === resolveRequestId.current) {
+        setResolveError(getRequestError(error));
+      }
     } finally {
-      setResolving(false);
+      if (requestId === resolveRequestId.current) {
+        setResolving(false);
+      }
     }
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!confirmedResolution) return;
+
     const formData = new FormData(event.currentTarget);
 
+    statusRequestId.current += 1;
     setCreating(true);
+    setRefreshing(false);
     setCreateError(null);
     setPayoutId(null);
     setStatus(null);
@@ -254,7 +280,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
           accountId: String(formData.get("accountId")),
           reference: String(formData.get("reference")).trim(),
           transaction: {
-            key: key.trim(),
+            key: confirmedResolution.key,
             name: String(formData.get("name")).trim(),
             email: String(formData.get("email")).trim(),
             amount: Number(formData.get("amount")),
@@ -279,11 +305,17 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
   async function handleRefreshStatus() {
     if (!payoutId) return;
 
+    const requestedPayoutId = payoutId;
+    const requestId = ++statusRequestId.current;
     setRefreshing(true);
     setStatusError(null);
 
     try {
-      const result = await getPayoutStatus({ data: { payoutId } });
+      const result = await getPayoutStatus({
+        data: { payoutId: requestedPayoutId, rail: "breb" },
+      });
+
+      if (requestId !== statusRequestId.current) return;
 
       if (result.error) {
         setStatusError(result.error);
@@ -293,9 +325,13 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
         setStatusError("Wompi did not return a payout status.");
       }
     } catch (error) {
-      setStatusError(getRequestError(error));
+      if (requestId === statusRequestId.current) {
+        setStatusError(getRequestError(error));
+      }
     } finally {
-      setRefreshing(false);
+      if (requestId === statusRequestId.current) {
+        setRefreshing(false);
+      }
     }
   }
 
@@ -314,9 +350,12 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
           <input
             name="key"
             value={key}
+            disabled={creating}
             onChange={(event) => {
+              resolveRequestId.current += 1;
               setKey(event.currentTarget.value);
-              setResolution(null);
+              setResolving(false);
+              setConfirmedResolution(null);
               setResolveError(null);
             }}
             placeholder="ecolon@wompi.com"
@@ -328,9 +367,12 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
           <select
             name="keyType"
             value={keyType}
+            disabled={creating}
             onChange={(event) => {
+              resolveRequestId.current += 1;
               setKeyType(event.currentTarget.value as KeyType | "");
-              setResolution(null);
+              setResolving(false);
+              setConfirmedResolution(null);
               setResolveError(null);
             }}
           >
@@ -343,7 +385,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
           </select>
         </label>
         <div className="form-actions">
-          <button type="submit" disabled={resolving}>
+          <button type="submit" disabled={resolving || creating}>
             {resolving ? "Resolving…" : "Resolve"}
           </button>
         </div>
@@ -355,7 +397,7 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
         </p>
       ) : null}
 
-      {resolution ? (
+      {resolution && confirmedResolution ? (
         <>
           <dl className="resolution-details" aria-live="polite">
             <div>
@@ -373,11 +415,15 @@ function BrebDispersion({ accounts }: { accounts: AccountDto[] }) {
             </div>
             <div>
               <dt>Resolved key</dt>
-              <dd>{resolution.keyValue || key}</dd>
+              <dd>{resolution.keyValue || confirmedResolution.key}</dd>
             </div>
             <div>
               <dt>Key type</dt>
-              <dd>{resolution.keyType || keyType || "Auto-detected"}</dd>
+              <dd>
+                {resolution.keyType ||
+                  confirmedResolution.keyType ||
+                  "Auto-detected"}
+              </dd>
             </div>
           </dl>
 
@@ -444,6 +490,7 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
   const [status, setStatus] = useState<PayoutStatusDto | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const statusRequestId = useRef(0);
 
   async function handleLoadBanks() {
     setBanksLoading(true);
@@ -473,7 +520,9 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("email")).trim();
 
+    statusRequestId.current += 1;
     setCreating(true);
+    setRefreshing(false);
     setCreateError(null);
     setPayoutId(null);
     setStatus(null);
@@ -518,11 +567,17 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
   async function handleRefreshStatus() {
     if (!payoutId) return;
 
+    const requestedPayoutId = payoutId;
+    const requestId = ++statusRequestId.current;
     setRefreshing(true);
     setStatusError(null);
 
     try {
-      const result = await getPayoutStatus({ data: { payoutId } });
+      const result = await getPayoutStatus({
+        data: { payoutId: requestedPayoutId, rail: "bank" },
+      });
+
+      if (requestId !== statusRequestId.current) return;
 
       if (result.error) {
         setStatusError(result.error);
@@ -532,9 +587,13 @@ function BankDispersion({ accounts }: { accounts: AccountDto[] }) {
         setStatusError("Wompi did not return a payout status.");
       }
     } catch (error) {
-      setStatusError(getRequestError(error));
+      if (requestId === statusRequestId.current) {
+        setStatusError(getRequestError(error));
+      }
     } finally {
-      setRefreshing(false);
+      if (requestId === statusRequestId.current) {
+        setRefreshing(false);
+      }
     }
   }
 

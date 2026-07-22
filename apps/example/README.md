@@ -12,6 +12,11 @@ This TanStack Start app demonstrates the sandbox payout features in
 All Wompi credentials and SDK calls stay on the server. The browser only calls
 TanStack Start server functions that return small serializable DTOs.
 
+> This is a local sandbox demo. Its payout server functions intentionally have
+> no application authentication and reject calls outside development mode. Do
+> not remove that guard or deploy it publicly without adding authorization for
+> every payout server function.
+
 ## Setup
 
 From the monorepo root, copy the environment template and add sandbox Payouts
@@ -25,7 +30,7 @@ Then install the workspace and start the example:
 
 ```bash
 pnpm install
-pnpm --filter wompi-example dev
+pnpm turbo run dev --filter=wompi-example
 ```
 
 The app runs at `http://localhost:3000` by default.
