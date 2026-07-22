@@ -5,7 +5,8 @@ import { mutation } from "./_generated/server.js";
  * Record a verified webhook delivery, deduplicated by Wompi's checksum
  * (identical for redeliveries of the same event, distinct across events).
  * Returns whether this delivery was already processed so app callbacks run
- * exactly once.
+ * exactly once. Duplicates carry the recorded `outcome` — a duplicate whose
+ * outcome was never marked crashed mid-apply, and callers may reprocess it.
  */
 export const recordEvent = mutation({
   args: {
@@ -21,6 +22,7 @@ export const recordEvent = mutation({
   returns: v.object({
     duplicate: v.boolean(),
     eventId: v.id("webhookEvents"),
+    outcome: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -29,7 +31,7 @@ export const recordEvent = mutation({
       .unique();
 
     if (existing) {
-      return { duplicate: true, eventId: existing._id };
+      return { duplicate: true, eventId: existing._id, outcome: existing.outcome };
     }
 
     const eventId = await ctx.db.insert("webhookEvents", args);

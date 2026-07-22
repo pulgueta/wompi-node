@@ -2,6 +2,63 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { dispersionDoc, dispersionTransactionDoc, isTerminalPayoutStatus } from "./shared.js";
 
+type DispersionBackfill = {
+  reference?: string;
+  paymentType?: string;
+  transactionsTotal?: number;
+  transactionsSuccess?: number;
+  transactionsFailed?: number;
+  amountInCents?: number;
+};
+
+/**
+ * A row created from a webhook stub (the event outran `record`, or the batch
+ * was created outside the component) has empty identity fields and zero
+ * counts. Any later write that knows the real values fills them in.
+ */
+const dispersionBackfill = (
+  existing: {
+    reference: string;
+    paymentType: string;
+    transactionsTotal: number;
+    transactionsSuccess: number;
+    transactionsFailed: number;
+    amountInCents?: number;
+  },
+  incoming: {
+    reference?: string;
+    paymentType?: string;
+    transactionsTotal?: number;
+    transactionsSuccess?: number;
+    transactionsFailed?: number;
+    amountInCents?: number;
+  },
+): DispersionBackfill => {
+  const patch: DispersionBackfill = {};
+
+  if (existing.reference === "" && incoming.reference) patch.reference = incoming.reference;
+  if (existing.paymentType === "" && incoming.paymentType) {
+    patch.paymentType = incoming.paymentType;
+  }
+  if (existing.transactionsTotal === 0 && incoming.transactionsTotal) {
+    patch.transactionsTotal = incoming.transactionsTotal;
+  }
+  if (
+    existing.transactionsSuccess === 0 &&
+    existing.transactionsFailed === 0 &&
+    ((incoming.transactionsSuccess ?? 0) !== 0 ||
+      (incoming.transactionsFailed ?? 0) !== 0)
+  ) {
+    patch.transactionsSuccess = incoming.transactionsSuccess ?? 0;
+    patch.transactionsFailed = incoming.transactionsFailed ?? 0;
+  }
+  if (existing.amountInCents === undefined && incoming.amountInCents !== undefined) {
+    patch.amountInCents = incoming.amountInCents;
+  }
+
+  return patch;
+};
+
 /**
  * Record a dispersion right after the Payouts API accepted the batch. Upserts
  * by Wompi payout id: a retried action re-recording the same payout returns
@@ -27,7 +84,15 @@ export const record = mutation({
       .withIndex("by_wompi_payout_id", (q) => q.eq("wompiPayoutId", args.wompiPayoutId))
       .unique();
 
-    if (existing) return existing;
+    if (existing) {
+      // A webhook may have raced the create and left a stub — enrich it with
+      // the create result instead of returning it untouched.
+      const patch = dispersionBackfill(existing, args);
+      if (Object.keys(patch).length === 0) return existing;
+
+      await ctx.db.patch("dispersions", existing._id, patch);
+      return (await ctx.db.get("dispersions", existing._id))!;
+    }
 
     const dispersionId = await ctx.db.insert("dispersions", args);
     return (await ctx.db.get("dispersions", dispersionId))!;
@@ -71,14 +136,20 @@ export const applyPayoutUpdate = mutation({
       return { changed: true, dispersion: (await ctx.db.get("dispersions", dispersionId))! };
     }
 
-    if (existing.status === args.status) {
+    const patch: DispersionBackfill & { status?: string; finalizedAt?: number } =
+      dispersionBackfill(existing, args);
+
+    if (existing.status !== args.status) {
+      patch.status = args.status;
+      if (isTerminalPayoutStatus(args.status) && existing.finalizedAt === undefined) {
+        patch.finalizedAt = Date.now();
+      }
+    }
+
+    if (Object.keys(patch).length === 0) {
       return { changed: false, dispersion: existing };
     }
 
-    const patch: { status: string; finalizedAt?: number } = { status: args.status };
-    if (isTerminalPayoutStatus(args.status) && existing.finalizedAt === undefined) {
-      patch.finalizedAt = Date.now();
-    }
     await ctx.db.patch("dispersions", existing._id, patch);
 
     return { changed: true, dispersion: (await ctx.db.get("dispersions", existing._id))! };

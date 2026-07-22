@@ -129,6 +129,7 @@ export const TERMINAL_PAYOUT_STATUSES: readonly string[] = [
   "PARTIAL_PAYMENT",
   "REJECTED",
   "NOT_APPROVED",
+  "AFE_REJECTED",
 ];
 
 export const isTerminalPayoutStatus = (status: string): boolean =>

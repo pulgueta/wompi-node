@@ -1189,7 +1189,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           timestamp: number;
           transactionId?: string;
         },
-        { duplicate: boolean; eventId: string },
+        { duplicate: boolean; eventId: string; outcome?: string },
         Name
       >;
     };

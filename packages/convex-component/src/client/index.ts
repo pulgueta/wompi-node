@@ -1079,18 +1079,22 @@ export class Wompi {
           });
         }
 
-        const { duplicate, eventId } = (await ctx.runMutation(
-          this.component.webhooks.recordEvent,
-          {
-            checksum: event.signature.checksum,
-            eventType: event.event,
-            // Payout event envelopes carry no environment field.
-            timestamp: event.timestamp,
-            sentAt: event.sentAt,
-          },
-        )) as { duplicate: boolean; eventId: string };
+        const {
+          duplicate,
+          eventId,
+          outcome: previousOutcome,
+        } = (await ctx.runMutation(this.component.webhooks.recordEvent, {
+          checksum: event.signature.checksum,
+          eventType: event.event,
+          // Payout event envelopes carry no environment field.
+          timestamp: event.timestamp,
+          sentAt: event.sentAt,
+        })) as { duplicate: boolean; eventId: string; outcome?: string };
 
-        if (duplicate) {
+        // A duplicate without a recorded outcome crashed between recording and
+        // applying — reprocess it (the apply mutations are idempotent) so a
+        // Wompi retry can still land the update.
+        if (duplicate && previousOutcome !== undefined) {
           return new Response(JSON.stringify({ received: true, duplicate: true }), {
             status: 200,
             headers: { "Content-Type": "application/json" },

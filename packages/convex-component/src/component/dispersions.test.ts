@@ -222,4 +222,123 @@ describe("payout webhook events", () => {
     expect(second.duplicate).toBe(true);
     expect(second.eventId).toBe(first.eventId);
   });
+
+  test("duplicates expose whether the first delivery finished applying", async () => {
+    const t = initConvexTest();
+
+    const first = await t.mutation(api.webhooks.recordEvent, {
+      checksum: "payout-crash",
+      eventType: "payout.updated",
+      timestamp: 1_700_000_000,
+    });
+
+    // Outcome never marked — the apply crashed; a retry must be reprocessable.
+    const retry = await t.mutation(api.webhooks.recordEvent, {
+      checksum: "payout-crash",
+      eventType: "payout.updated",
+      timestamp: 1_700_000_000,
+    });
+    expect(retry.duplicate).toBe(true);
+    expect(retry.outcome).toBeUndefined();
+
+    await t.mutation(api.webhooks.markOutcome, { eventId: first.eventId, outcome: "applied" });
+
+    const settled = await t.mutation(api.webhooks.recordEvent, {
+      checksum: "payout-crash",
+      eventType: "payout.updated",
+      timestamp: 1_700_000_000,
+    });
+    expect(settled.outcome).toBe("applied");
+  });
+});
+
+describe("stub enrichment", () => {
+  test("record backfills a row a webhook stubbed first", async () => {
+    const t = initConvexTest();
+
+    // transaction.updated outran the create action: stub with empty identity.
+    await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "APPROVED",
+      amountInCents: 750_000,
+    });
+
+    const recorded = await t.mutation(api.dispersions.record, BATCH);
+
+    expect(recorded.reference).toBe("payroll-2026-07");
+    expect(recorded.paymentType).toBe("PAYROLL");
+    expect(recorded.transactionsTotal).toBe(2);
+    expect(recorded.amountInCents).toBe(1_500_000);
+
+    const found = await t.query(api.dispersions.getByReference, {
+      reference: "payroll-2026-07",
+    });
+    expect(found?.wompiPayoutId).toBe("payout_1");
+  });
+
+  test("record backfills validation counts after a payout webhook sets the total", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+      reference: "payroll-2026-07",
+      paymentType: "PAYROLL",
+      transactionsTotal: 2,
+    });
+
+    const recorded = await t.mutation(api.dispersions.record, BATCH);
+
+    expect(recorded.transactionsTotal).toBe(2);
+    expect(recorded.transactionsSuccess).toBe(2);
+    expect(recorded.transactionsFailed).toBe(0);
+  });
+
+  test("applyPayoutUpdate backfills identity even when the status is unchanged", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "APPROVED",
+      amountInCents: 750_000,
+    });
+
+    // Same status as the stub, but now the event names the batch.
+    const enriched = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+      reference: "payroll-2026-07",
+      paymentType: "PAYROLL",
+      amountInCents: 1_500_000,
+    });
+
+    expect(enriched.changed).toBe(true);
+    expect(enriched.dispersion.reference).toBe("payroll-2026-07");
+    expect(enriched.dispersion.paymentType).toBe("PAYROLL");
+    expect(enriched.dispersion.amountInCents).toBe(1_500_000);
+
+    // Nothing left to fill: the redelivery is a clean no-op again.
+    const redelivered = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+      reference: "payroll-2026-07",
+      paymentType: "PAYROLL",
+    });
+    expect(redelivered.changed).toBe(false);
+  });
+
+  test("AFE_REJECTED finalizes a dispersion", async () => {
+    const t = initConvexTest();
+    await t.mutation(api.dispersions.record, BATCH);
+
+    const rejected = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "AFE_REJECTED",
+    });
+
+    expect(rejected.changed).toBe(true);
+    expect(rejected.dispersion.finalizedAt).toBeDefined();
+  });
 });
