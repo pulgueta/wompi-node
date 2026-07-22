@@ -16,17 +16,29 @@ import type {
 } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
-import { WompiClient } from "@pulgueta/wompi";
+import { WompiClient, WompiPayoutsClient } from "@pulgueta/wompi";
 import {
   buildCheckoutUrl,
   getSignatureKey,
+  isPayoutTransactionUpdatedEvent,
+  isPayoutUpdatedEvent,
   isTransactionUpdatedEvent,
+  verifyPayoutEvent,
   verifyWebhookEvent,
 } from "@pulgueta/wompi/server";
-import type { Transaction, WebhookEvent } from "@pulgueta/wompi/schemas";
+import type {
+  BrebKeyResolution,
+  BrebKeyType,
+  CreatePayoutInput,
+  CreatePayoutResult,
+  Transaction,
+  WebhookEvent,
+} from "@pulgueta/wompi/schemas";
 import { WompiValidationError } from "@pulgueta/wompi/schemas";
 import type { ComponentApi } from "../component/_generated/component.js";
 import {
+  dispersionDoc,
+  dispersionTransactionDoc,
   paymentDoc,
   paymentSourceInputValidator,
   productInputValidator,
@@ -39,6 +51,8 @@ import {
 // ---------------------------------------------------------------------------
 
 export type PaymentDoc = Infer<typeof paymentDoc>;
+export type DispersionDoc = Infer<typeof dispersionDoc>;
+export type DispersionTransactionDoc = Infer<typeof dispersionTransactionDoc>;
 export type SubscriptionDoc = Infer<typeof subscriptionDoc>;
 export type SubscriptionWithProduct = Infer<typeof subscriptionWithProduct>;
 export type WompiProductConfig = Infer<typeof productInputValidator>;
@@ -81,6 +95,20 @@ export type WompiEventCallbacks = {
     ctx: RunMutationCtx,
     subscription: SubscriptionDoc,
   ) => void | Promise<void>;
+  /** Fires whenever a dispersion row's state actually changes. */
+  onDispersionChange?: (
+    ctx: RunMutationCtx,
+    dispersion: DispersionDoc,
+  ) => void | Promise<void>;
+};
+
+export type WompiPayoutsCredentials = {
+  /** Defaults to `process.env.WOMPI_PAYOUTS_API_KEY`. */
+  apiKey?: string;
+  /** Defaults to `process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID`. */
+  userPrincipalId?: string;
+  /** Defaults to `process.env.WOMPI_PAYOUTS_EVENTS_KEY`. */
+  eventsKey?: string;
 };
 
 export type WompiBillingOptions = {
@@ -122,6 +150,12 @@ export type WompiConfig = {
    * from the public key prefix (`pub_test_…` ⇒ sandbox).
    */
   sandbox?: boolean;
+  /**
+   * Pagos a Terceros (payout dispersion) credentials, from the Payouts
+   * developers section of the Wompi dashboard. Fully optional — only checked
+   * when a dispersion feature is actually used.
+   */
+  payouts?: WompiPayoutsCredentials;
   /** Static catalog pushed to the component via `syncProducts`. */
   products?: WompiProductConfig[];
   billing?: WompiBillingOptions;
@@ -170,8 +204,12 @@ export class Wompi {
   private readonly privateKey: string;
   private readonly eventsKey: string;
   private readonly integrityKey: string;
+  private readonly payoutsApiKey: string;
+  private readonly payoutsUserPrincipalId: string;
+  private readonly payoutsEventsKey: string;
   private readonly billingOptions: Required<WompiBillingOptions>;
   private wompiClient: WompiClient | null = null;
+  private wompiPayoutsClient: WompiPayoutsClient | null = null;
 
   constructor(
     public component: ComponentApi,
@@ -181,6 +219,11 @@ export class Wompi {
     this.privateKey = config.privateKey ?? process.env.WOMPI_PRIVATE_KEY ?? "";
     this.eventsKey = config.eventsKey ?? process.env.WOMPI_EVENTS_KEY ?? "";
     this.integrityKey = config.integrityKey ?? process.env.WOMPI_INTEGRITY_KEY ?? "";
+    this.payoutsApiKey = config.payouts?.apiKey ?? process.env.WOMPI_PAYOUTS_API_KEY ?? "";
+    this.payoutsUserPrincipalId =
+      config.payouts?.userPrincipalId ?? process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "";
+    this.payoutsEventsKey =
+      config.payouts?.eventsKey ?? process.env.WOMPI_PAYOUTS_EVENTS_KEY ?? "";
     this.sandbox =
       config.sandbox ??
       (process.env.WOMPI_SANDBOX !== undefined
@@ -203,6 +246,22 @@ export class Wompi {
       });
     }
     return this.wompiClient;
+  }
+
+  private get payoutsClient(): WompiPayoutsClient {
+    if (!this.wompiPayoutsClient) {
+      if (!this.payoutsApiKey || !this.payoutsUserPrincipalId) {
+        throw new Error(
+          "Wompi payouts credentials missing. Set WOMPI_PAYOUTS_API_KEY and WOMPI_PAYOUTS_USER_PRINCIPAL_ID (npx convex env set WOMPI_PAYOUTS_API_KEY ...) or pass payouts.apiKey / payouts.userPrincipalId in the Wompi() config.",
+        );
+      }
+      this.wompiPayoutsClient = new WompiPayoutsClient({
+        apiKey: this.payoutsApiKey,
+        userPrincipalId: this.payoutsUserPrincipalId,
+        sandbox: this.sandbox,
+      });
+    }
+    return this.wompiPayoutsClient;
   }
 
   private requireKey(key: string, name: string, envVar: string): string {
@@ -236,6 +295,18 @@ export class Wompi {
       // Component state is already consistent; a failing app callback must
       // not fail the webhook/cron that produced it.
       console.error("Wompi event callback failed:", error);
+    }
+  }
+
+  private async dispatchDispersion(
+    ctx: RunMutationCtx,
+    dispersion: DispersionDoc,
+  ): Promise<void> {
+    try {
+      await this.config.events?.onDispersionChange?.(ctx, dispersion);
+    } catch (error) {
+      // Same contract as dispatch: callbacks never fail the webhook.
+      console.error("Wompi onDispersionChange callback failed:", error);
     }
   }
 
@@ -838,14 +909,77 @@ export class Wompi {
   }
 
   // -------------------------------------------------------------------------
+  // Dispersions (Pagos a Terceros)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a payout batch — bank accounts, BRE-B keys, or both mixed —
+   * through the Payouts API and record it as a `dispersions` row, updated
+   * reactively as payout webhooks land.
+   *
+   * Wompi rejects a reused `idempotencyKey` within 24 hours and re-recording
+   * an already-tracked payout is a no-op, so a retried action never creates a
+   * duplicate batch or row.
+   */
+  async createDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+    options: { idempotencyKey: string },
+  ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc }> {
+    const [error, result] = await this.payoutsClient.createPayout(input, options);
+    if (error) throw error;
+
+    const dispersion = (await ctx.runMutation(this.component.dispersions.record, {
+      wompiPayoutId: result.payoutId,
+      reference: input.reference,
+      // The create response carries no status; every batch starts PENDING.
+      status: "PENDING",
+      paymentType: input.paymentType,
+      transactionsTotal: result.transactions ?? input.transactions.length,
+      transactionsSuccess: result.success ?? 0,
+      transactionsFailed: result.failed ?? 0,
+      amountInCents: input.transactions.reduce((sum, t) => sum + t.amount, 0),
+    })) as DispersionDoc;
+
+    return { result, dispersion };
+  }
+
+  /**
+   * Resolve a BRE-B key to its masked holder information, to confirm the
+   * beneficiary before paying. Read-only passthrough to the Payouts API —
+   * nothing is persisted.
+   */
+  async resolveBrebKey(keyValue: string, keyType?: BrebKeyType): Promise<BrebKeyResolution> {
+    const [error, resolution] = await this.payoutsClient.resolveBrebKey(keyValue, keyType);
+    if (error) throw error;
+    return resolution;
+  }
+
+  async getDispersion(ctx: RunQueryCtx, args: { wompiPayoutId: string }) {
+    return await ctx.runQuery(this.component.dispersions.get, {
+      wompiPayoutId: args.wompiPayoutId,
+    });
+  }
+
+  async listDispersions(ctx: RunQueryCtx, args?: { status?: string; limit?: number }) {
+    return await ctx.runQuery(this.component.dispersions.list, {
+      status: args?.status,
+      limit: args?.limit,
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Webhooks
   // -------------------------------------------------------------------------
 
   /**
-   * Mount the Wompi events endpoint on your app's HTTP router. Point the
+   * Mount the Wompi events endpoints on your app's HTTP router. Point the
    * "Eventos" URL in the Wompi dashboard at
    * `https://<deployment>.convex.site/wompi/webhook` (sandbox and production
-   * are configured separately there).
+   * are configured separately there). If you use dispersions, also point the
+   * events URL of the Payouts developers section at
+   * `https://<deployment>.convex.site/wompi/payouts-webhook` — payout events
+   * are signed with their own secret (`WOMPI_PAYOUTS_EVENTS_KEY`).
    *
    * Deliveries are checksum-verified, deduplicated, applied through the same
    * state machine as everything else, and then handed to your callbacks.
@@ -854,10 +988,13 @@ export class Wompi {
     http: HttpRouter,
     options?: {
       path?: string;
+      /** Payouts events endpoint; only used with `payouts` credentials. */
+      payoutsPath?: string;
       onEvent?: (ctx: RunMutationCtx, event: WebhookEvent) => void | Promise<void>;
     },
   ) {
     const path = options?.path ?? "/wompi/webhook";
+    const payoutsPath = options?.payoutsPath ?? "/wompi/payouts-webhook";
 
     http.route({
       path,
@@ -915,6 +1052,103 @@ export class Wompi {
         } catch (callbackError) {
           console.error("Wompi onEvent callback failed:", callbackError);
         }
+
+        return new Response(JSON.stringify({ received: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    });
+
+    http.route({
+      path: payoutsPath,
+      method: "POST",
+      handler: httpActionGeneric(async (ctx, request) => {
+        const eventsKey = this.requireKey(
+          this.payoutsEventsKey,
+          "payouts events key",
+          "WOMPI_PAYOUTS_EVENTS_KEY",
+        );
+        const body = await request.text();
+
+        const [error, event] = await verifyPayoutEvent(body, { eventsKey });
+        if (error) {
+          return new Response(JSON.stringify({ error: "Invalid signature" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const { duplicate, eventId } = (await ctx.runMutation(
+          this.component.webhooks.recordEvent,
+          {
+            checksum: event.signature.checksum,
+            eventType: event.event,
+            // Payout event envelopes carry no environment field.
+            timestamp: event.timestamp,
+            sentAt: event.sentAt,
+          },
+        )) as { duplicate: boolean; eventId: string };
+
+        if (duplicate) {
+          return new Response(JSON.stringify({ received: true, duplicate: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        let outcome = "ignored";
+
+        if (isPayoutUpdatedEvent(event)) {
+          const payout = event.data.payout;
+          const { changed, dispersion } = (await ctx.runMutation(
+            this.component.dispersions.applyPayoutUpdate,
+            {
+              wompiPayoutId: payout.id,
+              status: payout.status,
+              reference: payout.reference,
+              paymentType: payout.paymentType,
+              amountInCents: payout.amountInCents,
+            },
+          )) as { changed: boolean; dispersion: DispersionDoc };
+
+          outcome = changed ? "applied" : "noop";
+          if (changed) await this.dispatchDispersion(ctx, dispersion);
+        } else if (isPayoutTransactionUpdatedEvent(event)) {
+          const transaction = event.data.transaction;
+          const failureReason = transaction.failureReason;
+          const { changed, dispersionChanged, dispersion } = (await ctx.runMutation(
+            this.component.dispersions.applyTransactionUpdate,
+            {
+              wompiPayoutId: transaction.payoutId,
+              wompiTransactionId: transaction.id,
+              status: transaction.status,
+              amountInCents: transaction.amountInCents,
+              reference:
+                typeof transaction.reference === "string" ? transaction.reference : undefined,
+              payeeName: transaction.payee.name,
+              payeeKey: transaction.payee.key,
+              // Bank events word failures as `message`, BRE-B as `description`.
+              failureReason:
+                typeof failureReason === "string"
+                  ? failureReason
+                  : (failureReason?.message ?? failureReason?.description),
+            },
+          )) as {
+            changed: boolean;
+            dispersionChanged: boolean;
+            transaction: DispersionTransactionDoc;
+            dispersion: DispersionDoc;
+          };
+
+          outcome = changed || dispersionChanged ? "applied" : "noop";
+          if (dispersionChanged) await this.dispatchDispersion(ctx, dispersion);
+        }
+
+        await ctx.runMutation(this.component.webhooks.markOutcome, {
+          eventId: eventId as never,
+          outcome,
+        });
 
         return new Response(JSON.stringify({ received: true }), {
           status: 200,
