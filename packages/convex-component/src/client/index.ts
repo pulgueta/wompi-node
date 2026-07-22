@@ -34,7 +34,7 @@ import type {
   Transaction,
   WebhookEvent,
 } from "@pulgueta/wompi/schemas";
-import { WompiValidationError } from "@pulgueta/wompi/schemas";
+import { WompiPayoutApiError, WompiValidationError } from "@pulgueta/wompi/schemas";
 import type { ComponentApi } from "../component/_generated/component.js";
 import {
   dispersionDoc,
@@ -927,10 +927,50 @@ export class Wompi {
     options: { idempotencyKey: string },
   ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc }> {
     const [error, result] = await this.payoutsClient.createPayout(input, options);
-    if (error) throw error;
 
-    const dispersion = (await ctx.runMutation(this.component.dispersions.record, {
-      wompiPayoutId: result.payoutId,
+    if (error) {
+      // A consumed idempotency key means a previous attempt already created
+      // the batch at Wompi but died before recording it here. Recover the
+      // payout instead of failing — a caller that "fixes" this by generating
+      // a fresh key would pay everyone twice.
+      const conflict =
+        error instanceof WompiPayoutApiError &&
+        (error.code === "EXC_022" || error.code === "EXC_032");
+      const recovered = conflict ? await this.recoverDispersion(ctx, input) : null;
+      if (!recovered) throw error;
+      return recovered;
+    }
+
+    const dispersion = await this.recordDispersion(ctx, input, result.payoutId, result);
+    return { result, dispersion };
+  }
+
+  /** Look the batch up by reference after an idempotency conflict and track it. */
+  private async recoverDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+  ): Promise<{ result: CreatePayoutResult; dispersion: DispersionDoc } | null> {
+    const [listError, page] = await this.payoutsClient.listTransactionsByReference(
+      input.reference,
+    );
+    if (listError) return null;
+
+    const payoutId = page.records.find((t) => t.payout?.id)?.payout?.id;
+    if (!payoutId) return null;
+
+    const result: CreatePayoutResult = { payoutId };
+    const dispersion = await this.recordDispersion(ctx, input, payoutId, result);
+    return { result, dispersion };
+  }
+
+  private async recordDispersion(
+    ctx: RunMutationCtx,
+    input: CreatePayoutInput,
+    payoutId: string,
+    result: CreatePayoutResult,
+  ): Promise<DispersionDoc> {
+    return (await ctx.runMutation(this.component.dispersions.record, {
+      wompiPayoutId: payoutId,
       reference: input.reference,
       // The create response carries no status; every batch starts PENDING.
       status: "PENDING",
@@ -940,8 +980,6 @@ export class Wompi {
       transactionsFailed: result.failed ?? 0,
       amountInCents: input.transactions.reduce((sum, t) => sum + t.amount, 0),
     })) as DispersionDoc;
-
-    return { result, dispersion };
   }
 
   /**

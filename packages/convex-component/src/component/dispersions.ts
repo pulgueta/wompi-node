@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
-import { dispersionDoc, dispersionTransactionDoc, isTerminalPayoutStatus } from "./shared.js";
+import {
+  dispersionDoc,
+  dispersionTransactionDoc,
+  isTerminalPayoutStatus,
+  isTerminalPayoutTransactionStatus,
+} from "./shared.js";
 
 type DispersionBackfill = {
   reference?: string;
@@ -139,7 +144,12 @@ export const applyPayoutUpdate = mutation({
     const patch: DispersionBackfill & { status?: string; finalizedAt?: number } =
       dispersionBackfill(existing, args);
 
-    if (existing.status !== args.status) {
+    // Wompi retries deliveries and may deliver out of order: a stale
+    // non-terminal status must never overwrite a settled batch.
+    const staleRegression =
+      isTerminalPayoutStatus(existing.status) && !isTerminalPayoutStatus(args.status);
+
+    if (existing.status !== args.status && !staleRegression) {
       patch.status = args.status;
       if (isTerminalPayoutStatus(args.status) && existing.finalizedAt === undefined) {
         patch.finalizedAt = Date.now();
@@ -228,7 +238,16 @@ export const applyTransactionUpdate = mutation({
       };
     }
 
-    if (existing.status === args.status && existing.failureReason === args.failureReason) {
+    // Same out-of-order guard as the batch: a settled beneficiary never moves
+    // back to PENDING/PROCESSING because a stale delivery arrived late.
+    const staleRegression =
+      isTerminalPayoutTransactionStatus(existing.status) &&
+      !isTerminalPayoutTransactionStatus(args.status);
+
+    if (
+      staleRegression ||
+      (existing.status === args.status && existing.failureReason === args.failureReason)
+    ) {
       return { changed: false, dispersionChanged, transaction: existing, dispersion };
     }
 

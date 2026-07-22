@@ -123,17 +123,25 @@ export const CHARGEABLE_STATUSES: SubscriptionStatus[] = ["active", "trialing", 
 export const isTerminalPaymentStatus = (status: PaymentStatus): boolean =>
   status !== "pending";
 
-/** Payout batch statuses after which Wompi never moves the batch again. */
+/** Batch statuses that Wompi explicitly documents as final across payout rails. */
 export const TERMINAL_PAYOUT_STATUSES: readonly string[] = [
   "TOTAL_PAYMENT",
-  "PARTIAL_PAYMENT",
   "REJECTED",
-  "NOT_APPROVED",
-  "AFE_REJECTED",
 ];
 
 export const isTerminalPayoutStatus = (status: string): boolean =>
   TERMINAL_PAYOUT_STATUSES.includes(status);
+
+/** Per-beneficiary statuses after which Wompi never moves the transaction again. */
+export const TERMINAL_PAYOUT_TRANSACTION_STATUSES: readonly string[] = [
+  "APPROVED",
+  "FAILED",
+  "REJECTED",
+  "CANCELLED",
+];
+
+export const isTerminalPayoutTransactionStatus = (status: string): boolean =>
+  TERMINAL_PAYOUT_TRANSACTION_STATUSES.includes(status);
 
 // ---------------------------------------------------------------------------
 // Period math

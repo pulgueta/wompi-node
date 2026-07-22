@@ -329,16 +329,67 @@ describe("stub enrichment", () => {
     expect(redelivered.changed).toBe(false);
   });
 
-  test("AFE_REJECTED finalizes a dispersion", async () => {
+  test.each(["PARTIAL_PAYMENT", "NOT_APPROVED", "AFE_REJECTED"])(
+    "%s remains mutable without a documented finality guarantee",
+    async (status) => {
+      const t = initConvexTest();
+      await t.mutation(api.dispersions.record, BATCH);
+
+      const intermediate = await t.mutation(api.dispersions.applyPayoutUpdate, {
+        wompiPayoutId: "payout_1",
+        status,
+      });
+      expect(intermediate.changed).toBe(true);
+      expect(intermediate.dispersion.finalizedAt).toBeUndefined();
+
+      const finalized = await t.mutation(api.dispersions.applyPayoutUpdate, {
+        wompiPayoutId: "payout_1",
+        status: "TOTAL_PAYMENT",
+      });
+      expect(finalized.changed).toBe(true);
+      expect(finalized.dispersion.status).toBe("TOTAL_PAYMENT");
+      expect(finalized.dispersion.finalizedAt).toBeDefined();
+    },
+  );
+});
+
+describe("out-of-order deliveries", () => {
+  test("a stale non-terminal payout status never overwrites a settled batch", async () => {
     const t = initConvexTest();
     await t.mutation(api.dispersions.record, BATCH);
-
-    const rejected = await t.mutation(api.dispersions.applyPayoutUpdate, {
+    await t.mutation(api.dispersions.applyPayoutUpdate, {
       wompiPayoutId: "payout_1",
-      status: "AFE_REJECTED",
+      status: "TOTAL_PAYMENT",
     });
 
-    expect(rejected.changed).toBe(true);
-    expect(rejected.dispersion.finalizedAt).toBeDefined();
+    const stale = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+    });
+
+    expect(stale.changed).toBe(false);
+    expect(stale.dispersion.status).toBe("TOTAL_PAYMENT");
+    expect(stale.dispersion.finalizedAt).toBeDefined();
+  });
+
+  test("a stale non-terminal transaction status never overwrites a settled one", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "APPROVED",
+      amountInCents: 750_000,
+    });
+
+    const stale = await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "PROCESSING",
+      amountInCents: 750_000,
+    });
+
+    expect(stale.changed).toBe(false);
+    expect(stale.transaction.status).toBe("APPROVED");
   });
 });
