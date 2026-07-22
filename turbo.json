@@ -16,7 +16,7 @@
       ]
     },
     "test": {
-      "dependsOn": ["^test"]
+      "dependsOn": ["^build", "^test"]
     },
     "test:cov": {
       "outputs": ["coverage/**"],
