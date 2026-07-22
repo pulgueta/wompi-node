@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { WompiRequest } from "@/request";
 import {
+  BrebKeyResolutionSchema,
+  BrebKeyTypeSchema,
   CreatePayoutFileInputSchema,
   CreatePayoutInputSchema,
   CreatePayoutResultSchema,
@@ -30,6 +32,7 @@ import {
   wompiResponse,
 } from "@/schemas";
 import type {
+  BrebKeyResolution,
   CreatePayoutResult,
   Payout,
   PayoutAccount,
@@ -42,9 +45,14 @@ import type {
   Result,
 } from "@/schemas";
 
+/**
+ * The Payouts hosts serve two API versions: bank dispersion endpoints are
+ * documented on `/v1` while every BRE-B endpoint lives on `/v2`, so each
+ * endpoint path carries its own version prefix.
+ */
 const PAYOUT_BASE_URLS = {
-  production: "https://api.payouts.wompi.co/v1",
-  sandbox: "https://api.sandbox.payouts.wompi.co/v1",
+  production: "https://api.payouts.wompi.co",
+  sandbox: "https://api.sandbox.payouts.wompi.co",
 } as const;
 
 /**
@@ -68,6 +76,7 @@ const payoutResponse = <T extends z.ZodType>(dataSchema: T) =>
     }),
   ]);
 
+const BrebKeyResolutionResponseSchema = payoutResponse(BrebKeyResolutionSchema);
 const CreatePayoutResponseSchema = payoutResponse(CreatePayoutResultSchema);
 const PayoutResponseSchema = payoutResponse(PayoutSchema);
 const PayoutPageResponseSchema = payoutResponse(payoutPage(PayoutSchema));
@@ -94,11 +103,13 @@ const parseWith = <T>(schema: z.ZodType<T>, value: unknown, label: string): Resu
 };
 
 /**
- * Client for Wompi's Pagos a Terceros (Payouts) API — bank account dispersions.
+ * Client for Wompi's Pagos a Terceros (Payouts) API — bank account and BRE-B
+ * key dispersions.
  *
  * This API lives on its own host and authenticates with the `x-api-key` and
  * `user-principal-id` headers from the Payouts developers section of the Wompi
- * dashboard, so it is a separate client from {@link WompiClient}.
+ * dashboard, so it is a separate client from {@link WompiClient}. The same
+ * credentials cover both bank batches and BRE-B key dispersions.
  *
  * @example
  * ```ts
@@ -162,12 +173,53 @@ export class WompiPayoutsClient extends WompiRequest {
   }
 
   /**
+   * Resolve a BRE-B key (`GET /v2/breb/keys/resolve/{keyValue}`) and get the
+   * masked holder information before paying. Read-only: no transaction or fund
+   * movement happens, and no idempotency key is involved. Show the holder data
+   * to your user for confirmation before creating the payout — full holder
+   * details are never returned through this endpoint.
+   *
+   * @param keyValue The BRE-B key (e.g. `@JUANPEREZ`, `juan@email.com`, `3001234567`).
+   * @param keyType Optional; when sent, Wompi validates the key format against
+   *   it. Recommended to avoid ambiguity — a 10-digit value could be a phone
+   *   number or an identification document.
+   */
+  async resolveBrebKey(keyValue: string, keyType?: unknown): Promise<Result<BrebKeyResolution>> {
+    if (!keyValue) {
+      return [new WompiError("resolveBrebKey: keyValue must be a non-empty string"), null];
+    }
+
+    let endpoint = `/v2/breb/keys/resolve/${encodeURIComponent(keyValue)}`;
+
+    if (keyType !== undefined) {
+      const parsed = BrebKeyTypeSchema.safeParse(keyType);
+
+      if (!parsed.success) {
+        return [
+          new WompiError(`Invalid keyType: must be one of ${BrebKeyTypeSchema.options.join(", ")}`),
+          null,
+        ];
+      }
+
+      endpoint += `?keyType=${parsed.data}`;
+    }
+
+    return this.get(endpoint, BrebKeyResolutionResponseSchema, this.authHeaders);
+  }
+
+  /**
    * Create a payout batch (`POST /payouts`) with the transaction detail as JSON.
+   *
+   * Each transaction pays its beneficiary either into a bank account (`bankId`
+   * + `accountType` + `accountNumber`) or through a BRE-B `key`, and both kinds
+   * can be mixed in one batch. Bank-only batches go to `/v1/payouts`; as soon
+   * as any transaction carries a `key`, the batch is routed to `/v2/payouts`,
+   * the version that resolves BRE-B keys.
    *
    * Immediate by default; add `dispersionDatetime` to schedule it, and
    * `recurring` on top of that for recurring batches. Wompi rejects a reused
-   * `idempotencyKey` (`EXC_022`) within 24 hours; persist the returned payout ID
-   * and reference for retries beyond that window.
+   * `idempotencyKey` (`EXC_022`/`EXC_032`) within 24 hours; persist the
+   * returned payout ID and reference for retries beyond that window.
    */
   async createPayout(
     input: unknown,
@@ -187,7 +239,11 @@ export class WompiPayoutsClient extends WompiRequest {
       return [new WompiError("transactionStatus is available only in sandbox"), null];
     }
 
-    return this.post("/payouts", CreatePayoutResponseSchema, body, {
+    const endpoint = body.transactions.some((transaction) => transaction.key !== undefined)
+      ? "/v2/payouts"
+      : "/v1/payouts";
+
+    return this.post(endpoint, CreatePayoutResponseSchema, body, {
       ...this.authHeaders,
       "idempotency-key": idempotencyKey,
     });
@@ -239,7 +295,7 @@ export class WompiPayoutsClient extends WompiRequest {
       );
     }
 
-    return this.post("/payouts/file", CreatePayoutResponseSchema, form, {
+    return this.post("/v1/payouts/file", CreatePayoutResponseSchema, form, {
       ...this.authHeaders,
       "idempotency-key": idempotencyKey,
     });
@@ -251,7 +307,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl("/payouts", query),
+      this.buildQueryUrl("/v1/payouts", query),
       PayoutPageResponseSchema,
       this.authHeaders
     );
@@ -259,7 +315,7 @@ export class WompiPayoutsClient extends WompiRequest {
 
   /** Get a single payout batch by ID (`GET /payouts/{payoutId}`). */
   async getPayout(payoutId: string): Promise<Result<Payout>> {
-    return this.get(`/payouts/${payoutId}`, PayoutResponseSchema, this.authHeaders);
+    return this.get(`/v1/payouts/${payoutId}`, PayoutResponseSchema, this.authHeaders);
   }
 
   /** List the transactions of a batch (`GET /payouts/{payoutId}/transactions`). */
@@ -275,7 +331,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl(`/payouts/${payoutId}/transactions`, query),
+      this.buildQueryUrl(`/v1/payouts/${payoutId}/transactions`, query),
       PayoutTransactionPageResponseSchema,
       this.authHeaders
     );
@@ -287,7 +343,7 @@ export class WompiPayoutsClient extends WompiRequest {
     transactionId: string
   ): Promise<Result<PayoutTransaction>> {
     return this.get(
-      `/payouts/${payoutId}/transactions/${transactionId}`,
+      `/v1/payouts/${payoutId}/transactions/${transactionId}`,
       PayoutTransactionResponseSchema,
       this.authHeaders
     );
@@ -306,7 +362,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl(`/transactions/${encodeURIComponent(payoutReference)}`, query),
+      this.buildQueryUrl(`/v1/transactions/${encodeURIComponent(payoutReference)}`, query),
       PayoutTransactionPageResponseSchema,
       this.authHeaders
     );
@@ -314,7 +370,7 @@ export class WompiPayoutsClient extends WompiRequest {
 
   /** List the banks available as dispersion destinations (`GET /banks`). */
   async listBanks(): Promise<Result<PayoutBank[]>> {
-    return this.get("/banks", PayoutBankListResponseSchema, this.authHeaders);
+    return this.get("/v1/banks", PayoutBankListResponseSchema, this.authHeaders);
   }
 
   /**
@@ -327,7 +383,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl("/accounts", query),
+      this.buildQueryUrl("/v1/accounts", query),
       PayoutAccountListResponseSchema,
       this.authHeaders
     );
@@ -335,7 +391,7 @@ export class WompiPayoutsClient extends WompiRequest {
 
   /** Get the dispersion limits and consumption (`GET /limits`), in cents. */
   async getLimits(): Promise<Result<PayoutLimits>> {
-    return this.get("/limits", PayoutLimitsResponseSchema, this.authHeaders);
+    return this.get("/v1/limits", PayoutLimitsResponseSchema, this.authHeaders);
   }
 
   /** List the generated payout reports (`GET /reports/payouts`). */
@@ -344,7 +400,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl("/reports/payouts", query),
+      this.buildQueryUrl("/v1/reports/payouts", query),
       PayoutReportPageResponseSchema,
       this.authHeaders
     );
@@ -356,7 +412,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl("/reports/presigned_url", query),
+      this.buildQueryUrl("/v1/reports/presigned_url", query),
       PayoutReportUrlResponseSchema,
       this.authHeaders
     );
@@ -370,7 +426,11 @@ export class WompiPayoutsClient extends WompiRequest {
    * as data so callers always observe `UNHEALTHY` instead of a request error.
    */
   async getHealth(): Promise<Result<PayoutHealth>> {
-    const [error, health] = await this.get("/health", PayoutHealthResponseSchema, this.authHeaders);
+    const [error, health] = await this.get(
+      "/v1/health",
+      PayoutHealthResponseSchema,
+      this.authHeaders
+    );
 
     if (error instanceof WompiPayoutApiError) {
       const degraded = PayoutHealthSchema.safeParse((error.body as { data?: unknown }).data);
@@ -393,7 +453,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.post(
-      "/accounts/balance-recharge",
+      "/v1/accounts/balance-recharge",
       PayoutAccountListResponseSchema,
       body,
       this.authHeaders
