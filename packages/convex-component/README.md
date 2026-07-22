@@ -17,6 +17,9 @@ with the schema conventions you know from Stripe/Polar/Paddle:
   your UI updates the moment a webhook (or the billing cron) lands.
 - **Self-healing**: stale pending payments are reconciled against the Wompi
   API, so the system converges even if a webhook never arrives.
+- **Payout dispersions** (Pagos a Terceros): pay third parties into bank
+  accounts or BRE-B keys and track every batch reactively from payout
+  webhooks.
 
 All Wompi API calls and secrets stay in **your app's environment**; the
 component stores only billing state. Card data never touches your backend —
@@ -239,6 +242,81 @@ new Wompi(components.wompi, {
 Callbacks fire exactly once per state change, whether the change arrived via
 webhook, cron, or confirmation.
 
+## Dispersions (Pagos a Terceros)
+
+The component also tracks payout dispersions — Wompi's API for paying third
+parties into bank accounts or BRE-B keys. Payouts is a separate Wompi product
+with its own credentials, taken from the Payouts developers section of the
+dashboard:
+
+```sh
+npx convex env set WOMPI_PAYOUTS_API_KEY ...
+npx convex env set WOMPI_PAYOUTS_USER_PRINCIPAL_ID ...
+npx convex env set WOMPI_PAYOUTS_EVENTS_KEY ...
+```
+
+(or pass them as `payouts: { apiKey, userPrincipalId, eventsKey }` in the
+`Wompi()` config). Everything payout-related is optional: apps that never pay
+third parties are unaffected, and credentials are only checked when a
+dispersion feature is actually used.
+
+Create a batch from an action; the component records it as a `dispersions`
+row keyed by the Wompi payout id:
+
+```ts
+const { dispersion } = await wompi.createDispersion(
+  ctx,
+  {
+    reference: "providers-2026-07",
+    accountId: "<origin account id>", // from the Payouts dashboard
+    paymentType: "PROVIDERS",
+    transactions: [
+      {
+        // Bank account destination...
+        legalIdType: "CC",
+        legalId: "1000000000",
+        bankId: "<bank id>",
+        accountType: "AHORROS",
+        accountNumber: "12345678",
+        name: "John Doe",
+        amount: 1_000_000,
+      },
+      {
+        // ...or a BRE-B key — both kinds mix in one batch.
+        key: "@JUANPEREZ",
+        name: "Juan Pérez",
+        email: "juan@example.com",
+        amount: 500_000,
+      },
+    ],
+  },
+  { idempotencyKey: "providers-2026-07" },
+);
+```
+
+Preview the masked holder of a BRE-B key before paying it (read-only, nothing
+is persisted):
+
+```ts
+const holder = await wompi.resolveBrebKey("@JUANPEREZ", "ALPHANUMERIC");
+```
+
+In the Payouts developers section, point the events URL at
+`https://<deployment>.convex.site/wompi/payouts-webhook` (rename the path with
+`registerRoutes(http, { payoutsPath })`). Payout events are signed with their
+**own** secret: `WOMPI_PAYOUTS_EVENTS_KEY` is the Payouts events secret, not
+the payments `WOMPI_EVENTS_KEY`. As `payout.updated` and `transaction.updated`
+events land, the batch and its per-beneficiary transactions update in place —
+status is always a reactive query away:
+
+```ts
+const dispersion = await wompi.getDispersion(ctx, { wompiPayoutId });
+const pending = await wompi.listDispersions(ctx, { status: "PENDING" });
+```
+
+`events.onDispersionChange` fires exactly once per batch state change —
+redeliveries are deduplicated by checksum like every other webhook.
+
 ## Security model
 
 - Secrets live in Convex environment variables, read app-side by the `Wompi`
@@ -262,6 +340,8 @@ webhook, cron, or confirmation.
 | `paymentSources` | Saved Wompi payment sources (brand/last four for display). |
 | `subscriptions` | The state machine: status, period, `nextChargeAt`, dunning counters. |
 | `payments` | One row per charge attempt, keyed by unique Wompi reference. |
+| `dispersions` | Payout batches (Pagos a Terceros), keyed by Wompi payout id. |
+| `dispersionTransactions` | Per-beneficiary payout transactions, upserted from webhooks. |
 | `webhookEvents` | Verified deliveries, deduped by checksum, pruned by the cron. |
 
 ## Current limitations
