@@ -165,9 +165,14 @@ export default defineSchema({
     status: v.string(),
     paymentType: v.string(),
     transactionsTotal: v.number(),
+    // Create-response validation counts: accepted for processing vs rejected
+    // before processing. These are not beneficiary settlement outcomes.
     transactionsSuccess: v.number(),
     transactionsFailed: v.number(),
     amountInCents: v.optional(v.number()),
+    // Signed Wompi payout-event timestamp (milliseconds), used to reject
+    // delayed deliveries without inventing a status ranking across rails.
+    sourceEventTimestamp: v.optional(v.number()),
     finalizedAt: v.optional(v.number()),
     metadata: v.optional(v.record(v.string(), v.any())),
   })
@@ -187,6 +192,8 @@ export default defineSchema({
     // The resolved BRE-B key, when the beneficiary was paid through one.
     payeeKey: v.optional(v.string()),
     failureReason: v.optional(v.string()),
+    // Signed Wompi payout-event timestamp (milliseconds).
+    sourceEventTimestamp: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_dispersion_id", ["dispersionId"])

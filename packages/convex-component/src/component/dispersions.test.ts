@@ -76,13 +76,15 @@ describe("payout webhook updates", () => {
       reference: "made-in-dashboard",
       paymentType: "PROVIDERS",
       amountInCents: 900_000,
+      transactionsTotal: 3,
+      eventTimestamp: 200,
     });
 
     expect(result.changed).toBe(true);
     expect(result.dispersion.reference).toBe("made-in-dashboard");
     expect(result.dispersion.paymentType).toBe("PROVIDERS");
     expect(result.dispersion.amountInCents).toBe(900_000);
-    expect(result.dispersion.transactionsTotal).toBe(0);
+    expect(result.dispersion.transactionsTotal).toBe(3);
     // Terminal on arrival still finalizes.
     expect(result.dispersion.finalizedAt).toBeDefined();
   });
@@ -391,5 +393,186 @@ describe("out-of-order deliveries", () => {
 
     expect(stale.changed).toBe(false);
     expect(stale.transaction.status).toBe("APPROVED");
+  });
+
+  test("an older payout event cannot regress a newer non-terminal status", async () => {
+    const t = initConvexTest();
+    await t.mutation(api.dispersions.record, BATCH);
+
+    await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING_APPROVAL",
+      eventTimestamp: 100,
+    });
+    await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+      eventTimestamp: 200,
+    });
+    const stale = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING_APPROVAL",
+      eventTimestamp: 150,
+    });
+
+    expect(stale.changed).toBe(false);
+    expect(stale.dispersion.status).toBe("PENDING");
+  });
+
+  test("an older terminal payout event cannot replace a newer terminal status", async () => {
+    const t = initConvexTest();
+    await t.mutation(api.dispersions.record, BATCH);
+
+    await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "TOTAL_PAYMENT",
+      eventTimestamp: 200,
+    });
+    const stale = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "REJECTED",
+      eventTimestamp: 100,
+    });
+
+    expect(stale.changed).toBe(false);
+    expect(stale.dispersion.status).toBe("TOTAL_PAYMENT");
+  });
+
+  test("an older transaction event cannot regress a newer processing status", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "PENDING",
+      amountInCents: 750_000,
+      eventTimestamp: 100,
+    });
+    await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "PROCESSING",
+      amountInCents: 750_000,
+      eventTimestamp: 200,
+    });
+    const stale = await t.mutation(api.dispersions.applyTransactionUpdate, {
+      wompiPayoutId: "payout_1",
+      wompiTransactionId: "txn_1",
+      status: "PENDING",
+      amountInCents: 750_000,
+      eventTimestamp: 150,
+    });
+
+    expect(stale.changed).toBe(false);
+    expect(stale.transaction.status).toBe("PROCESSING");
+  });
+
+  test("payout events replace provisional totals and amounts with authoritative values", async () => {
+    const t = initConvexTest();
+    await t.mutation(api.dispersions.record, BATCH);
+
+    const corrected = await t.mutation(api.dispersions.applyPayoutUpdate, {
+      wompiPayoutId: "payout_1",
+      status: "PENDING",
+      transactionsTotal: 1,
+      amountInCents: 500_000,
+      eventTimestamp: 200,
+    });
+
+    expect(corrected.changed).toBe(true);
+    expect(corrected.dispersion.transactionsTotal).toBe(1);
+    expect(corrected.dispersion.amountInCents).toBe(500_000);
+    expect(corrected.dispersion.transactionsSuccess).toBe(2);
+    expect(corrected.dispersion.transactionsFailed).toBe(0);
+  });
+});
+
+describe("payout webhook retention", () => {
+  test("normalizes millisecond payout timestamps so processed events can expire", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(api.webhooks.recordEvent, {
+      checksum: "payout-ms-timestamp",
+      eventType: "payout.updated",
+      timestamp: 1_747_673_128_600,
+    });
+
+    const deleted = await t.mutation(api.webhooks.cleanup, {
+      olderThanTimestamp: 1_800_000_000,
+    });
+
+    expect(deleted).toBe(1);
+  });
+
+  test("deduplicates and applies a payout delivery in one component mutation", async () => {
+    const t = initConvexTest();
+
+    const first = await t.mutation(api.webhooks.processPayoutUpdate, {
+      checksum: "payout-atomic",
+      eventType: "payout.updated",
+      timestamp: 1_747_673_128_600,
+      payout: {
+        wompiPayoutId: "payout-atomic",
+        status: "PENDING",
+        reference: "providers-atomic",
+        paymentType: "PROVIDERS",
+        transactionsTotal: 1,
+        amountInCents: 500_000,
+      },
+    });
+    const duplicate = await t.mutation(api.webhooks.processPayoutUpdate, {
+      checksum: "payout-atomic",
+      eventType: "payout.updated",
+      timestamp: 1_747_673_129_600,
+      payout: {
+        wompiPayoutId: "payout-atomic",
+        status: "REJECTED",
+      },
+    });
+
+    expect(first).toEqual({ duplicate: false, outcome: "applied" });
+    expect(duplicate).toEqual({ duplicate: true, outcome: "applied" });
+    const dispersion = await t.query(api.dispersions.get, {
+      wompiPayoutId: "payout-atomic",
+    });
+    expect(dispersion?.status).toBe("PENDING");
+  });
+
+  test("deduplicates and applies a transaction delivery in one component mutation", async () => {
+    const t = initConvexTest();
+
+    const first = await t.mutation(api.webhooks.processPayoutTransactionUpdate, {
+      checksum: "transaction-atomic",
+      eventType: "transaction.updated",
+      timestamp: 1_747_673_128_600,
+      transaction: {
+        wompiPayoutId: "payout-atomic",
+        wompiTransactionId: "transaction-atomic",
+        status: "PROCESSING",
+        amountInCents: 500_000,
+        payeeName: "John Doe",
+      },
+    });
+    const duplicate = await t.mutation(api.webhooks.processPayoutTransactionUpdate, {
+      checksum: "transaction-atomic",
+      eventType: "transaction.updated",
+      timestamp: 1_747_673_129_600,
+      transaction: {
+        wompiPayoutId: "payout-atomic",
+        wompiTransactionId: "transaction-atomic",
+        status: "FAILED",
+        amountInCents: 500_000,
+      },
+    });
+
+    expect(first).toEqual({ duplicate: false, outcome: "applied" });
+    expect(duplicate).toEqual({ duplicate: true, outcome: "applied" });
+    const dispersion = await t.query(api.dispersions.get, {
+      wompiPayoutId: "payout-atomic",
+    });
+    const transactions = await t.query(api.dispersions.listTransactions, {
+      dispersionId: dispersion!._id,
+    });
+    expect(transactions[0]?.status).toBe("PROCESSING");
   });
 });

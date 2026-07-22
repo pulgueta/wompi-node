@@ -367,9 +367,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           amountInCents?: number;
+          eventTimestamp?: number;
           paymentType?: string;
           reference?: string;
           status: string;
+          transactionsTotal?: number;
           wompiPayoutId: string;
         },
         {
@@ -382,6 +384,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             metadata?: Record<string, any>;
             paymentType: string;
             reference: string;
+            sourceEventTimestamp?: number;
             status: string;
             transactionsFailed: number;
             transactionsSuccess: number;
@@ -396,6 +399,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           amountInCents: number;
+          eventTimestamp?: number;
           failureReason?: string;
           payeeKey?: string;
           payeeName?: string;
@@ -414,6 +418,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             metadata?: Record<string, any>;
             paymentType: string;
             reference: string;
+            sourceEventTimestamp?: number;
             status: string;
             transactionsFailed: number;
             transactionsSuccess: number;
@@ -430,6 +435,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             payeeKey?: string;
             payeeName?: string;
             reference?: string;
+            sourceEventTimestamp?: number;
             status: string;
             updatedAt: number;
             wompiTransactionId: string;
@@ -449,6 +455,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           metadata?: Record<string, any>;
           paymentType: string;
           reference: string;
+          sourceEventTimestamp?: number;
           status: string;
           transactionsFailed: number;
           transactionsSuccess: number;
@@ -469,6 +476,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           metadata?: Record<string, any>;
           paymentType: string;
           reference: string;
+          sourceEventTimestamp?: number;
           status: string;
           transactionsFailed: number;
           transactionsSuccess: number;
@@ -489,6 +497,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           metadata?: Record<string, any>;
           paymentType: string;
           reference: string;
+          sourceEventTimestamp?: number;
           status: string;
           transactionsFailed: number;
           transactionsSuccess: number;
@@ -510,6 +519,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           payeeKey?: string;
           payeeName?: string;
           reference?: string;
+          sourceEventTimestamp?: number;
           status: string;
           updatedAt: number;
           wompiTransactionId: string;
@@ -538,6 +548,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           metadata?: Record<string, any>;
           paymentType: string;
           reference: string;
+          sourceEventTimestamp?: number;
           status: string;
           transactionsFailed: number;
           transactionsSuccess: number;
@@ -1175,6 +1186,50 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { eventId: string; outcome: string },
         null,
+        Name
+      >;
+      processPayoutTransactionUpdate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callbackHandle?: string;
+          checksum: string;
+          eventType: string;
+          sentAt?: string;
+          timestamp: number;
+          transaction: {
+            amountInCents: number;
+            failureReason?: string;
+            payeeKey?: string;
+            payeeName?: string;
+            reference?: string;
+            status: string;
+            wompiPayoutId: string;
+            wompiTransactionId: string;
+          };
+        },
+        { duplicate: boolean; outcome: string },
+        Name
+      >;
+      processPayoutUpdate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callbackHandle?: string;
+          checksum: string;
+          eventType: string;
+          payout: {
+            amountInCents?: number;
+            paymentType?: string;
+            reference?: string;
+            status: string;
+            transactionsTotal?: number;
+            wompiPayoutId: string;
+          };
+          sentAt?: string;
+          timestamp: number;
+        },
+        { duplicate: boolean; outcome: string },
         Name
       >;
       recordEvent: FunctionReference<

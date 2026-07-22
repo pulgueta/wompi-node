@@ -1,5 +1,6 @@
 import {
   actionGeneric,
+  createFunctionHandle,
   httpActionGeneric,
   internalActionGeneric,
   mutationGeneric,
@@ -13,6 +14,7 @@ import type {
   GenericMutationCtx,
   GenericQueryCtx,
   HttpRouter,
+  FunctionReference,
 } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
@@ -53,6 +55,18 @@ import {
 export type PaymentDoc = Infer<typeof paymentDoc>;
 export type DispersionDoc = Infer<typeof dispersionDoc>;
 export type DispersionTransactionDoc = Infer<typeof dispersionTransactionDoc>;
+export type DispersionChange = Pick<
+  DispersionDoc,
+  | "wompiPayoutId"
+  | "reference"
+  | "status"
+  | "paymentType"
+  | "transactionsTotal"
+  | "transactionsSuccess"
+  | "transactionsFailed"
+  | "amountInCents"
+  | "finalizedAt"
+>;
 export type SubscriptionDoc = Infer<typeof subscriptionDoc>;
 export type SubscriptionWithProduct = Infer<typeof subscriptionWithProduct>;
 export type WompiProductConfig = Infer<typeof productInputValidator>;
@@ -95,11 +109,16 @@ export type WompiEventCallbacks = {
     ctx: RunMutationCtx,
     subscription: SubscriptionDoc,
   ) => void | Promise<void>;
-  /** Fires whenever a dispersion row's state actually changes. */
-  onDispersionChange?: (
-    ctx: RunMutationCtx,
-    dispersion: DispersionDoc,
-  ) => void | Promise<void>;
+  /**
+   * Internal app mutation called atomically whenever a dispersion row's state
+   * actually changes. It receives `{ dispersion }`.
+   */
+  onDispersionChange?: FunctionReference<
+    "mutation",
+    "internal",
+    { dispersion: DispersionChange },
+    unknown
+  >;
 };
 
 export type WompiPayoutsCredentials = {
@@ -295,18 +314,6 @@ export class Wompi {
       // Component state is already consistent; a failing app callback must
       // not fail the webhook/cron that produced it.
       console.error("Wompi event callback failed:", error);
-    }
-  }
-
-  private async dispatchDispersion(
-    ctx: RunMutationCtx,
-    dispersion: DispersionDoc,
-  ): Promise<void> {
-    try {
-      await this.config.events?.onDispersionChange?.(ctx, dispersion);
-    } catch (error) {
-      // Same contract as dispatch: callbacks never fail the webhook.
-      console.error("Wompi onDispersionChange callback failed:", error);
     }
   }
 
@@ -929,10 +936,10 @@ export class Wompi {
     const [error, result] = await this.payoutsClient.createPayout(input, options);
 
     if (error) {
-      // A consumed idempotency key means a previous attempt already created
-      // the batch at Wompi but died before recording it here. Recover the
-      // payout instead of failing — a caller that "fixes" this by generating
-      // a fresh key would pay everyone twice.
+      // A consumed idempotency key can mean a previous attempt created the
+      // batch at Wompi but died before recording it here. Recover only when
+      // the reference query proves one matching payout; otherwise preserve
+      // the conflict so an unrelated batch is never attached locally.
       const conflict =
         error instanceof WompiPayoutApiError &&
         (error.code === "EXC_022" || error.code === "EXC_032");
@@ -945,7 +952,11 @@ export class Wompi {
     return { result, dispersion };
   }
 
-  /** Look the batch up by reference after an idempotency conflict and track it. */
+  /**
+   * Look the batch up after an idempotency conflict and track it only when
+   * reference, payment type, transaction count and amount identify exactly
+   * one payout. References are reusable, so taking the first result is unsafe.
+   */
   private async recoverDispersion(
     ctx: RunMutationCtx,
     input: CreatePayoutInput,
@@ -955,11 +966,33 @@ export class Wompi {
     );
     if (listError) return null;
 
-    const payoutId = page.records.find((t) => t.payout?.id)?.payout?.id;
-    if (!payoutId) return null;
+    const expectedAmount = input.transactions.reduce((sum, transaction) => {
+      return sum + transaction.amount;
+    }, 0);
+    const candidates = new Map<string, NonNullable<(typeof page.records)[number]["payout"]>>();
 
-    const result: CreatePayoutResult = { payoutId };
-    const dispersion = await this.recordDispersion(ctx, input, payoutId, result);
+    for (const transaction of page.records) {
+      const payout = transaction.payout;
+      if (
+        payout?.reference !== input.reference ||
+        payout.paymentType !== input.paymentType ||
+        payout.totalTransactions !== input.transactions.length ||
+        payout.amountInCents !== expectedAmount
+      ) {
+        continue;
+      }
+      candidates.set(payout.id, payout);
+    }
+
+    if (candidates.size !== 1) return null;
+    const [candidate] = candidates.values();
+    if (!candidate) return null;
+
+    const result: CreatePayoutResult = {
+      payoutId: candidate.id,
+      transactions: candidate.totalTransactions,
+    };
+    const dispersion = await this.recordDispersion(ctx, input, candidate.id, result);
     return { result, dispersion };
   }
 
@@ -1117,82 +1150,77 @@ export class Wompi {
           });
         }
 
-        const {
-          duplicate,
-          eventId,
-          outcome: previousOutcome,
-        } = (await ctx.runMutation(this.component.webhooks.recordEvent, {
-          checksum: event.signature.checksum,
-          eventType: event.event,
-          // Payout event envelopes carry no environment field.
-          timestamp: event.timestamp,
-          sentAt: event.sentAt,
-        })) as { duplicate: boolean; eventId: string; outcome?: string };
-
-        // A duplicate without a recorded outcome crashed between recording and
-        // applying — reprocess it (the apply mutations are idempotent) so a
-        // Wompi retry can still land the update.
-        if (duplicate && previousOutcome !== undefined) {
-          return new Response(JSON.stringify({ received: true, duplicate: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        let outcome = "ignored";
+        const onDispersionChange = this.config.events?.onDispersionChange;
+        const callbackHandle = onDispersionChange
+          ? await createFunctionHandle(onDispersionChange)
+          : undefined;
+        let processed: { duplicate: boolean; outcome: string };
 
         if (isPayoutUpdatedEvent(event)) {
           const payout = event.data.payout;
-          const { changed, dispersion } = (await ctx.runMutation(
-            this.component.dispersions.applyPayoutUpdate,
+          processed = (await ctx.runMutation(
+            this.component.webhooks.processPayoutUpdate,
             {
-              wompiPayoutId: payout.id,
-              status: payout.status,
-              reference: payout.reference,
-              paymentType: payout.paymentType,
-              amountInCents: payout.amountInCents,
+              checksum: event.signature.checksum,
+              eventType: event.event,
+              timestamp: event.timestamp,
+              sentAt: event.sentAt,
+              callbackHandle,
+              payout: {
+                wompiPayoutId: payout.id,
+                status: payout.status,
+                reference: payout.reference,
+                paymentType: payout.paymentType,
+                transactionsTotal: payout.totalTransactions,
+                amountInCents: payout.amountInCents,
+              },
             },
-          )) as { changed: boolean; dispersion: DispersionDoc };
-
-          outcome = changed ? "applied" : "noop";
-          if (changed) await this.dispatchDispersion(ctx, dispersion);
+          )) as { duplicate: boolean; outcome: string };
         } else if (isPayoutTransactionUpdatedEvent(event)) {
           const transaction = event.data.transaction;
           const failureReason = transaction.failureReason;
-          const { changed, dispersionChanged, dispersion } = (await ctx.runMutation(
-            this.component.dispersions.applyTransactionUpdate,
+          processed = (await ctx.runMutation(
+            this.component.webhooks.processPayoutTransactionUpdate,
             {
-              wompiPayoutId: transaction.payoutId,
-              wompiTransactionId: transaction.id,
-              status: transaction.status,
-              amountInCents: transaction.amountInCents,
-              reference:
-                typeof transaction.reference === "string" ? transaction.reference : undefined,
-              payeeName: transaction.payee.name,
-              payeeKey: transaction.payee.key,
-              // Bank events word failures as `message`, BRE-B as `description`.
-              failureReason:
-                typeof failureReason === "string"
-                  ? failureReason
-                  : (failureReason?.message ?? failureReason?.description),
+              checksum: event.signature.checksum,
+              eventType: event.event,
+              timestamp: event.timestamp,
+              sentAt: event.sentAt,
+              callbackHandle,
+              transaction: {
+                wompiPayoutId: transaction.payoutId,
+                wompiTransactionId: transaction.id,
+                status: transaction.status,
+                amountInCents: transaction.amountInCents,
+                reference:
+                  typeof transaction.reference === "string" ? transaction.reference : undefined,
+                payeeName: transaction.payee.name,
+                payeeKey: transaction.payee.key,
+                // Bank events word failures as `message`, BRE-B as `description`.
+                failureReason:
+                  typeof failureReason === "string"
+                    ? failureReason
+                    : (failureReason?.message ?? failureReason?.description),
+              },
             },
-          )) as {
-            changed: boolean;
-            dispersionChanged: boolean;
-            transaction: DispersionTransactionDoc;
-            dispersion: DispersionDoc;
-          };
-
-          outcome = changed || dispersionChanged ? "applied" : "noop";
-          if (dispersionChanged) await this.dispatchDispersion(ctx, dispersion);
+          )) as { duplicate: boolean; outcome: string };
+        } else {
+          const delivery = (await ctx.runMutation(this.component.webhooks.recordEvent, {
+            checksum: event.signature.checksum,
+            eventType: event.event,
+            timestamp: event.timestamp,
+            sentAt: event.sentAt,
+          })) as { duplicate: boolean; eventId: string; outcome?: string };
+          if (delivery.outcome === undefined) {
+            await ctx.runMutation(this.component.webhooks.markOutcome, {
+              eventId: delivery.eventId as never,
+              outcome: "ignored",
+            });
+          }
+          processed = { duplicate: delivery.duplicate, outcome: delivery.outcome ?? "ignored" };
         }
 
-        await ctx.runMutation(this.component.webhooks.markOutcome, {
-          eventId: eventId as never,
-          outcome,
-        });
-
-        return new Response(JSON.stringify({ received: true }), {
+        return new Response(JSON.stringify({ received: true, duplicate: processed.duplicate }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });

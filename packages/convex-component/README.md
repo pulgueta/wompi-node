@@ -314,8 +314,49 @@ const dispersion = await wompi.getDispersion(ctx, { wompiPayoutId });
 const pending = await wompi.listDispersions(ctx, { status: "PENDING" });
 ```
 
-`events.onDispersionChange` fires exactly once per batch state change —
-redeliveries are deduplicated by checksum like every other webhook.
+`transactionsSuccess` and `transactionsFailed` are Wompi's create-response
+validation counts (accepted for processing vs rejected before processing), not
+beneficiary settlement totals. Read per-beneficiary outcomes from the tracked
+transactions.
+
+For durable side effects, configure `events.onDispersionChange` with an app
+internal mutation reference:
+
+```ts
+// convex/payoutEvents.ts
+import { v } from "convex/values";
+import { internalMutation } from "./_generated/server";
+
+export const onDispersionChange = internalMutation({
+  args: {
+    dispersion: v.object({
+      wompiPayoutId: v.string(),
+      reference: v.string(),
+      status: v.string(),
+      paymentType: v.string(),
+      transactionsTotal: v.number(),
+      transactionsSuccess: v.number(),
+      transactionsFailed: v.number(),
+      amountInCents: v.optional(v.number()),
+      finalizedAt: v.optional(v.number()),
+    }),
+  },
+  handler: async (ctx, { dispersion }) => {
+    // update app tables, enqueue work, ...
+  },
+});
+
+// in the Wompi configuration
+import { internal } from "./_generated/api";
+
+events: {
+  onDispersionChange: internal.payoutEvents.onDispersionChange,
+},
+```
+
+The verified delivery, component update, callback mutation, and deduplication
+outcome commit atomically. If the callback throws, the whole transaction rolls
+back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
 
 ## Security model
 

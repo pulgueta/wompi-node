@@ -117,7 +117,9 @@ export const applyPayoutUpdate = mutation({
     status: v.string(),
     reference: v.optional(v.string()),
     paymentType: v.optional(v.string()),
+    transactionsTotal: v.optional(v.number()),
     amountInCents: v.optional(v.number()),
+    eventTimestamp: v.optional(v.number()),
   },
   returns: v.object({ changed: v.boolean(), dispersion: dispersionDoc }),
   handler: async (ctx, args) => {
@@ -132,17 +134,45 @@ export const applyPayoutUpdate = mutation({
         reference: args.reference ?? "",
         status: args.status,
         paymentType: args.paymentType ?? "",
-        transactionsTotal: 0,
         transactionsSuccess: 0,
         transactionsFailed: 0,
+        transactionsTotal: args.transactionsTotal ?? 0,
         amountInCents: args.amountInCents,
+        sourceEventTimestamp: args.eventTimestamp,
         finalizedAt: isTerminalPayoutStatus(args.status) ? Date.now() : undefined,
       });
       return { changed: true, dispersion: (await ctx.db.get("dispersions", dispersionId))! };
     }
 
-    const patch: DispersionBackfill & { status?: string; finalizedAt?: number } =
-      dispersionBackfill(existing, args);
+    if (
+      args.eventTimestamp !== undefined &&
+      existing.sourceEventTimestamp !== undefined &&
+      args.eventTimestamp < existing.sourceEventTimestamp
+    ) {
+      return { changed: false, dispersion: existing };
+    }
+
+    const patch: DispersionBackfill & {
+      status?: string;
+      sourceEventTimestamp?: number;
+      finalizedAt?: number;
+    } = dispersionBackfill(existing, args);
+    let changed = Object.keys(patch).length > 0;
+
+    // `payout.updated` is authoritative. The create request sum can include
+    // transactions Wompi later rejects during validation, and webhook stubs
+    // otherwise have no total at all.
+    if (
+      args.transactionsTotal !== undefined &&
+      existing.transactionsTotal !== args.transactionsTotal
+    ) {
+      patch.transactionsTotal = args.transactionsTotal;
+      changed = true;
+    }
+    if (args.amountInCents !== undefined && existing.amountInCents !== args.amountInCents) {
+      patch.amountInCents = args.amountInCents;
+      changed = true;
+    }
 
     // Wompi retries deliveries and may deliver out of order: a stale
     // non-terminal status must never overwrite a settled batch.
@@ -151,9 +181,17 @@ export const applyPayoutUpdate = mutation({
 
     if (existing.status !== args.status && !staleRegression) {
       patch.status = args.status;
+      changed = true;
       if (isTerminalPayoutStatus(args.status) && existing.finalizedAt === undefined) {
         patch.finalizedAt = Date.now();
       }
+    }
+
+    if (
+      args.eventTimestamp !== undefined &&
+      existing.sourceEventTimestamp !== args.eventTimestamp
+    ) {
+      patch.sourceEventTimestamp = args.eventTimestamp;
     }
 
     if (Object.keys(patch).length === 0) {
@@ -162,7 +200,7 @@ export const applyPayoutUpdate = mutation({
 
     await ctx.db.patch("dispersions", existing._id, patch);
 
-    return { changed: true, dispersion: (await ctx.db.get("dispersions", existing._id))! };
+    return { changed, dispersion: (await ctx.db.get("dispersions", existing._id))! };
   },
 });
 
@@ -183,6 +221,7 @@ export const applyTransactionUpdate = mutation({
     payeeName: v.optional(v.string()),
     payeeKey: v.optional(v.string()),
     failureReason: v.optional(v.string()),
+    eventTimestamp: v.optional(v.number()),
   },
   returns: v.object({
     changed: v.boolean(),
@@ -228,6 +267,7 @@ export const applyTransactionUpdate = mutation({
         payeeName: args.payeeName,
         payeeKey: args.payeeKey,
         failureReason: args.failureReason,
+        sourceEventTimestamp: args.eventTimestamp,
         updatedAt: Date.now(),
       });
       return {
@@ -238,27 +278,67 @@ export const applyTransactionUpdate = mutation({
       };
     }
 
-    // Same out-of-order guard as the batch: a settled beneficiary never moves
-    // back to PENDING/PROCESSING because a stale delivery arrived late.
-    const staleRegression =
-      isTerminalPayoutTransactionStatus(existing.status) &&
-      !isTerminalPayoutTransactionStatus(args.status);
-
     if (
-      staleRegression ||
-      (existing.status === args.status && existing.failureReason === args.failureReason)
+      args.eventTimestamp !== undefined &&
+      existing.sourceEventTimestamp !== undefined &&
+      args.eventTimestamp < existing.sourceEventTimestamp
     ) {
       return { changed: false, dispersionChanged, transaction: existing, dispersion };
     }
 
-    await ctx.db.patch("dispersionTransactions", existing._id, {
-      status: args.status,
-      failureReason: args.failureReason,
-      updatedAt: Date.now(),
-    });
+    // Same terminal guard as the batch for callers that do not have a source
+    // timestamp. Timestamped webhook deliveries are additionally ordered by
+    // the signed source cursor above.
+    const staleRegression =
+      isTerminalPayoutTransactionStatus(existing.status) &&
+      !isTerminalPayoutTransactionStatus(args.status);
+
+    if (staleRegression) {
+      return { changed: false, dispersionChanged, transaction: existing, dispersion };
+    }
+
+    const patch: {
+      status?: string;
+      amountInCents?: number;
+      reference?: string;
+      payeeName?: string;
+      payeeKey?: string;
+      failureReason?: string;
+      sourceEventTimestamp?: number;
+      updatedAt?: number;
+    } = {};
+    let changed = false;
+
+    if (existing.status !== args.status) {
+      patch.status = args.status;
+      changed = true;
+    }
+    if (existing.amountInCents !== args.amountInCents) {
+      patch.amountInCents = args.amountInCents;
+      changed = true;
+    }
+    for (const field of ["reference", "payeeName", "payeeKey", "failureReason"] as const) {
+      if (args[field] !== undefined && existing[field] !== args[field]) {
+        patch[field] = args[field];
+        changed = true;
+      }
+    }
+    if (
+      args.eventTimestamp !== undefined &&
+      existing.sourceEventTimestamp !== args.eventTimestamp
+    ) {
+      patch.sourceEventTimestamp = args.eventTimestamp;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return { changed: false, dispersionChanged, transaction: existing, dispersion };
+    }
+
+    if (changed) patch.updatedAt = Date.now();
+    await ctx.db.patch("dispersionTransactions", existing._id, patch);
 
     return {
-      changed: true,
+      changed,
       dispersionChanged,
       transaction: (await ctx.db.get("dispersionTransactions", existing._id))!,
       dispersion,
