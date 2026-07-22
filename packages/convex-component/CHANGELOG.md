@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- [#30](https://github.com/pulgueta/wompi-node/pull/30)
+  [`a341aa8`](https://github.com/pulgueta/wompi-node/commit/a341aa8b5e6afe4c86baf78997b825a308a25bac)
+  Thanks [@pulgueta](https://github.com/pulgueta)! - Add payout dispersion
+  (Pagos a Terceros) tracking to the Convex component.
+  - New `dispersions` and `dispersionTransactions` tables record payout batches
+    keyed by Wompi payout id, updated in place from `payout.updated` /
+    `transaction.updated` webhook events — including batches created outside the
+    component.
+  - New `createDispersion` creates a bank/BRE-B batch through
+    `WompiPayoutsClient` (idempotency-key protected) and records it;
+    `resolveBrebKey` previews the masked holder of a BRE-B key; `getDispersion`
+    / `listDispersions` expose reactive batch status.
+  - `registerRoutes` now also mounts a Payouts events endpoint (default
+    `/wompi/payouts-webhook`, configurable via `payoutsPath`) verified with the
+    separate `WOMPI_PAYOUTS_EVENTS_KEY` secret, deduplicated by checksum, with a
+    new `events.onDispersionChange` callback firing exactly once per batch state
+    change.
+  - New optional `payouts` config (`apiKey`, `userPrincipalId`, `eventsKey`,
+    with `WOMPI_PAYOUTS_*` env fallbacks); apps not using dispersions are
+    unaffected.
+
+### Patch Changes
+
+- [#24](https://github.com/pulgueta/wompi-node/pull/24)
+  [`cdad2c8`](https://github.com/pulgueta/wompi-node/commit/cdad2c884b4223e7a867ca2a8cd168988cd6a84a)
+  Thanks [@pulgueta](https://github.com/pulgueta)! - Remove the bundled live
+  example app and its development dependencies.
+
+- Updated dependencies
+  [[`d94b031`](https://github.com/pulgueta/wompi-node/commit/d94b031a63513560a7144dd4c3136658463f84b9),
+  [`2c9f33f`](https://github.com/pulgueta/wompi-node/commit/2c9f33fdc61d4991827121f26986d9f216a47b8a)]:
+  - @pulgueta/wompi@3.2.0
+
 ## 0.1.0
 
 ### Minor Changes
