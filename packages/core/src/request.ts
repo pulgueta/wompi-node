@@ -18,15 +18,21 @@ const BASE_URLS = {
 export type WompiRequestConfig = {
   sandbox?: boolean;
   timeoutMs?: number;
+  /** Overrides the payments base URL — used by the Payouts API, which lives on its own host. */
+  baseUrl?: string;
+  /** Maps product-specific non-2xx response bodies without leaking them into the shared transport. */
+  errorMapper?: (statusCode: number, body: unknown) => WompiError | null;
 };
 
 export class WompiRequest {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly errorMapper?: WompiRequestConfig["errorMapper"];
 
   constructor(config?: WompiRequestConfig) {
-    this.baseUrl = config?.sandbox ? BASE_URLS.sandbox : BASE_URLS.production;
+    this.baseUrl = config?.baseUrl ?? (config?.sandbox ? BASE_URLS.sandbox : BASE_URLS.production);
     this.timeoutMs = config?.timeoutMs ?? 30_000;
+    this.errorMapper = config?.errorMapper;
   }
 
   private async request<T>(
@@ -45,14 +51,15 @@ export class WompiRequest {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
+    // FormData bodies (payout file batches) must go through untouched so fetch
+    // sets the multipart boundary itself — forcing a JSON Content-Type breaks them.
+    const isFormData = body instanceof FormData;
+
     try {
       response = await fetch(`${this.baseUrl}${endpoint}`, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          ...headers,
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        headers: isFormData ? { ...headers } : { "Content-Type": "application/json", ...headers },
+        body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
     } catch (err) {
@@ -73,6 +80,9 @@ export class WompiRequest {
       if (response.status === 422 && validation.success) {
         return [new WompiValidationError(validation.data), null];
       }
+
+      const mappedError = this.errorMapper?.(response.status, raw);
+      if (mappedError) return [mappedError, null];
 
       return [new WompiRequestError(response.status, raw), null];
     }

@@ -1,10 +1,22 @@
+import type { z } from "zod";
+
 import {
+  PayoutEventSchema,
+  PayoutTransactionUpdatedEventSchema,
+  PayoutUpdatedEventSchema,
   TransactionUpdatedEventSchema,
   WebhookEventSchema,
   WompiError,
   WompiWebhookVerificationError,
 } from "@/schemas";
-import type { Result, TransactionUpdatedEvent, WebhookEvent } from "@/schemas";
+import type {
+  PayoutEvent,
+  PayoutTransactionUpdatedEvent,
+  PayoutUpdatedEvent,
+  Result,
+  TransactionUpdatedEvent,
+  WebhookEvent,
+} from "@/schemas";
 
 /** SHA-256 hex digest (lowercase) of a UTF-8 string, via Web Crypto. */
 const sha256Hex = async (input: string): Promise<string> => {
@@ -126,6 +138,52 @@ export type VerifyWebhookEventOptions = {
 };
 
 /**
+ * Shared verification core: parse the payload against an envelope schema,
+ * recompute the checksum with the events secret and compare it in constant
+ * time against `signature.checksum`. Payments and payout events share the
+ * signing scheme and differ only in envelope shape.
+ */
+const verifyEventWith = async <T extends Pick<WebhookEvent, "data" | "signature" | "timestamp">>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  eventsKey: string
+): Promise<Result<T>> => {
+  if (typeof eventsKey !== "string" || eventsKey.trim() === "") {
+    return [new WompiWebhookVerificationError("eventsKey must be a non-empty string"), null];
+  }
+
+  let raw: unknown = payload;
+
+  if (typeof payload === "string") {
+    try {
+      raw = JSON.parse(payload);
+    } catch {
+      return [new WompiWebhookVerificationError("Webhook payload is not valid JSON"), null];
+    }
+  }
+
+  const parsed = schema.safeParse(raw);
+
+  if (!parsed.success) {
+    return [
+      new WompiWebhookVerificationError(
+        `Invalid webhook payload: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+      ),
+      null,
+    ];
+  }
+
+  const event = parsed.data;
+  const expected = await computeEventChecksum(event, eventsKey);
+
+  if (!checksumsMatch(expected, event.signature.checksum)) {
+    return [new WompiWebhookVerificationError("Webhook checksum verification failed"), null];
+  }
+
+  return [null, event];
+};
+
+/**
  * Parse and authenticate an event Wompi POSTed to the configured Events URL.
  *
  * Accepts the raw request body (string) or the already-parsed JSON object,
@@ -148,41 +206,52 @@ export type VerifyWebhookEventOptions = {
 export const verifyWebhookEvent = async (
   payload: unknown,
   options: VerifyWebhookEventOptions
-): Promise<Result<WebhookEvent>> => {
-  let raw: unknown = payload;
-
-  if (typeof payload === "string") {
-    try {
-      raw = JSON.parse(payload);
-    } catch {
-      return [new WompiWebhookVerificationError("Webhook payload is not valid JSON"), null];
-    }
-  }
-
-  const parsed = WebhookEventSchema.safeParse(raw);
-
-  if (!parsed.success) {
-    return [
-      new WompiWebhookVerificationError(
-        `Invalid webhook payload: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
-      ),
-      null,
-    ];
-  }
-
-  const event = parsed.data;
-  const expected = await computeEventChecksum(event, options.eventsKey);
-
-  if (!checksumsMatch(expected, event.signature.checksum)) {
-    return [new WompiWebhookVerificationError("Webhook checksum verification failed"), null];
-  }
-
-  return [null, event];
-};
+): Promise<Result<WebhookEvent>> => verifyEventWith(WebhookEventSchema, payload, options.eventsKey);
 
 /** Narrow a verified {@link WebhookEvent} to a typed `transaction.updated` event. */
 export const isTransactionUpdatedEvent = (event: WebhookEvent): event is TransactionUpdatedEvent =>
   event.event === "transaction.updated" && TransactionUpdatedEventSchema.safeParse(event).success;
+
+// ---------------------------------------------------------------------------
+// Payout webhook events (Pagos a Terceros)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse and authenticate an event the Payouts API POSTed to the configured
+ * Events URL.
+ *
+ * Payout events are signed exactly like payments webhooks — SHA-256 over the
+ * `signature.properties` values, the `timestamp` and the Payouts events secret
+ * — but their envelope differs: no `environment` field and a camelCased
+ * `sentAt`. The checksum is compared in constant time against
+ * `signature.checksum`; events that fail must be discarded.
+ *
+ * @example
+ * ```ts
+ * const [error, event] = await verifyPayoutEvent(await request.text(), {
+ *   eventsKey: process.env.WOMPI_PAYOUTS_EVENTS_KEY!,
+ * });
+ * if (error) return new Response("Invalid signature", { status: 403 });
+ * if (isPayoutUpdatedEvent(event)) {
+ *   console.log(event.data.payout.status);
+ * }
+ * ```
+ */
+export const verifyPayoutEvent = async (
+  payload: unknown,
+  options: VerifyWebhookEventOptions
+): Promise<Result<PayoutEvent>> => verifyEventWith(PayoutEventSchema, payload, options.eventsKey);
+
+/** Narrow a verified {@link PayoutEvent} to a typed `payout.updated` event. */
+export const isPayoutUpdatedEvent = (event: PayoutEvent): event is PayoutUpdatedEvent =>
+  event.event === "payout.updated" && PayoutUpdatedEventSchema.safeParse(event).success;
+
+/** Narrow a verified {@link PayoutEvent} to a typed `transaction.updated` event. */
+export const isPayoutTransactionUpdatedEvent = (
+  event: PayoutEvent
+): event is PayoutTransactionUpdatedEvent =>
+  event.event === "transaction.updated" &&
+  PayoutTransactionUpdatedEventSchema.safeParse(event).success;
 
 // ---------------------------------------------------------------------------
 // Web Checkout
