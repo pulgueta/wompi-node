@@ -93,7 +93,9 @@ describe.skipIf(!canRun)("sandbox · BRE-B dispersal lifecycle", () => {
     // 4. Poll until the sandbox settles the batch.
     let status: string | undefined;
     for (let attempt = 0; attempt < 20; attempt++) {
-      const [getError, payout] = await payouts.getPayout(payoutId ?? "");
+      const [getError, payout] = await payouts.getPayout(payoutId ?? "", {
+        apiVersion: "v2",
+      });
       expect(getError).toBeNull();
       status = payout?.status;
       if (status && TERMINAL_PAYOUT_STATUSES.has(status)) break;
@@ -102,7 +104,11 @@ describe.skipIf(!canRun)("sandbox · BRE-B dispersal lifecycle", () => {
     expect(status).toBe("TOTAL_PAYMENT");
 
     // 5. The batch's transactions carry the resolved BRE-B payee.
-    const [txError, txPage] = await payouts.listPayoutTransactions(payoutId ?? "");
+    const [txError, txPage] = await payouts.listPayoutTransactions(
+      payoutId ?? "",
+      {},
+      { apiVersion: "v2" }
+    );
     expect(txError).toBeNull();
     expect(txPage?.records.length).toBeGreaterThan(0);
     expect(txPage?.records[0]!.status).toBe("APPROVED");

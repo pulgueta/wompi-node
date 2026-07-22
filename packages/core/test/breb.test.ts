@@ -445,4 +445,45 @@ describe("BRE-B dispersions", () => {
       expect((error as WompiPayoutApiError).body).toEqual(body);
     });
   });
+
+  describe("BRE-B payout reads", () => {
+    it("gets a BRE-B batch from the sandbox v2 endpoint", async () => {
+      mockFetch.mockResolvedValueOnce(
+        okJson({ data: { id: "p-breb", status: "PENDING", reference: "payout-breb-001" } })
+      );
+
+      const [error, payout] = await makeClient().getPayout("p-breb", { apiVersion: "v2" });
+
+      expect(error).toBeNull();
+      expect(payout?.id).toBe("p-breb");
+      const [url] = mockFetch.mock.calls[0]!;
+      expect(url).toBe("https://api.sandbox.payouts.wompi.co/v2/payouts/p-breb");
+    });
+
+    it("gets a BRE-B batch from the production v2 endpoint", async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ data: { id: "p-breb", status: "PENDING" } }));
+
+      const [error] = await makeClient(false).getPayout("p-breb", { apiVersion: "v2" });
+
+      expect(error).toBeNull();
+      const [url] = mockFetch.mock.calls[0]!;
+      expect(url).toBe("https://api.payouts.wompi.co/v2/payouts/p-breb");
+    });
+
+    it("preserves filters and pagination on the v2 transaction endpoint", async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ data: { page: 2, records: [] } }));
+
+      const [error] = await makeClient().listPayoutTransactions(
+        "p-breb",
+        { status: "APPROVED", page: 2, limit: 25 },
+        { apiVersion: "v2" }
+      );
+
+      expect(error).toBeNull();
+      const [url] = mockFetch.mock.calls[0]!;
+      expect(url).toBe(
+        "https://api.sandbox.payouts.wompi.co/v2/payouts/p-breb/transactions?status=APPROVED&page=2&limit=25"
+      );
+    });
+  });
 });

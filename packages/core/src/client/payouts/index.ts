@@ -313,15 +313,33 @@ export class WompiPayoutsClient extends WompiRequest {
     );
   }
 
-  /** Get a single payout batch by ID (`GET /payouts/{payoutId}`). */
-  async getPayout(payoutId: string): Promise<Result<Payout>> {
-    return this.get(`/v1/payouts/${payoutId}`, PayoutResponseSchema, this.authHeaders);
+  /**
+   * Get a single payout batch by ID (`GET /payouts/{payoutId}`).
+   *
+   * Bank batches default to `/v1`; pass `apiVersion: "v2"` for BRE-B or
+   * mixed batches created through `/v2/payouts`.
+   */
+  async getPayout(
+    payoutId: string,
+    options: { apiVersion?: "v1" | "v2" } = {}
+  ): Promise<Result<Payout>> {
+    return this.get(
+      `/${options.apiVersion ?? "v1"}/payouts/${payoutId}`,
+      PayoutResponseSchema,
+      this.authHeaders
+    );
   }
 
-  /** List the transactions of a batch (`GET /payouts/{payoutId}/transactions`). */
+  /**
+   * List the transactions of a batch (`GET /payouts/{payoutId}/transactions`).
+   *
+   * Bank batches default to `/v1`; pass `apiVersion: "v2"` for BRE-B or
+   * mixed batches created through `/v2/payouts`.
+   */
   async listPayoutTransactions(
     payoutId: string,
-    params: unknown = {}
+    params: unknown = {},
+    options: { apiVersion?: "v1" | "v2" } = {}
   ): Promise<Result<PayoutPage<PayoutTransaction>>> {
     const [error, query] = parseWith(
       PayoutTransactionListParamsSchema,
@@ -331,7 +349,7 @@ export class WompiPayoutsClient extends WompiRequest {
     if (error) return [error, null];
 
     return this.get(
-      this.buildQueryUrl(`/v1/payouts/${payoutId}/transactions`, query),
+      this.buildQueryUrl(`/${options.apiVersion ?? "v1"}/payouts/${payoutId}/transactions`, query),
       PayoutTransactionPageResponseSchema,
       this.authHeaders
     );
