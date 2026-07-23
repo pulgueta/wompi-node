@@ -4,7 +4,7 @@ import { createDispersionIdempotencyKey } from "./idempotency";
 const bankOperation = {
   accountId: "account-1",
   reference: "demo-001",
-  paymentType: "OTHER" as const,
+  paymentType: "PROVIDERS" as const,
   transaction: {
     legalIdType: "CC" as const,
     legalId: "1234567890",

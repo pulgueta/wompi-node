@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-23T06:54:30Z",
+  "title": "Design System: Wompi SDK Sandbox Story",
+  "extensions": {
+    "colorMeta": {
+      "merchant-green": {
+        "role": "primary",
+        "displayName": "Merchant Green",
+        "canonical": "oklch(47% 0.115 154)",
+        "tonalRamp": [
+          "#062516",
+          "#0A3A24",
+          "#0E5535",
+          "#126B42",
+          "#37865D",
+          "#72AA8C",
+          "#B3D5C1",
+          "#EEF7F2"
+        ]
+      },
+      "ledger-canvas": {
+        "role": "neutral",
+        "displayName": "Ledger Canvas",
+        "canonical": "oklch(96.5% 0.008 155)",
+        "tonalRamp": [
+          "#17211B",
+          "#2D3931",
+          "#526057",
+          "#7C8980",
+          "#AAB5AD",
+          "#D5DED8",
+          "#E8EEEA",
+          "#F3F6F4"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Product Headline",
+        "purpose": "The page title and no more than one major task heading."
+      },
+      "body": {
+        "displayName": "Interface Body",
+        "purpose": "Instructions, results, and supporting explanations."
+      }
+    },
+    "shadows": [
+      {
+        "name": "raised-action",
+        "value": "0 4px 8px rgb(18 107 66 / 0.14)",
+        "purpose": "Temporary lift for the primary checkout action only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Hover, focus, and result state feedback."
+      }
+    ],
+    "breakpoints": [{ "name": "compact", "value": "640px" }, { "name": "wide", "value": "960px" }]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The next safe action in the money flow.",
+      "html": "<button class=\"ds-btn-primary\">Open sandbox checkout</button>",
+      "css": ".ds-btn-primary { border: 0; border-radius: 6px; background: #126B42; color: #FFFFFF; padding: 11px 16px; font: 650 14px/1.35 system-ui, sans-serif; transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: #0E5535; } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 3px solid #075B35; outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "description": "A retry, refresh, or supporting action.",
+      "html": "<button class=\"ds-btn-secondary\">Refresh status</button>",
+      "css": ".ds-btn-secondary { border: 1px solid #AAB5AD; border-radius: 6px; background: #FFFFFF; color: #17211B; padding: 10px 15px; font: 650 14px/1.35 system-ui, sans-serif; transition: border-color 180ms cubic-bezier(0.16, 1, 0.3, 1), background 180ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-secondary:hover { border-color: #526057; background: #F3F6F4; } .ds-btn-secondary:focus-visible { outline: 3px solid #075B35; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A persistently labeled sandbox input.",
+      "html": "<label class=\"ds-field-label\">BRE-B alias<input class=\"ds-field\" value=\"@elias123\"></label>",
+      "css": ".ds-field-label { display: grid; gap: 6px; color: #17211B; font: 650 14px/1.35 system-ui, sans-serif; } .ds-field { border: 1px solid #AAB5AD; border-radius: 6px; background: #FFFFFF; color: #17211B; padding: 11px 12px; font: 400 16px/1.4 system-ui, sans-serif; } .ds-field:focus { border-color: #126B42; outline: 3px solid #075B35; outline-offset: 2px; }"
+    },
+    {
+      "name": "Task Surface",
+      "kind": "card",
+      "refersTo": "task-surface",
+      "description": "One stage of the payment-to-settlement flow.",
+      "html": "<section class=\"ds-task\"><h2>Settle the supplier share</h2><p>COP 40,000 through BRE-B after the order is approved.</p></section>",
+      "css": ".ds-task { border: 1px solid #D5DED8; border-radius: 14px; background: #FFFFFF; color: #17211B; padding: 24px; font-family: system-ui, sans-serif; } .ds-task h2 { margin: 0 0 8px; font-size: 18px; line-height: 1.25; } .ds-task p { margin: 0; max-width: 65ch; color: #526057; line-height: 1.55; }"
+    },
+    {
+      "name": "Verified Result",
+      "kind": "custom",
+      "description": "A durable transaction or payout outcome.",
+      "html": "<div class=\"ds-result\"><strong>Payment approved</strong><code>txn_sandbox_123</code></div>",
+      "css": ".ds-result { display: grid; gap: 6px; border-radius: 10px; background: #EEF7F2; color: #17211B; padding: 16px; font: 400 14px/1.45 system-ui, sans-serif; } .ds-result strong { color: #0E5535; } .ds-result code { overflow-wrap: anywhere; color: #526057; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Settlement Desk",
+    "overview": "A focused merchant test surface where one customer payment and one supplier settlement remain understandable at a glance. Familiar product conventions and restrained color keep attention on the SDK behavior.",
+    "keyCharacteristics": [
+      "One sequential payment-to-settlement story.",
+      "Light, cool-neutral surfaces with one merchant-green accent.",
+      "Explicit loading, success, error, and disabled states.",
+      "Technical detail presented as supporting evidence."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Merchant Green is the only decorative accent. Red communicates errors and nothing else.",
+        "section": "colors"
+      },
+      {
+        "name": "The Product Scale Rule",
+        "body": "Use fixed rem sizes. No oversized fluid display type inside the task flow.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Desk Rule",
+        "body": "Working surfaces rest on the canvas without wide ambient shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do present one coherent customer-payment and supplier-settlement story.",
+      "Do accept peso amounts in the UI and convert to cents once at the integration boundary.",
+      "Do preserve IDs and prior confirmed states during retries."
+    ],
+    "donts": [
+      "Don't build generic API playgrounds that expose unrelated endpoints without a coherent task.",
+      "Don't create an imitation Wompi marketing site that competes with the official brand.",
+      "Don't use decorative fintech dashboards built from metric cards, gradients, glows, or ornamental charts.",
+      "Don't return to a payout-only form dump that makes developers assemble the end-to-end story themselves."
+    ]
+  }
+}

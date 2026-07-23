@@ -1,6 +1,5 @@
-import { env } from "node:process";
-
 import { WompiPayoutsClient } from "@pulgueta/wompi";
+import { WompiPayoutApiError } from "@pulgueta/wompi/schemas";
 import type {
   BrebKeyType,
   CreatePayoutTransaction,
@@ -9,21 +8,39 @@ import type {
 import { createServerFn } from "@tanstack/react-start";
 
 import { createDispersionIdempotencyKey } from "./idempotency";
+import { verifyCheckoutTransaction } from "./checkout";
 
-type ServerResult<T> = { error: string; data: null } | { error: null; data: T };
+export type PayoutErrorDto = {
+  code: string;
+  message: string;
+  statusCode: number | null;
+};
+
+export type ServerResult<T> =
+  | { error: PayoutErrorDto; data: null }
+  | { error: null; data: T };
+
+export const SETTLEMENT_AMOUNT_IN_CENTS = 4_000_000;
+export const SUPPLIER_NAME = "Elias Cano";
+export const SUPPLIER_EMAIL = "seller@example.com";
+export const SUPPLIER_PERSON_TYPE = "NATURAL" as const;
+export const SUPPLIER_LEGAL_ID_TYPE = "CC" as const;
+export const SUPPLIER_LEGAL_ID = "1000000000";
 
 export type AccountDto = {
   id: string;
   number?: string;
-  balanceInCents?: number;
+  balanceInCents?: number | null;
   status?: string;
   accountType?: string;
+  bankName?: string;
 };
 
 export type BankDto = {
   id: string;
   name?: string;
   code?: string;
+  isElectronicDeposit?: boolean;
 };
 
 export type KeyResolutionDto = {
@@ -46,6 +63,9 @@ export type PayoutStatusDto = {
   status: string;
   reference?: string;
   createdAt?: string;
+  transactionStatus?: string;
+  transactionFailureReason?: string;
+  transactionLookupError?: string;
 };
 
 export type ResolveKeyInput = {
@@ -55,28 +75,136 @@ export type ResolveKeyInput = {
 
 export type CreateDispersionInput = {
   accountId: string;
-  reference: string;
-  transaction: CreatePayoutTransaction;
+  checkoutTransactionId: string;
+  checkoutReference: string;
+  orderProof: string;
+  destination:
+    | { rail: "breb"; key: string }
+    | {
+        rail: "bank";
+        bankId: string;
+        accountType: "AHORROS" | "CORRIENTE" | "DEPOSITO_ELECTRONICO";
+        accountNumber: string;
+      };
 };
 
 export type PayoutRail = "bank" | "breb";
 
+export type DispersionOperation = {
+  accountId: string;
+  reference: string;
+  paymentType: "PROVIDERS";
+  transaction: CreatePayoutTransaction;
+};
+
 let payoutsClient: WompiPayoutsClient | null = null;
+const settlementAttempts = new Map<
+  string,
+  Promise<ServerResult<CreateResultDto>>
+>();
+
+const FRIENDLY_PAYOUT_ERRORS: Record<string, string> = {
+  EXC_008: "The source account does not have enough available balance.",
+  EXC_017: "This payout would exceed the account's daily limit.",
+  EXC_022:
+    "This bank payout was already submitted. Keep the original payout ID.",
+  EXC_032:
+    "This BRE-B payout was already submitted. Keep the original payout ID.",
+  EXC_033: "The BRE-B key format is not valid.",
+  EXC_034: "We could not find an active BRE-B key. Try a listed sandbox key.",
+  EXC_035: "That BRE-B key is inactive.",
+  EXC_036: "BRE-B resolution is temporarily unavailable.",
+  EXC_037: "BRE-B resolution timed out. Try again.",
+};
 
 function getPayoutsClient() {
-  if (env.NODE_ENV !== "development") {
+  if (process.env.NODE_ENV !== "development") {
     throw new Error(
       "The unauthenticated payouts demo is available only in local development",
     );
   }
 
   payoutsClient ??= new WompiPayoutsClient({
-    apiKey: env.WOMPI_PAYOUTS_API_KEY ?? "",
-    userPrincipalId: env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "",
+    apiKey: process.env.WOMPI_PAYOUTS_API_KEY ?? "",
+    userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "",
     sandbox: true,
   });
 
   return payoutsClient;
+}
+
+export function buildDispersionOperation(
+  data: CreateDispersionInput,
+): DispersionOperation {
+  const reference = createSettlementReference(data.checkoutTransactionId);
+  const transactionBase = {
+    name: SUPPLIER_NAME,
+    email: SUPPLIER_EMAIL,
+    amount: SETTLEMENT_AMOUNT_IN_CENTS,
+    reference,
+    description: `Supplier share for ${data.checkoutReference}`,
+  };
+  const transaction: CreatePayoutTransaction =
+    data.destination.rail === "breb"
+      ? { ...transactionBase, key: data.destination.key.trim() }
+      : {
+          ...transactionBase,
+          personType: SUPPLIER_PERSON_TYPE,
+          legalIdType: SUPPLIER_LEGAL_ID_TYPE,
+          legalId: SUPPLIER_LEGAL_ID,
+          bankId: data.destination.bankId,
+          accountType: data.destination.accountType,
+          accountNumber: data.destination.accountNumber.trim(),
+        };
+
+  return {
+    accountId: data.accountId,
+    reference,
+    paymentType: "PROVIDERS",
+    transaction,
+  };
+}
+
+export function createSettlementReference(checkoutTransactionId: string) {
+  const compactId = checkoutTransactionId.replace(/[^A-Za-z0-9]/g, "");
+  return `settlement-${compactId.slice(0, 24)}`;
+}
+
+function getStatusCode(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number"
+  ) {
+    return error.statusCode;
+  }
+
+  return null;
+}
+
+function toPayoutError(error: unknown): PayoutErrorDto {
+  if (error instanceof WompiPayoutApiError) {
+    return {
+      code: error.code,
+      message: FRIENDLY_PAYOUT_ERRORS[error.code] ?? error.message,
+      statusCode: error.statusCode,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      code: "WOMPI_REQUEST",
+      message: error.message,
+      statusCode: getStatusCode(error),
+    };
+  }
+
+  return {
+    code: "UNEXPECTED",
+    message: "The payout request could not be completed.",
+    statusCode: null,
+  };
 }
 
 async function runPayoutRequest<T, TDto>(
@@ -87,31 +215,30 @@ async function runPayoutRequest<T, TDto>(
     const [error, data] = await request(getPayoutsClient());
 
     if (error) {
-      return { error: error.message, data: null };
+      return { error: toPayoutError(error), data: null };
     }
 
     return { error: null, data: mapData(data) };
   } catch (error) {
-    return {
-      error:
-        error instanceof Error ? error.message : "Unexpected payouts error",
-      data: null,
-    };
+    return { error: toPayoutError(error), data: null };
   }
 }
 
 export const listAccounts = createServerFn({ method: "POST" }).handler(
   async (): Promise<ServerResult<AccountDto[]>> =>
     runPayoutRequest(
-      (client) => client.listAccounts(),
+      (client) => client.listAccounts({ status: "ACTIVE" }),
       (accounts) =>
-        accounts.map(({ id, number, balanceInCents, status, accountType }) => ({
-          id,
-          number,
-          balanceInCents,
-          status,
-          accountType,
-        })),
+        accounts.map(
+          ({ id, number, balanceInCents, status, accountType, bank }) => ({
+            id,
+            number,
+            balanceInCents,
+            status,
+            accountType,
+            bankName: bank?.name,
+          }),
+        ),
     ),
 );
 
@@ -119,7 +246,13 @@ export const listBanks = createServerFn({ method: "POST" }).handler(
   async (): Promise<ServerResult<BankDto[]>> =>
     runPayoutRequest(
       (client) => client.listBanks(),
-      (banks) => banks.map(({ id, name, code }) => ({ id, name, code })),
+      (banks) =>
+        banks.map(({ id, name, code, isElectronicDeposit }) => ({
+          id,
+          name,
+          code,
+          isElectronicDeposit,
+        })),
     ),
 );
 
@@ -142,48 +275,90 @@ export const resolveKey = createServerFn({ method: "POST" })
 export const createDispersion = createServerFn({ method: "POST" })
   .validator((data: CreateDispersionInput) => data)
   .handler(async ({ data }): Promise<ServerResult<CreateResultDto>> => {
-    const operation = {
-      accountId: data.accountId,
-      reference: data.reference,
-      paymentType: "OTHER" as const,
-      transaction: data.transaction,
-    };
-    const idempotencyKey = createDispersionIdempotencyKey(operation);
+    try {
+      const verifiedCheckout = await verifyCheckoutTransaction(
+        {
+          transactionId: data.checkoutTransactionId,
+          expectedReference: data.checkoutReference,
+          orderProof: data.orderProof,
+        },
+        true,
+      );
+      const existingAttempt = settlementAttempts.get(verifiedCheckout.id);
+      if (existingAttempt) return existingAttempt;
 
-    return runPayoutRequest(
-      (client) =>
-        client.createPayout(
-          {
-            reference: operation.reference,
-            accountId: operation.accountId,
-            paymentType: operation.paymentType,
-            transactions: [operation.transaction],
-          },
-          { idempotencyKey },
-        ),
-      ({ payoutId, transactions, success, failed }) => ({
-        payoutId,
-        transactions,
-        success,
-        failed,
-      }),
-    );
+      const operation = buildDispersionOperation(data);
+      const idempotencyKey = createDispersionIdempotencyKey({
+        checkoutTransactionId: verifiedCheckout.id,
+      });
+      const attempt = runPayoutRequest(
+        (client) =>
+          client.createPayout(
+            {
+              reference: operation.reference,
+              accountId: operation.accountId,
+              paymentType: operation.paymentType,
+              transactions: [operation.transaction],
+            },
+            { idempotencyKey },
+          ),
+        ({ payoutId, transactions, success, failed }) => ({
+          payoutId,
+          transactions,
+          success,
+          failed,
+        }),
+      );
+      settlementAttempts.set(verifiedCheckout.id, attempt);
+      const result = await attempt;
+      if (result.error) settlementAttempts.delete(verifiedCheckout.id);
+      return result;
+    } catch (error) {
+      return { error: toPayoutError(error), data: null };
+    }
   });
 
 export const getPayoutStatus = createServerFn({ method: "POST" })
   .validator((data: { payoutId: string; rail: PayoutRail }) => data)
-  .handler(
-    async ({ data }): Promise<ServerResult<PayoutStatusDto>> =>
-      runPayoutRequest(
-        (client) =>
-          client.getPayout(data.payoutId, {
-            apiVersion: data.rail === "breb" ? "v2" : "v1",
-          }),
-        ({ id, status, reference, createdAt }) => ({
-          id,
-          status,
-          reference,
-          createdAt,
-        }),
-      ),
-  );
+  .handler(async ({ data }): Promise<ServerResult<PayoutStatusDto>> => {
+    try {
+      const client = getPayoutsClient();
+      const apiVersion = data.rail === "breb" ? "v2" : "v1";
+      const [payoutError, payout] = await client.getPayout(data.payoutId, {
+        apiVersion,
+      });
+
+      if (payoutError) {
+        return { error: toPayoutError(payoutError), data: null };
+      }
+
+      const [transactionError, page] = await client.listPayoutTransactions(
+        data.payoutId,
+        {},
+        { apiVersion },
+      );
+      const transaction = page?.records[0];
+      const failureReason = transaction?.failureReason;
+      const transactionFailureReason =
+        typeof failureReason === "string"
+          ? failureReason
+          : (failureReason?.message ?? failureReason?.description);
+
+      return {
+        error: null,
+        data: {
+          id: payout.id,
+          status: payout.status,
+          reference: payout.reference,
+          createdAt: payout.createdAt,
+          transactionStatus: transaction?.status,
+          transactionFailureReason,
+          transactionLookupError: transactionError
+            ? toPayoutError(transactionError).message
+            : undefined,
+        },
+      };
+    } catch (error) {
+      return { error: toPayoutError(error), data: null };
+    }
+  });
