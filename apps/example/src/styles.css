@@ -5,7 +5,7 @@
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   line-height: 1.5;
-  text-rendering: optimizeLegibility;
+  text-rendering: optimizelegibility;
   --canvas: #f3f6f4;
   --surface: #ffffff;
   --ink: #17211b;
@@ -389,7 +389,7 @@ code {
   display: inline-flex;
   min-height: 1.65rem;
   align-items: center;
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
   font-size: 0.6875rem;
@@ -792,7 +792,7 @@ summary:focus-visible,
 
 .inline-message {
   margin: 0.9rem 0 0;
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   border-radius: 0.5rem;
   padding: 0.7rem 0.8rem;
   font-size: 0.8125rem;
@@ -813,7 +813,7 @@ summary:focus-visible,
   min-height: 1.5rem;
   border: 0;
   padding: 0 0.15rem;
-  color: currentColor;
+  color: currentcolor;
   background: transparent;
   font-size: inherit;
   text-decoration: underline;
@@ -821,7 +821,7 @@ summary:focus-visible,
 }
 
 .inline-button:hover:not(:disabled) {
-  color: currentColor;
+  color: currentcolor;
   background: transparent;
 }
 
