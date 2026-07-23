@@ -1,68 +1,81 @@
-# Wompi payouts example
+# Wompi checkout and settlement example
 
-This TanStack Start app demonstrates the sandbox payout features in
+This TanStack Start app runs one Colombia sandbox order through both sides of
 `@pulgueta/wompi`:
 
-- list origin accounts and their balances;
-- resolve a masked BRE-B beneficiary before sending funds;
-- create one BRE-B or bank-account dispersion;
-- refresh the resulting payout status; and
-- verify and narrow signed payout webhook events on the server.
+1. create a server-signed Wompi Web Checkout for a COP 49,500 order;
+2. verify the transaction returned by Wompi; and
+3. settle the COP 40,000 supplier share through a resolved BRE-B key or a bank
+   or digital-wallet account.
 
-All Wompi credentials and SDK calls stay on the server. The browser only calls
-TanStack Start server functions that return small serializable DTOs.
+Checkout integrity and Payouts credentials stay on the server. The browser
+receives narrow serializable DTOs and never sees a secret key.
 
-> This is a local sandbox demo. Its payout server functions intentionally have
-> no application authentication and reject calls outside development mode. Do
-> not remove that guard or deploy it publicly without adding authorization for
-> every payout server function.
+Before creating a payout, the server verifies a signed order proof and fetches
+the Wompi transaction again. The transaction must be `APPROVED` and match the
+exact reference, COP currency, and amount issued for this browser flow. A
+deterministic settlement reference and idempotency key limit the example to one
+supplier settlement attempt per checkout transaction.
+
+> This is a local sandbox demo. Its server functions are unauthenticated and
+> reject calls outside development mode. The signed order proof protects the
+> tunneled payout flow, but it is not a replacement for application
+> authorization or durable order/payout persistence in production.
 
 ## Setup
 
-From the monorepo root, copy the environment template and add sandbox Payouts
-credentials from the Wompi dashboard:
+Copy the environment template, then add the sandbox keys from the Wompi
+dashboard:
 
 ```bash
-cp apps/example/.env.example apps/example/.env
+cp apps/example/.env.example apps/example/.env.local
 ```
 
-Then install the workspace and start the example:
+- `WOMPI_PUBLIC_KEY` and `WOMPI_INTEGRITY_KEY` come from the regular Payments
+  integration.
+- `WOMPI_PAYOUTS_API_KEY`, `WOMPI_PAYOUTS_USER_PRINCIPAL_ID`, and
+  `WOMPI_PAYOUTS_EVENTS_KEY` come from **Pagos a Terceros**.
+- `WOMPI_EXAMPLE_ORIGIN` must be the exact public HTTPS tunnel origin when the
+  hosted Checkout needs to return from another browser.
+
+Install and run from the monorepo root:
 
 ```bash
 pnpm install
-pnpm turbo run dev --filter=wompi-example
+pnpm --filter wompi-example dev
 ```
 
-The app runs at `http://localhost:3000` by default.
+The app runs at `http://localhost:3000` by default. A public HTTPS tunnel is
+needed for the hosted Checkout redirect to return to a remote browser.
 
-## Sandbox BRE-B keys
+## Sandbox data
 
-Successful resolutions:
+Approved Web Checkout card:
 
-| Key | Key type | Financial entity |
-| --- | --- | --- |
-| `ecolon@wompi.com` | `MAIL` | BANCOLOMBIA |
-| `3001234567` | `PHONE` | BANCO POPULAR |
-| `1020304050` | `IDENTIFICATION` | BANCO POPULAR |
-| `@elias123` | `ALPHANUMERIC` | BANCO DAVIVIENDA |
+```text
+4242 4242 4242 4242
+Any future expiry
+Any three-digit CVC
+```
 
-Error simulations:
+The primary BRE-B example uses `@elias123`. Other successful keys include
+`ecolon@wompi.com`, `3001234567`, `1020304050`, `B00012345`, and `900123456`.
 
-| Key | Result |
-| --- | --- |
-| `noexiste@test.com` | `EXC_034` — key not found |
-| `inactiva@test.com` | `EXC_035` — inactive key |
-| `timeout@test.com` | `EXC_037` — resolution timeout |
-| `error@test.com` | `EXC_036` — service unavailable |
+The bank or wallet alternative loads the live sandbox catalogue. It explicitly
+sends the supplier profile's `personType`, legal identity, beneficiary email,
+and transaction reference because Wompi's OpenAPI and prose documentation
+disagree about which are required. The operator only chooses the institution,
+conditional account type, and account or wallet number before a review step.
 
 ## Webhook
 
-Configure the Payouts events URL to target:
+Configure Payouts events to target:
 
 ```text
 /api/payouts-webhook
 ```
 
-The handler verifies the raw request body with
-`WOMPI_PAYOUTS_EVENTS_KEY`, rejects invalid signatures with HTTP 403, and logs
-the ID and status of verified `payout.updated` and `transaction.updated` events.
+The handler verifies the raw body with `WOMPI_PAYOUTS_EVENTS_KEY`, rejects bad
+signatures, and logs the ID and status of verified payout events. The example
+polls status in the UI; a production application should persist signed webhook
+results as its durable source of truth.

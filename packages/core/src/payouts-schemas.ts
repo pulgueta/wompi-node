@@ -502,7 +502,7 @@ export const PayoutBankSchema = z
 export const PayoutAccountSchema = z
   .object({
     id: z.string(),
-    balanceInCents: z.number().int().optional(),
+    balanceInCents: z.number().int().nullish(),
     number: z.string().optional(),
     status: z.string().optional(),
     accountType: z.string().optional(),

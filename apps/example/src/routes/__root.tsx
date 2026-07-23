@@ -13,7 +13,12 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Wompi payouts sandbox demo",
+        title: "Checkout to settlement · Wompi SDK sandbox",
+      },
+      {
+        name: "description",
+        content:
+          "A runnable Wompi sandbox order using hosted Checkout and BRE-B supplier settlement.",
       },
     ],
     links: [
