@@ -1,3 +1,9 @@
+## 3.2.1
+
+### Patch Changes
+
+- [#33](https://github.com/pulgueta/wompi-node/pull/33) [`4bd636e`](https://github.com/pulgueta/wompi-node/commit/4bd636e141155490fb37ef684ec8394f8038c983) Thanks [@pulgueta](https://github.com/pulgueta)! - Accept payout accounts whose balance is `null` in live API responses.
+
 ## 3.2.0
 
 ### Minor Changes
