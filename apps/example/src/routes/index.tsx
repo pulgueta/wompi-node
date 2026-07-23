@@ -536,15 +536,10 @@ function SettlementWorkspace({
   const bankReviewHeadingRef = useRef<HTMLHeadingElement>(null);
   const storageKey = `wompi-sdk-demo:settlement:${transaction.id}`;
   const selectedAccount = accounts.find((account) => account.id === accountId);
-  const sourceAccountInsufficient = Boolean(
+  const sourceAccountBlocked = Boolean(
     selectedAccount?.balanceInCents != null &&
       selectedAccount.balanceInCents < SETTLEMENT_AMOUNT_IN_CENTS,
   );
-  const sourceAccountBalanceUnavailable = Boolean(
-    selectedAccount && selectedAccount.balanceInCents == null,
-  );
-  const sourceAccountBlocked =
-    sourceAccountInsufficient || sourceAccountBalanceUnavailable;
   const selectedBank = banks.find((bank) => bank.id === bankId);
   const resolutionConfirmed = Boolean(
     resolution?.holderName.trim() &&
@@ -568,7 +563,7 @@ function SettlementWorkspace({
         setAccounts(result.data);
         const fundedAccount = result.data.find(
           (account) =>
-            account.balanceInCents != null &&
+            account.balanceInCents == null ||
             account.balanceInCents >= SETTLEMENT_AMOUNT_IN_CENTS,
         );
         setAccountId(fundedAccount?.id ?? "");
@@ -985,10 +980,12 @@ function SettlementWorkspace({
                 <div>
                   <dt>Balance after payout</dt>
                   <dd>
-                    {formatCents(
-                      (selectedAccount.balanceInCents ?? 0) -
-                        SETTLEMENT_AMOUNT_IN_CENTS,
-                    )}
+                    {selectedAccount.balanceInCents == null
+                      ? "Not reported"
+                      : formatCents(
+                          selectedAccount.balanceInCents -
+                            SETTLEMENT_AMOUNT_IN_CENTS,
+                        )}
                   </dd>
                 </div>
               </dl>
@@ -1251,9 +1248,9 @@ function SourceAccountField({
         </InlineMessage>
       ) : null}
       {accountId && selectedAccount?.balanceInCents == null ? (
-        <InlineMessage tone="error">
-          Wompi did not report this account balance. Choose an account with a
-          confirmed balance.
+        <InlineMessage tone="warning">
+          Wompi did not report this account balance. The payout can still be
+          sent.
         </InlineMessage>
       ) : null}
     </div>
