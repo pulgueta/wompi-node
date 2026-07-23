@@ -761,6 +761,29 @@ describe("WompiPayoutsClient", () => {
       expect(url).toContain("status=ACTIVE");
     });
 
+    it("accepts accounts whose balance is null", async () => {
+      const payouts = makeClient();
+
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          data: [
+            {
+              id: "account-without-balance",
+              balanceInCents: null,
+              status: "ACTIVE",
+              isMain: false,
+              consecutive: null,
+            },
+          ],
+        })
+      );
+
+      const [error, data] = await payouts.listAccounts();
+
+      expect(error).toBeNull();
+      expect(data![0]!.balanceInCents).toBeNull();
+    });
+
     it("returns the dispersion limits", async () => {
       const payouts = makeClient();
 
