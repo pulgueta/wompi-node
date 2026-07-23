@@ -16,6 +16,7 @@
     "@pulgueta/wompi": "workspace:*",
     "@tanstack/react-router": "^1.170.18",
     "@tanstack/react-start": "^1.168.32",
+    "nitro": "3.0.260610-beta",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
