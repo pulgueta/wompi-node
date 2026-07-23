@@ -118,12 +118,6 @@ const FRIENDLY_PAYOUT_ERRORS: Record<string, string> = {
 };
 
 export function getPayoutsClient() {
-  if (process.env.NODE_ENV !== "development") {
-    throw new Error(
-      "The unauthenticated payouts demo is available only in local development",
-    );
-  }
-
   const apiKey = process.env.WOMPI_PAYOUTS_API_KEY;
   const userPrincipalId = process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID;
   if (!apiKey || !userPrincipalId) {

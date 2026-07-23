@@ -56,14 +56,6 @@ class CheckoutInputError extends Error {
   }
 }
 
-function assertLocalDemo() {
-  if (process.env.NODE_ENV !== "development") {
-    throw new CheckoutConfigurationError(
-      "The unauthenticated checkout demo is available only in local development.",
-    );
-  }
-}
-
 function getSandboxPublicKey() {
   const publicKey = process.env.WOMPI_PUBLIC_KEY?.trim();
 
@@ -283,7 +275,6 @@ export async function verifyCheckoutTransaction(
   input: GetCheckoutTransactionInput,
   requireApproval = false,
 ) {
-  assertLocalDemo();
   const transactionId = parseTransactionId(input);
   const expectedReference = parseExpectedReference(input);
   const orderProof = parseOrderProof(input);
@@ -314,7 +305,6 @@ export async function verifyCheckoutTransaction(
 export const createCheckoutSession = createServerFn({ method: "POST" }).handler(
   async (): Promise<CheckoutServerResult<CheckoutSessionDto>> => {
     try {
-      assertLocalDemo();
       const { publicKey, integrityKey } = getSandboxCheckoutCredentials();
       const reference = createOrderReference();
       const orderProof = await createOrderProof(reference, integrityKey);
