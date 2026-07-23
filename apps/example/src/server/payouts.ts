@@ -117,16 +117,28 @@ const FRIENDLY_PAYOUT_ERRORS: Record<string, string> = {
   EXC_037: "BRE-B resolution timed out. Try again.",
 };
 
-function getPayoutsClient() {
+export function getPayoutsClient() {
   if (process.env.NODE_ENV !== "development") {
     throw new Error(
       "The unauthenticated payouts demo is available only in local development",
     );
   }
 
+  const apiKey = process.env.WOMPI_PAYOUTS_API_KEY;
+  const userPrincipalId = process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID;
+  if (!apiKey || !userPrincipalId) {
+    const missing = [
+      apiKey ? null : "WOMPI_PAYOUTS_API_KEY",
+      userPrincipalId ? null : "WOMPI_PAYOUTS_USER_PRINCIPAL_ID",
+    ].filter(Boolean);
+    throw new Error(
+      `Wompi payouts credentials missing. Set ${missing.join(" and ")} in the example app environment.`,
+    );
+  }
+
   payoutsClient ??= new WompiPayoutsClient({
-    apiKey: process.env.WOMPI_PAYOUTS_API_KEY ?? "",
-    userPrincipalId: process.env.WOMPI_PAYOUTS_USER_PRINCIPAL_ID ?? "",
+    apiKey,
+    userPrincipalId,
     sandbox: true,
   });
 
@@ -272,6 +284,40 @@ export const resolveKey = createServerFn({ method: "POST" })
       ),
   );
 
+// A payout is only provably rejected when Wompi answered with a 4xx status.
+// Network errors (statusCode 0), timeouts, 5xx and unparseable responses are
+// ambiguous: Wompi may still have accepted the payout, so we must not treat them
+// as a clean rejection.
+function isAmbiguousPayoutFailure(error: PayoutErrorDto) {
+  return (
+    error.statusCode === null ||
+    error.statusCode < 400 ||
+    error.statusCode >= 500
+  );
+}
+
+// Dedupes concurrent settlements per checkout and, on failure, only forgets the
+// attempt when Wompi provably rejected it. On ambiguous failures the record is
+// kept so the deterministic idempotency key is reused on retry (letting Wompi
+// dedupe within its window) and the payout can be recovered via getPayoutStatus,
+// never risking a second supplier payout.
+export async function runSettlementAttempt(
+  checkoutId: string,
+  run: () => Promise<ServerResult<CreateResultDto>>,
+  attempts = settlementAttempts,
+): Promise<ServerResult<CreateResultDto>> {
+  const existingAttempt = attempts.get(checkoutId);
+  if (existingAttempt) return existingAttempt;
+
+  const attempt = run();
+  attempts.set(checkoutId, attempt);
+  const result = await attempt;
+  if (result.error && !isAmbiguousPayoutFailure(result.error)) {
+    attempts.delete(checkoutId);
+  }
+  return result;
+}
+
 export const createDispersion = createServerFn({ method: "POST" })
   .validator((data: CreateDispersionInput) => data)
   .handler(async ({ data }): Promise<ServerResult<CreateResultDto>> => {
@@ -284,35 +330,31 @@ export const createDispersion = createServerFn({ method: "POST" })
         },
         true,
       );
-      const existingAttempt = settlementAttempts.get(verifiedCheckout.id);
-      if (existingAttempt) return existingAttempt;
 
       const operation = buildDispersionOperation(data);
       const idempotencyKey = createDispersionIdempotencyKey({
         checkoutTransactionId: verifiedCheckout.id,
       });
-      const attempt = runPayoutRequest(
-        (client) =>
-          client.createPayout(
-            {
-              reference: operation.reference,
-              accountId: operation.accountId,
-              paymentType: operation.paymentType,
-              transactions: [operation.transaction],
-            },
-            { idempotencyKey },
-          ),
-        ({ payoutId, transactions, success, failed }) => ({
-          payoutId,
-          transactions,
-          success,
-          failed,
-        }),
+      return runSettlementAttempt(verifiedCheckout.id, () =>
+        runPayoutRequest(
+          (client) =>
+            client.createPayout(
+              {
+                reference: operation.reference,
+                accountId: operation.accountId,
+                paymentType: operation.paymentType,
+                transactions: [operation.transaction],
+              },
+              { idempotencyKey },
+            ),
+          ({ payoutId, transactions, success, failed }) => ({
+            payoutId,
+            transactions,
+            success,
+            failed,
+          }),
+        ),
       );
-      settlementAttempts.set(verifiedCheckout.id, attempt);
-      const result = await attempt;
-      if (result.error) settlementAttempts.delete(verifiedCheckout.id);
-      return result;
     } catch (error) {
       return { error: toPayoutError(error), data: null };
     }
