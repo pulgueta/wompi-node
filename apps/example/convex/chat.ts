@@ -12,6 +12,7 @@ import {
   syncStreams,
   vStreamArgs,
 } from "@convex-dev/agent";
+import { HOUR, MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { internalAction, mutation, query } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -21,6 +22,18 @@ import { rag, WOMPI_DOCS_NAMESPACE } from "./rag";
 const DEMO_USER_ID = "panabarbero-demo";
 const AGENT_NAME = "Asistente Wompi";
 const MAX_PROMPT_CHARS = 4000;
+const MAX_DOC_CHARS = 16_000;
+
+const rateLimiter = new RateLimiter(components.rateLimiter, {
+  createThread: { kind: "token bucket", rate: 30, period: HOUR },
+  sendMessageGlobal: { kind: "token bucket", rate: 100, period: HOUR },
+  sendMessagePerThread: {
+    kind: "token bucket",
+    rate: 5,
+    period: MINUTE,
+    capacity: 5,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Curated SDK snippets. Convex functions can't read from disk at runtime, so
@@ -232,7 +245,11 @@ const readWompiDoc = createTool({
       return `El documento "${source}" no tiene archivo en storage.`;
     }
     const text = await blob.text();
-    return `# ${doc.title}${doc.url ? ` (${doc.url})` : ""}\n\n${text}`;
+    const content =
+      text.length > MAX_DOC_CHARS
+        ? `${text.slice(0, MAX_DOC_CHARS)}\n\n[... documento truncado, usa searchWompiDocs para fragmentos específicos ...]`
+        : text;
+    return `# ${doc.title}${doc.url ? ` (${doc.url})` : ""}\n\n${content}`;
   },
 });
 
@@ -297,6 +314,7 @@ export const createThread = mutation({
   args: {},
   returns: v.string(),
   handler: async (ctx) => {
+    await rateLimiter.limit(ctx, "createThread", { throws: true });
     return await createAgentThread(ctx, components.agent, {
       userId: DEMO_USER_ID,
       title: "Asistente Wompi",
@@ -315,6 +333,11 @@ export const sendMessage = mutation({
         `El mensaje debe tener entre 1 y ${MAX_PROMPT_CHARS} caracteres`,
       );
     }
+    await rateLimiter.limit(ctx, "sendMessagePerThread", {
+      key: args.threadId,
+      throws: true,
+    });
+    await rateLimiter.limit(ctx, "sendMessageGlobal", { throws: true });
 
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId: args.threadId,
