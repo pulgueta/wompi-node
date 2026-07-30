@@ -1,7 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap");
 @import "tailwindcss";
-@source "../node_modules/streamdown/dist/*.js";
 @import "tw-animate-css";
+@import "@fontsource-variable/archivo";
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -101,8 +101,8 @@
   --radius-lg: 0px;
   --radius-xl: 0px;
 
-  --font-sans: "Archivo", system-ui, sans-serif;
-  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-sans: "Archivo Variable", system-ui, sans-serif;
+  --font-heading: "Archivo Variable", system-ui, sans-serif;
   --font-mono: ui-monospace, Menlo, monospace;
 
   --shadow-sm: var(--elevation-sm);
