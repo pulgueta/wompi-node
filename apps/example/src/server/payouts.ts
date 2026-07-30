@@ -3,6 +3,8 @@ import { WompiPayoutApiError } from "@pulgueta/wompi/schemas";
 import type { BrebKeyType, Result } from "@pulgueta/wompi/schemas";
 import { createServerFn } from "@tanstack/react-start";
 
+import { isTerminalDispersionStatus } from "#/lib/payout-status";
+
 import { createDispersionIdempotencyKey } from "./idempotency";
 import {
   applyDispersionStatus,
@@ -204,6 +206,9 @@ const dispersionAttempts = new Map<
   Promise<ServerResult<CreateDispersionDto>>
 >();
 
+const lastReconciledAt = new Map<string, number>();
+const RECONCILIATION_THROTTLE_MS = 10_000;
+
 /**
  * Pay a provider through a single-transaction BRE-B dispersion. `simulate`
  * uses the sandbox-only `transactionStatus` field to force the batch's
@@ -265,14 +270,32 @@ export const createDispersion = createServerFn({ method: "POST" })
 
     const activeDispersion = findActiveDispersion(data.providerKey);
     if (activeDispersion) {
-      return {
-        error: {
-          code: "DISPERSION_IN_FLIGHT",
-          message: `Ya hay una dispersión en curso para este proveedor (${activeDispersion.reference}). Espera a que llegue su estado final.`,
-          statusCode: 409,
-        },
-        data: null,
-      };
+      if (
+        activeDispersion.wompiPayoutId !== "" ||
+        activeDispersion.operation === undefined ||
+        activeDispersion.idempotencyKey === undefined
+      ) {
+        return {
+          error: {
+            code: "DISPERSION_IN_FLIGHT",
+            message: `Ya hay una dispersión en curso para este proveedor (${activeDispersion.reference}). Espera a que llegue su estado final.`,
+            statusCode: 409,
+          },
+          data: null,
+        };
+      }
+
+      const attempt = submitDispersion(
+        activeDispersion.reference,
+        activeDispersion.operation,
+        activeDispersion.idempotencyKey,
+      );
+      dispersionAttempts.set(data.providerKey, attempt);
+      try {
+        return await attempt;
+      } finally {
+        dispersionAttempts.delete(data.providerKey);
+      }
     }
 
     const attempt = runDispersion(data).catch(
@@ -303,7 +326,8 @@ async function runDispersion(
     return { error: resolution.error, data: null };
   }
 
-  // The origin account funds the batch; take the first active one.
+  // Prefer the first account with a known sufficient balance. When every
+  // balance is unknown or insufficient, retain the API's first-account order.
   const accountsResult = await runPayoutRequest(
     (client) => client.listAccounts({ status: "ACTIVE" }),
     (accounts) => accounts,
@@ -311,7 +335,13 @@ async function runDispersion(
   if (accountsResult.error) {
     return { error: accountsResult.error, data: null };
   }
-  const account = accountsResult.data[0];
+  const account =
+    accountsResult.data.find(
+      (candidate) =>
+        candidate.balanceInCents !== null &&
+        candidate.balanceInCents !== undefined &&
+        candidate.balanceInCents >= data.amountInCents,
+    ) ?? accountsResult.data[0];
   if (account === undefined) {
     return {
       error: {
@@ -348,8 +378,18 @@ async function runDispersion(
     brebKey: keyValue,
     amountInCents: data.amountInCents,
     status: "PENDING",
+    operation,
+    idempotencyKey,
   });
 
+  return submitDispersion(reference, operation, idempotencyKey);
+}
+
+async function submitDispersion(
+  reference: string,
+  operation: NonNullable<DispersionState["operation"]>,
+  idempotencyKey: string,
+): Promise<ServerResult<CreateDispersionDto>> {
   const result = await runPayoutRequest(
     (client) => client.createPayout(operation, { idempotencyKey }),
     ({ payoutId }): CreateDispersionDto => ({
@@ -369,6 +409,37 @@ async function runDispersion(
     applyDispersionStatus({ reference }, "FAILED");
   }
   return result;
+}
+
+async function reconcileOneDispersion() {
+  const now = Date.now();
+  const dispersion = listDispersions(50)
+    .reverse()
+    .filter(
+      (candidate) =>
+        candidate.wompiPayoutId !== "" &&
+        !isTerminalDispersionStatus(candidate.status),
+    )
+    .sort((left, right) => left.createdAt - right.createdAt)
+    .find(
+      (candidate) =>
+        now - (lastReconciledAt.get(candidate.reference) ?? 0) >=
+        RECONCILIATION_THROTTLE_MS,
+    );
+  if (!dispersion) return;
+
+  lastReconciledAt.set(dispersion.reference, now);
+  try {
+    const [error, payout] = await getPayoutsClient().getPayout(
+      dispersion.wompiPayoutId,
+      { apiVersion: "v2" },
+    );
+    if (!error) {
+      applyDispersionStatus({ reference: dispersion.reference }, payout.status);
+    }
+  } catch {
+    // Best-effort reconciliation: the next admin poll retries after throttling.
+  }
 }
 
 /**
@@ -461,6 +532,7 @@ export const getDispersions = createServerFn({ method: "POST" })
     const limit = Number.isFinite(requested)
       ? Math.min(Math.max(Math.floor(requested), 1), 50)
       : 20;
+    await reconcileOneDispersion();
     return listDispersions(limit);
   });
 

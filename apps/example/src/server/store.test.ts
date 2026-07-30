@@ -4,6 +4,7 @@ import {
   applyDispersionStatus,
   applyPaymentStatus,
   findActiveDispersion,
+  findDispersion,
   getPayment,
   listProviders,
   recordDispersion,
@@ -108,7 +109,7 @@ describe("applyDispersionStatus", () => {
     expect(after?.status).toBe("TOTAL_PAYMENT");
   });
 
-  it("treats NOT_APPROVED as terminal against stale updates", () => {
+  it("preserves NOT_APPROVED against a stale PENDING update", () => {
     recordDispersion(dispersion);
 
     applyDispersionStatus({ reference: dispersion.reference }, "not_approved");
@@ -120,14 +121,53 @@ describe("applyDispersionStatus", () => {
     expect(after?.status).toBe("NOT_APPROVED");
   });
 
-  it("finds only nonterminal unsettled dispersions for a provider", () => {
+  it("keeps advancing nonterminal dispersions active for a provider", () => {
     recordDispersion(dispersion);
 
     expect(findActiveDispersion("p1")?.reference).toBe(dispersion.reference);
 
     applyDispersionStatus({ reference: dispersion.reference }, "NOT_APPROVED");
 
+    expect(findActiveDispersion("p1")?.reference).toBe(dispersion.reference);
+
+    applyDispersionStatus(
+      { reference: dispersion.reference },
+      "PARTIAL_PAYMENT",
+    );
+
+    expect(findActiveDispersion("p1")?.reference).toBe(dispersion.reference);
+
+    applyDispersionStatus({ reference: dispersion.reference }, "REJECTED");
+
     expect(findActiveDispersion("p1")).toBeNull();
+  });
+
+  it("round-trips resume material through recordDispersion", () => {
+    const operation = {
+      reference: dispersion.reference,
+      accountId: "account-1",
+      paymentType: "PROVIDERS" as const,
+      transactionStatus: "APPROVED" as const,
+      transactions: [
+        {
+          key: dispersion.brebKey,
+          name: "Distribuciones Elías",
+          email: "proveedores@panabarbero.co",
+          amount: dispersion.amountInCents,
+        },
+      ],
+    };
+    recordDispersion({
+      ...dispersion,
+      wompiPayoutId: "",
+      operation,
+      idempotencyKey: "resume-key",
+    });
+
+    const stored = findDispersion(dispersion.reference);
+
+    expect(stored?.operation).toEqual(operation);
+    expect(stored?.idempotencyKey).toBe("resume-key");
   });
 
   it("requires every supplied identifier to agree with the record", () => {

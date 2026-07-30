@@ -13,6 +13,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { BREB_ERROR_KEYS, formatCOP } from "#/lib/catalog";
+import { isTerminalDispersionStatus } from "#/lib/payout-status";
 import { usePoll } from "#/lib/use-poll";
 import { cn } from "#/lib/utils";
 import {
@@ -42,26 +43,6 @@ interface KeyError {
 }
 
 type SimulatedOutcome = "APPROVED" | "FAILED";
-
-const TERMINAL_PAYOUT_STATUSES = new Set([
-  "TOTAL_PAYMENT",
-  "PARTIAL_PAYMENT",
-  "NOT_APPROVED",
-  "APPROVED",
-  "PAYMENT",
-  "CANCELED",
-  "CANCELLED",
-]);
-
-function isTerminalPayoutStatus(status: string) {
-  const normalized = status.toUpperCase();
-  return (
-    TERMINAL_PAYOUT_STATUSES.has(normalized) ||
-    normalized.includes("FAIL") ||
-    normalized.includes("ERROR") ||
-    normalized.includes("REJECT")
-  );
-}
 
 export function PayoutDialog({
   target,
@@ -106,7 +87,7 @@ export function PayoutDialog({
 
         consecutivePollErrors.current = 0;
         const status = response.data.status.toUpperCase();
-        if (isTerminalPayoutStatus(status)) setIsDone(true);
+        if (isTerminalDispersionStatus(status)) setIsDone(true);
         return response;
       } catch (cause) {
         consecutivePollErrors.current += 1;
@@ -129,17 +110,9 @@ export function PayoutDialog({
   );
 
   const activeStatus = statusResult?.data?.status.toUpperCase() ?? "PENDING";
-  // Only a fully-paid batch counts as approved — PARTIAL_PAYMENT and other
-  // in-between terminal states get shown as-is, never as a success.
+  // Only a fully-paid terminal batch counts as approved.
   const isApproved = isDone && activeStatus === "TOTAL_PAYMENT";
-  const isFailed =
-    isDone &&
-    (activeStatus === "NOT_APPROVED" ||
-      activeStatus === "CANCELED" ||
-      activeStatus === "CANCELLED" ||
-      activeStatus.includes("FAIL") ||
-      activeStatus.includes("ERROR") ||
-      activeStatus.includes("REJECT"));
+  const isFailed = isDone && !isApproved;
 
   const amountCents =
     (Number.parseInt(amountPesos.replace(/\D/g, ""), 10) || 0) * 100;

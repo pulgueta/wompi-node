@@ -5,6 +5,13 @@
  * enough for the sandbox showcase, and nothing here is a secret.
  */
 
+import type { CreatePayoutInput } from "@pulgueta/wompi/schemas";
+
+import {
+  getDispersionStatusRank,
+  isTerminalDispersionStatus,
+} from "#/lib/payout-status";
+
 export type ApiEventKind = "request" | "webhook";
 
 export interface ApiEvent {
@@ -36,6 +43,8 @@ export interface DispersionState {
   brebKey: string;
   amountInCents: number;
   status: string;
+  operation?: CreatePayoutInput;
+  idempotencyKey?: string;
   createdAt: number;
   /** Guards against settling the same dispersion twice (poll + webhook). */
   settled: boolean;
@@ -51,8 +60,6 @@ export interface PaymentState {
   source: "created" | "webhook" | "api";
 }
 
-const MAX_EVENTS = 50;
-const MAX_BODY_CHARS = 4000;
 const MAX_DISPERSIONS = 50;
 const MAX_PAYMENTS = 100;
 
@@ -180,31 +187,20 @@ export function recordDispersion(
 }
 
 export function listDispersions(limit = 20): DispersionState[] {
-  return store.dispersions.slice(0, limit).map((d) => ({ ...d }));
+  return store.dispersions.slice(0, limit).map((dispersion) => ({
+    reference: dispersion.reference,
+    wompiPayoutId: dispersion.wompiPayoutId,
+    providerKey: dispersion.providerKey,
+    brebKey: dispersion.brebKey,
+    amountInCents: dispersion.amountInCents,
+    status: dispersion.status,
+    createdAt: dispersion.createdAt,
+    settled: dispersion.settled,
+  }));
 }
 
 export function findDispersion(reference: string): DispersionState | null {
   return store.dispersions.find((d) => d.reference === reference) ?? null;
-}
-
-const TERMINAL_DISPERSION_STATUSES = new Set([
-  "TOTAL_PAYMENT",
-  "PARTIAL_PAYMENT",
-  "NOT_APPROVED",
-  "APPROVED",
-  "PAYMENT",
-  "CANCELED",
-  "CANCELLED",
-]);
-
-function isTerminalDispersionStatus(status: string) {
-  const normalized = status.toUpperCase();
-  return (
-    TERMINAL_DISPERSION_STATUSES.has(normalized) ||
-    normalized.includes("FAIL") ||
-    normalized.includes("ERROR") ||
-    normalized.includes("REJECT")
-  );
 }
 
 export function findActiveDispersion(
@@ -234,7 +230,8 @@ export function attachPayoutId(
  * Apply a status coming from the Payouts API or webhook. When the batch
  * reaches its fully-paid terminal state (TOTAL_PAYMENT) the matching
  * provider's pending balance is settled exactly once. Terminal states are
- * monotonic: a stale poll or delayed webhook can't revert one.
+ * monotonic by lifecycle rank: a stale poll or delayed webhook can't revert
+ * an advancing or terminal status.
  */
 export function applyDispersionStatus(
   lookup: { reference?: string; wompiPayoutId?: string },
@@ -266,8 +263,8 @@ export function applyDispersionStatus(
   }
 
   if (
-    isTerminalDispersionStatus(dispersion.status) &&
-    !isTerminalDispersionStatus(normalizedStatus)
+    getDispersionStatusRank(normalizedStatus) <
+    getDispersionStatusRank(dispersion.status)
   ) {
     return { ...dispersion };
   }
