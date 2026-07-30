@@ -187,14 +187,47 @@ export function findDispersion(reference: string): DispersionState | null {
   return store.dispersions.find((d) => d.reference === reference) ?? null;
 }
 
+const TERMINAL_DISPERSION_STATUSES = new Set([
+  "TOTAL_PAYMENT",
+  "PARTIAL_PAYMENT",
+  "NOT_APPROVED",
+  "APPROVED",
+  "PAYMENT",
+  "CANCELED",
+  "CANCELLED",
+]);
+
 function isTerminalDispersionStatus(status: string) {
   const normalized = status.toUpperCase();
   return (
-    normalized === "TOTAL_PAYMENT" ||
+    TERMINAL_DISPERSION_STATUSES.has(normalized) ||
     normalized.includes("FAIL") ||
     normalized.includes("ERROR") ||
     normalized.includes("REJECT")
   );
+}
+
+export function findActiveDispersion(
+  providerKey: string,
+): DispersionState | null {
+  const dispersion = store.dispersions.find(
+    (d) =>
+      d.providerKey === providerKey &&
+      !d.settled &&
+      !isTerminalDispersionStatus(d.status),
+  );
+  return dispersion ? { ...dispersion } : null;
+}
+
+export function attachPayoutId(
+  reference: string,
+  wompiPayoutId: string,
+): DispersionState | null {
+  const dispersion = store.dispersions.find((d) => d.reference === reference);
+  if (!dispersion) return null;
+
+  dispersion.wompiPayoutId = wompiPayoutId;
+  return { ...dispersion };
 }
 
 /**
@@ -207,6 +240,8 @@ export function applyDispersionStatus(
   lookup: { reference?: string; wompiPayoutId?: string },
   status: string,
 ): DispersionState | null {
+  const normalizedStatus = status.toUpperCase();
+
   // Every identifier the caller supplies must agree with the record.
   const dispersion = store.dispersions.find((d) => {
     if (lookup.reference === undefined && lookup.wompiPayoutId === undefined) {
@@ -217,7 +252,8 @@ export function applyDispersionStatus(
     }
     if (
       lookup.wompiPayoutId !== undefined &&
-      d.wompiPayoutId !== lookup.wompiPayoutId
+      d.wompiPayoutId !== lookup.wompiPayoutId &&
+      !(d.wompiPayoutId === "" && lookup.reference !== undefined)
     ) {
       return false;
     }
@@ -225,15 +261,19 @@ export function applyDispersionStatus(
   });
   if (!dispersion) return null;
 
+  if (dispersion.wompiPayoutId === "" && lookup.wompiPayoutId !== undefined) {
+    dispersion.wompiPayoutId = lookup.wompiPayoutId;
+  }
+
   if (
     isTerminalDispersionStatus(dispersion.status) &&
-    !isTerminalDispersionStatus(status)
+    !isTerminalDispersionStatus(normalizedStatus)
   ) {
     return { ...dispersion };
   }
 
-  dispersion.status = status;
-  if (status === "TOTAL_PAYMENT" && !dispersion.settled) {
+  dispersion.status = normalizedStatus;
+  if (normalizedStatus === "TOTAL_PAYMENT" && !dispersion.settled) {
     dispersion.settled = true;
     settleProvider(dispersion.providerKey, dispersion.amountInCents);
   }

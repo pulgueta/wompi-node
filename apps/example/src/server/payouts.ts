@@ -6,6 +6,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { createDispersionIdempotencyKey } from "./idempotency";
 import {
   applyDispersionStatus,
+  attachPayoutId,
+  findActiveDispersion,
   findDispersion,
   listDispersions,
   listProviders,
@@ -165,21 +167,12 @@ async function runPayoutRequest<T, TDto>(
   }
 }
 
-// Ambiguous failures may still have been accepted by Wompi, so forgetting them
-// could create a duplicate payout when an operator retries.
-function isAmbiguousPayoutFailure(error: PayoutErrorDto) {
-  return (
-    error.statusCode === null ||
-    error.statusCode < 400 ||
-    error.statusCode >= 500
-  );
-}
-
 export function createDispersionReference(
   providerKey: string,
   timestamp = Date.now(),
+  entropy = crypto.randomUUID().slice(0, 8),
 ) {
-  return `PB-PO-${providerKey}-${timestamp}`;
+  return `PB-PO-${providerKey}-${timestamp}-${entropy}`;
 }
 
 /**
@@ -270,31 +263,33 @@ export const createDispersion = createServerFn({ method: "POST" })
     const existingAttempt = dispersionAttempts.get(data.providerKey);
     if (existingAttempt) return existingAttempt;
 
-    // Failures before `createPayout` is dispatched (key resolution, account
-    // lookup) cannot have moved money, so they are always safe to retry.
-    const payment = { attempted: false };
-    let attemptThrew = false;
-    const attempt = runDispersion(data, payment).catch(
+    const activeDispersion = findActiveDispersion(data.providerKey);
+    if (activeDispersion) {
+      return {
+        error: {
+          code: "DISPERSION_IN_FLIGHT",
+          message: `Ya hay una dispersión en curso para este proveedor (${activeDispersion.reference}). Espera a que llegue su estado final.`,
+          statusCode: 409,
+        },
+        data: null,
+      };
+    }
+
+    const attempt = runDispersion(data).catch(
       (error): ServerResult<CreateDispersionDto> => {
-        attemptThrew = true;
         return { error: toPayoutError(error), data: null };
       },
     );
     dispersionAttempts.set(data.providerKey, attempt);
-    const result = await attempt;
-    const mustRetainAttempt =
-      payment.attempted &&
-      (attemptThrew ||
-        (result.error !== null && isAmbiguousPayoutFailure(result.error)));
-    if (!mustRetainAttempt) {
+    try {
+      return await attempt;
+    } finally {
       dispersionAttempts.delete(data.providerKey);
     }
-    return result;
   });
 
 async function runDispersion(
   data: CreateDispersionInput,
-  payment: { attempted: boolean },
 ): Promise<ServerResult<CreateDispersionDto>> {
   const keyValue = data.keyValue.trim();
 
@@ -346,7 +341,15 @@ async function runDispersion(
   };
   const idempotencyKey = createDispersionIdempotencyKey(operation);
 
-  payment.attempted = true;
+  recordDispersion({
+    reference,
+    wompiPayoutId: "",
+    providerKey: data.providerKey,
+    brebKey: keyValue,
+    amountInCents: data.amountInCents,
+    status: "PENDING",
+  });
+
   const result = await runPayoutRequest(
     (client) => client.createPayout(operation, { idempotencyKey }),
     ({ payoutId }): CreateDispersionDto => ({
@@ -357,14 +360,13 @@ async function runDispersion(
   );
 
   if (result.data) {
-    recordDispersion({
-      reference,
-      wompiPayoutId: result.data.wompiPayoutId,
-      providerKey: data.providerKey,
-      brebKey: keyValue,
-      amountInCents: data.amountInCents,
-      status: "PENDING",
-    });
+    attachPayoutId(reference, result.data.wompiPayoutId);
+  } else if (
+    result.error.statusCode !== null &&
+    result.error.statusCode >= 400 &&
+    result.error.statusCode < 500
+  ) {
+    applyDispersionStatus({ reference }, "FAILED");
   }
   return result;
 }
@@ -386,6 +388,17 @@ export const getPayoutStatus = createServerFn({ method: "POST" })
           statusCode: 404,
         },
         data: null,
+      };
+    }
+
+    if (dispersion.wompiPayoutId === "") {
+      return {
+        error: null,
+        data: {
+          reference: dispersion.reference,
+          wompiPayoutId: "",
+          status: dispersion.status,
+        },
       };
     }
 

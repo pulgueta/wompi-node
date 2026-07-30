@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyDispersionStatus,
   applyPaymentStatus,
+  findActiveDispersion,
   getPayment,
   listProviders,
   recordDispersion,
@@ -11,23 +12,29 @@ import {
   settleProvider,
 } from "./store";
 
+function pendingCentsOf(key: string) {
+  const provider = listProviders().find((candidate) => candidate.key === key);
+  if (!provider) throw new Error(`Unknown test provider: ${key}`);
+  return provider.pendingCents;
+}
+
 beforeEach(() => {
   resetStore();
 });
 
 describe("settleProvider", () => {
   it("subtracts the dispersed amount from the provider's pending balance", () => {
-    const before = listProviders().find((p) => p.key === "p1")!;
+    const before = pendingCentsOf("p1");
 
     expect(settleProvider("p1", 100_000)).toBe(true);
 
-    const after = listProviders().find((p) => p.key === "p1")!;
-    expect(after.pendingCents).toBe(before.pendingCents - 100_000);
+    const after = pendingCentsOf("p1");
+    expect(after).toBe(before - 100_000);
   });
 
   it("never drives a balance below zero", () => {
     settleProvider("p1", Number.MAX_SAFE_INTEGER - 1);
-    expect(listProviders().find((p) => p.key === "p1")!.pendingCents).toBe(0);
+    expect(pendingCentsOf("p1")).toBe(0);
   });
 
   it("rejects unknown providers and invalid amounts", () => {
@@ -49,7 +56,7 @@ describe("applyDispersionStatus", () => {
 
   it("settles the provider exactly once when the batch is fully paid", () => {
     recordDispersion(dispersion);
-    const before = listProviders().find((p) => p.key === "p1")!.pendingCents;
+    const before = pendingCentsOf("p1");
 
     // Poll and webhook race: both report TOTAL_PAYMENT.
     applyDispersionStatus({ reference: dispersion.reference }, "TOTAL_PAYMENT");
@@ -58,20 +65,29 @@ describe("applyDispersionStatus", () => {
       "TOTAL_PAYMENT",
     );
 
-    expect(listProviders().find((p) => p.key === "p1")!.pendingCents).toBe(
-      before - dispersion.amountInCents,
+    expect(pendingCentsOf("p1")).toBe(before - dispersion.amountInCents);
+  });
+
+  it("normalizes total_payment before settling the provider", () => {
+    recordDispersion(dispersion);
+    const before = pendingCentsOf("p1");
+
+    const updated = applyDispersionStatus(
+      { reference: dispersion.reference },
+      "total_payment",
     );
+
+    expect(updated?.status).toBe("TOTAL_PAYMENT");
+    expect(pendingCentsOf("p1")).toBe(before - dispersion.amountInCents);
   });
 
   it("keeps the balance untouched on failed batches", () => {
     recordDispersion(dispersion);
-    const before = listProviders().find((p) => p.key === "p1")!.pendingCents;
+    const before = pendingCentsOf("p1");
 
     applyDispersionStatus({ reference: dispersion.reference }, "TOTAL_FAILURE");
 
-    expect(listProviders().find((p) => p.key === "p1")!.pendingCents).toBe(
-      before,
-    );
+    expect(pendingCentsOf("p1")).toBe(before);
   });
 
   it("ignores dispersions it never tracked", () => {
@@ -92,6 +108,28 @@ describe("applyDispersionStatus", () => {
     expect(after?.status).toBe("TOTAL_PAYMENT");
   });
 
+  it("treats NOT_APPROVED as terminal against stale updates", () => {
+    recordDispersion(dispersion);
+
+    applyDispersionStatus({ reference: dispersion.reference }, "not_approved");
+    const after = applyDispersionStatus(
+      { reference: dispersion.reference },
+      "PENDING",
+    );
+
+    expect(after?.status).toBe("NOT_APPROVED");
+  });
+
+  it("finds only nonterminal unsettled dispersions for a provider", () => {
+    recordDispersion(dispersion);
+
+    expect(findActiveDispersion("p1")?.reference).toBe(dispersion.reference);
+
+    applyDispersionStatus({ reference: dispersion.reference }, "NOT_APPROVED");
+
+    expect(findActiveDispersion("p1")).toBeNull();
+  });
+
   it("requires every supplied identifier to agree with the record", () => {
     recordDispersion(dispersion);
 
@@ -101,6 +139,18 @@ describe("applyDispersionStatus", () => {
         "TOTAL_PAYMENT",
       ),
     ).toBeNull();
+  });
+
+  it("attaches the payout id when an ambiguous attempt is reconciled", () => {
+    recordDispersion({ ...dispersion, wompiPayoutId: "" });
+
+    const updated = applyDispersionStatus(
+      { reference: dispersion.reference, wompiPayoutId: "payout-reconciled" },
+      "TOTAL_PAYMENT",
+    );
+
+    expect(updated?.wompiPayoutId).toBe("payout-reconciled");
+    expect(updated?.status).toBe("TOTAL_PAYMENT");
   });
 });
 
@@ -118,9 +168,10 @@ describe("applyPaymentStatus", () => {
       source: "api",
     });
 
-    const payment = getPayment("PB-ref-abcdef123456")!;
-    expect(payment.status).toBe("APPROVED");
-    expect(payment.source).toBe("webhook");
+    const payment = getPayment("PB-ref-abcdef123456");
+    expect(payment).not.toBeNull();
+    expect(payment?.status).toBe("APPROVED");
+    expect(payment?.source).toBe("webhook");
   });
 
   it("returns null for unknown references", () => {

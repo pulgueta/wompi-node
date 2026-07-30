@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Check } from "lucide-react";
 
@@ -43,6 +43,26 @@ interface KeyError {
 
 type SimulatedOutcome = "APPROVED" | "FAILED";
 
+const TERMINAL_PAYOUT_STATUSES = new Set([
+  "TOTAL_PAYMENT",
+  "PARTIAL_PAYMENT",
+  "NOT_APPROVED",
+  "APPROVED",
+  "PAYMENT",
+  "CANCELED",
+  "CANCELLED",
+]);
+
+function isTerminalPayoutStatus(status: string) {
+  const normalized = status.toUpperCase();
+  return (
+    TERMINAL_PAYOUT_STATUSES.has(normalized) ||
+    normalized.includes("FAIL") ||
+    normalized.includes("ERROR") ||
+    normalized.includes("REJECT")
+  );
+}
+
 export function PayoutDialog({
   target,
   onClose,
@@ -61,21 +81,51 @@ export function PayoutDialog({
   const [reference, setReference] = useState<string | null>(null);
   const [isDispersing, setIsDispersing] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [pollingStopped, setPollingStopped] = useState(false);
+  const consecutivePollErrors = useRef(0);
 
   // The payouts webhook (/api/payouts-webhook) settles the dispersion when
   // it lands; this poll reconciles against the Payouts API in the meantime.
   const statusResult = usePoll(
     async () => {
       if (!reference) return null;
-      const response = await getPayoutStatus({ data: { reference } });
-      const status = response.data?.status.toUpperCase();
-      if (status && status !== "PENDING" && status !== "PROCESSING") {
-        setIsDone(true);
+      try {
+        const response = await getPayoutStatus({ data: { reference } });
+        if (response.error) {
+          consecutivePollErrors.current += 1;
+          if (consecutivePollErrors.current >= 3) {
+            setKeyError({
+              code: response.error.code,
+              statusCode: response.error.statusCode ?? 0,
+              message: response.error.message,
+            });
+            setPollingStopped(true);
+          }
+          return response;
+        }
+
+        consecutivePollErrors.current = 0;
+        const status = response.data.status.toUpperCase();
+        if (isTerminalPayoutStatus(status)) setIsDone(true);
+        return response;
+      } catch (cause) {
+        consecutivePollErrors.current += 1;
+        if (consecutivePollErrors.current >= 3) {
+          setKeyError({
+            code: "ERROR",
+            statusCode: 500,
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Error consultando el estado del payout.",
+          });
+          setPollingStopped(true);
+        }
+        return null;
       }
-      return response;
     },
     2500,
-    reference !== null && !isDone,
+    reference !== null && !isDone && !pollingStopped,
   );
 
   const activeStatus = statusResult?.data?.status.toUpperCase() ?? "PENDING";
@@ -84,11 +134,15 @@ export function PayoutDialog({
   const isApproved = isDone && activeStatus === "TOTAL_PAYMENT";
   const isFailed =
     isDone &&
-    (activeStatus.includes("FAIL") ||
+    (activeStatus === "NOT_APPROVED" ||
+      activeStatus === "CANCELED" ||
+      activeStatus === "CANCELLED" ||
+      activeStatus.includes("FAIL") ||
       activeStatus.includes("ERROR") ||
       activeStatus.includes("REJECT"));
 
-  const amountCents = (Number.parseInt(amountPesos.replace(/\D/g, ""), 10) || 0) * 100;
+  const amountCents =
+    (Number.parseInt(amountPesos.replace(/\D/g, ""), 10) || 0) * 100;
 
   const lookup = async () => {
     setIsResolving(true);
@@ -116,7 +170,9 @@ export function PayoutDialog({
         code: "ERROR",
         statusCode: 500,
         message:
-          cause instanceof Error ? cause.message : "Error consultando la llave.",
+          cause instanceof Error
+            ? cause.message
+            : "Error consultando la llave.",
       });
     } finally {
       setIsResolving(false);
@@ -142,6 +198,9 @@ export function PayoutDialog({
           message: error.message,
         });
       } else {
+        consecutivePollErrors.current = 0;
+        setPollingStopped(false);
+        setKeyError(null);
         setReference(data.reference);
       }
     } catch (cause) {
@@ -229,7 +288,10 @@ export function PayoutDialog({
             {resolution && (
               <>
                 <div className="border bg-neutral-100 px-3.5 py-3 text-[12.5px] leading-relaxed">
-                  <ResolutionRow label="Titular" value={resolution.holderName} />
+                  <ResolutionRow
+                    label="Titular"
+                    value={resolution.holderName}
+                  />
                   <ResolutionRow label="Entidad" value={resolution.bank} />
                   <div className="flex justify-between">
                     <span className="text-neutral-800">Tipo de llave</span>
@@ -294,6 +356,14 @@ export function PayoutDialog({
               Dispersión <code className="font-mono text-xs">{reference}</code>{" "}
               creada. Esperando la confirmación del webhook de Payouts…
             </p>
+            {keyError && (
+              <div className="border border-primary bg-brand-100 px-3.5 py-3 text-[12.5px] leading-relaxed text-brand-800">
+                <p className="mb-0 font-extrabold">
+                  {keyError.code} · HTTP {keyError.statusCode}
+                </p>
+                <p className="mb-0">{keyError.message}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -305,7 +375,8 @@ export function PayoutDialog({
               ) : (
                 <span aria-hidden className="size-3 bg-brand-700" />
               )}
-              Dispersión {isApproved ? "APROBADA" : isFailed ? "FALLIDA" : activeStatus}
+              Dispersión{" "}
+              {isApproved ? "APROBADA" : isFailed ? "FALLIDA" : activeStatus}
             </p>
             <p className="mb-0 text-[13px] leading-relaxed text-neutral-800">
               {isApproved ? (
