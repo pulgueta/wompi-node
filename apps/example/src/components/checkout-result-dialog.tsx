@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useNavigate } from "@tanstack/react-router";
 import { Check, X } from "lucide-react";
@@ -39,6 +39,7 @@ export function CheckoutResultDialog({
   const [binding, setBinding] = useState<CheckoutBinding | null>(null);
   const [bindingReady, setBindingReady] = useState(false);
   const [isFinal, setIsFinal] = useState(false);
+  const consecutiveFailures = useRef(0);
 
   useEffect(() => {
     setBinding(readCheckoutBinding(window.localStorage));
@@ -56,8 +57,16 @@ export function CheckoutResultDialog({
           amountInCents: binding.amountInCents,
         },
       });
-      if (response.error || response.data.status !== "PENDING") {
-        setIsFinal(true);
+      if (response.error !== null) {
+        consecutiveFailures.current += 1;
+        if (consecutiveFailures.current >= 4) {
+          setIsFinal(true);
+        }
+      } else {
+        consecutiveFailures.current = 0;
+        if (response.data.status !== "PENDING") {
+          setIsFinal(true);
+        }
       }
       return response;
     },
