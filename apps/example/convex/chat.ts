@@ -10,6 +10,7 @@ import {
   listUIMessages,
   saveMessage,
   syncStreams,
+  updateThreadMetadata,
   vStreamArgs,
 } from "@convex-dev/agent";
 import { HOUR, MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
@@ -20,7 +21,8 @@ import { components, internal } from "./_generated/api";
 import { rag, WOMPI_DOCS_NAMESPACE } from "./rag";
 
 const DEMO_USER_ID = "panabarbero-demo";
-const AGENT_NAME = "Asistente Wompi";
+const DEFAULT_THREAD_TITLE = "Asistente Wompi";
+const AGENT_NAME = DEFAULT_THREAD_TITLE;
 const MAX_PROMPT_CHARS = 4000;
 const MAX_DOC_CHARS = 16_000;
 
@@ -300,14 +302,12 @@ Reglas:
 // Public chat API
 // ---------------------------------------------------------------------------
 
-async function authorizeThread(
-  ctx: QueryCtx | MutationCtx,
-  threadId: string,
-): Promise<void> {
+async function authorizeThread(ctx: QueryCtx | MutationCtx, threadId: string) {
   const metadata = await getThreadMetadata(ctx, components.agent, { threadId });
   if (metadata.userId !== DEMO_USER_ID) {
     throw new Error("Hilo no autorizado");
   }
+  return metadata;
 }
 
 export const createThread = mutation({
@@ -317,8 +317,44 @@ export const createThread = mutation({
     await rateLimiter.limit(ctx, "createThread", { throws: true });
     return await createAgentThread(ctx, components.agent, {
       userId: DEMO_USER_ID,
-      title: "Asistente Wompi",
+      title: DEFAULT_THREAD_TITLE,
     });
+  },
+});
+
+export const listThreads = query({
+  args: { threadIds: v.array(v.string()) },
+  returns: v.array(
+    v.object({
+      threadId: v.string(),
+      title: v.string(),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const threads: Array<{
+      threadId: string;
+      title: string;
+      createdAt: number;
+    }> = [];
+
+    for (const threadId of args.threadIds.slice(0, 20)) {
+      try {
+        const metadata = await getThreadMetadata(ctx, components.agent, {
+          threadId,
+        });
+        if (metadata.userId !== DEMO_USER_ID) continue;
+        threads.push({
+          threadId,
+          title: metadata.title ?? DEFAULT_THREAD_TITLE,
+          createdAt: metadata._creationTime,
+        });
+      } catch {
+        // Ignore missing or otherwise invalid browser-local thread ids.
+      }
+    }
+
+    return threads;
   },
 });
 
@@ -326,7 +362,7 @@ export const sendMessage = mutation({
   args: { threadId: v.string(), prompt: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await authorizeThread(ctx, args.threadId);
+    const metadata = await authorizeThread(ctx, args.threadId);
     const prompt = args.prompt.trim();
     if (prompt.length === 0 || prompt.length > MAX_PROMPT_CHARS) {
       throw new Error(
@@ -338,6 +374,14 @@ export const sendMessage = mutation({
       throws: true,
     });
     await rateLimiter.limit(ctx, "sendMessageGlobal", { throws: true });
+
+    if (metadata.title === DEFAULT_THREAD_TITLE) {
+      const title = prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
+      await updateThreadMetadata(ctx, components.agent, {
+        threadId: args.threadId,
+        patch: { title },
+      });
+    }
 
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId: args.threadId,
