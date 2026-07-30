@@ -25,19 +25,24 @@ cd apps/example
 npx convex env set AI_GATEWAY_API_KEY vck_...
 ```
 
-Run everything from the monorepo root:
+Install dependencies from the monorepo root, then provision and run the example:
 
 ```bash
 pnpm install
-pnpm --filter wompi-example exec npx convex dev   # pushes the agent, watches
-pnpm --filter wompi-example dev                   # app on :3000
+cd apps/example
+npx convex dev --once   # configures the deployment and pushes the agent once
+pnpm dev                # app on :3000; also starts the Convex watcher
 ```
 
 Ingest the docs corpus for the assistant once:
 
 ```bash
-pnpm --filter wompi-example ingest-docs
+pnpm ingest-docs        # local repository docs
+pnpm ingest-wompi-docs  # 60 official docs.wompi.co pages
 ```
+
+`ingest-wompi-docs` fetches the official pages as markdown, so it requires
+network access and the local `curl.md` helper on `PATH`.
 
 ## Webhooks
 
