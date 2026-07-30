@@ -18,11 +18,11 @@ cp apps/example/.env.example apps/example/.env.local
 - `WOMPI_PAYOUTS_API_KEY`, `WOMPI_PAYOUTS_USER_PRINCIPAL_ID`, and `WOMPI_PAYOUTS_EVENTS_KEY` come from **Pagos a Terceros**.
 - `CONVEX_DEPLOYMENT` / `VITE_CONVEX_URL` bind the AI assistant to its Convex deployment (`npx convex dev` creates one if you start fresh). The store works without them — the chat widget just stays hidden.
 
-The assistant's model key lives on the Convex deployment:
+The assistant's Vercel AI Gateway key lives on the Convex deployment:
 
 ```bash
 cd apps/example
-npx convex env set OPENAI_API_KEY sk-...
+npx convex env set AI_GATEWAY_API_KEY vck_...
 ```
 
 Run everything from the monorepo root:
@@ -45,8 +45,8 @@ Both event URLs live on the app itself, so simulating approved and failed transa
 
 | Dashboard section          | URL                                        |
 | -------------------------- | ------------------------------------------ |
-| Eventos (Payments)         | `https://<origin>/api/checkout-webhook`    |
-| Eventos (Pagos a Terceros) | `https://<origin>/api/payouts-webhook`     |
+| Eventos (Payments)         | `<origin>/api/checkout-webhook`            |
+| Eventos (Pagos a Terceros) | `<origin>/api/payouts-webhook`             |
 
 Every delivery is checksum-verified (`WOMPI_EVENTS_KEY` / `WOMPI_PAYOUTS_EVENTS_KEY`) before the payload is trusted. Without a tunnel the flows still complete: the UI polls the server, which reconciles against the Wompi API.
 
