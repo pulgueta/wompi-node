@@ -1,81 +1,57 @@
-# Wompi checkout and settlement example
+# PanaBarbero — Wompi SDK showcase
 
-This TanStack Start app runs one Colombia sandbox order through both sides of
-`@pulgueta/wompi`:
+A barbershop-supplies store that runs the full `@pulgueta/wompi` surface against the Colombia sandbox. Checkout and payouts live in TanStack Start server functions; Convex backs **only** the AI assistant.
 
-1. create a server-signed Wompi Web Checkout for a COP 49,500 order;
-2. verify the transaction returned by Wompi; and
-3. settle the COP 40,000 supplier share through a resolved BRE-B key or a bank
-   or digital-wallet account.
+- **Vista Cliente** — cart plus buyer form, then a server-signed Wompi Web Checkout with the buyer's data prefilled (`customer-data:*`). The amount is recomputed on the server from the catalog and bound to the order reference with an HMAC proof. The final status arrives through the `transaction.updated` webhook (`/api/checkout-webhook`); until it lands, the result dialog polls the backend, which reconciles against the Wompi API.
+- **Vista Administrador** — BRE-B payouts to suppliers: resolve the key in the directory (masked holder), create the dispersion, and watch the payout settle. Sandbox error keys (`noexiste@test.com`, `12345`, `inactiva@test.com`, `timeout@test.com`, `error@test.com`) exercise every failure path, and the `APROBADA / FALLIDA` toggle maps to the sandbox `transactionStatus` simulation. A `TOTAL_PAYMENT` batch settles the provider's pending balance exactly once, whether the webhook (`/api/payouts-webhook`) or the status poll wins the race.
+- **Asistente Wompi** — a Convex AI Agent (`@convex-dev/agent`) with RAG (`@convex-dev/rag`) over the SDK docs (`apps/docs/content`) that answers integration questions with sources. This is the only feature backed by Convex.
 
-Checkout integrity and Payouts credentials stay on the server. The browser
-receives narrow serializable DTOs and never sees a secret key.
-
-Before creating a payout, the server verifies a signed order proof and fetches
-the Wompi transaction again. The transaction must be `APPROVED` and match the
-exact reference, COP currency, and amount issued for this browser flow. A
-deterministic settlement reference and idempotency key limit the example to one
-supplier settlement attempt per checkout transaction.
-
-> This is a local sandbox demo. Its server functions are unauthenticated and
-> reject calls outside development mode. The signed order proof protects the
-> tunneled payout flow, but it is not a replacement for application
-> authorization or durable order/payout persistence in production.
+Secrets never reach the browser: checkout signing, payout credentials, and webhook verification all live in server functions and API routes. Provider balances and tracked dispersions are in-memory demo state — a dev-server restart reseeds them.
 
 ## Setup
-
-Copy the environment template, then add the sandbox keys from the Wompi
-dashboard:
 
 ```bash
 cp apps/example/.env.example apps/example/.env.local
 ```
 
-- `WOMPI_PUBLIC_KEY` and `WOMPI_INTEGRITY_KEY` come from the regular Payments
-  integration.
-- `WOMPI_PAYOUTS_API_KEY`, `WOMPI_PAYOUTS_USER_PRINCIPAL_ID`, and
-  `WOMPI_PAYOUTS_EVENTS_KEY` come from **Pagos a Terceros**.
-- `WOMPI_EXAMPLE_ORIGIN` must be the exact public HTTPS tunnel origin when the
-  hosted Checkout needs to return from another browser.
+- `WOMPI_PUBLIC_KEY`, `WOMPI_INTEGRITY_KEY`, and `WOMPI_EVENTS_KEY` come from the regular Payments integration.
+- `WOMPI_PAYOUTS_API_KEY`, `WOMPI_PAYOUTS_USER_PRINCIPAL_ID`, and `WOMPI_PAYOUTS_EVENTS_KEY` come from **Pagos a Terceros**.
+- `CONVEX_DEPLOYMENT` / `VITE_CONVEX_URL` bind the AI assistant to its Convex deployment (`npx convex dev` creates one if you start fresh). The store works without them — the chat widget just stays hidden.
 
-Install and run from the monorepo root:
+The assistant's model key lives on the Convex deployment:
+
+```bash
+cd apps/example
+npx convex env set OPENAI_API_KEY sk-...
+```
+
+Run everything from the monorepo root:
 
 ```bash
 pnpm install
-pnpm --filter wompi-example dev
+pnpm --filter wompi-example exec npx convex dev   # pushes the agent, watches
+pnpm --filter wompi-example dev                   # app on :3000
 ```
 
-The app runs at `http://localhost:3000` by default. A public HTTPS tunnel is
-needed for the hosted Checkout redirect to return to a remote browser.
+Ingest the docs corpus for the assistant once:
+
+```bash
+pnpm --filter wompi-example ingest-docs
+```
+
+## Webhooks
+
+Both event URLs live on the app itself, so simulating approved and failed transactions end-to-end needs a public origin (any HTTPS tunnel to :3000 works — set `WOMPI_EXAMPLE_ORIGIN` to it). In the Wompi sandbox dashboard configure:
+
+| Dashboard section          | URL                                        |
+| -------------------------- | ------------------------------------------ |
+| Eventos (Payments)         | `https://<origin>/api/checkout-webhook`    |
+| Eventos (Pagos a Terceros) | `https://<origin>/api/payouts-webhook`     |
+
+Every delivery is checksum-verified (`WOMPI_EVENTS_KEY` / `WOMPI_PAYOUTS_EVENTS_KEY`) before the payload is trusted. Without a tunnel the flows still complete: the UI polls the server, which reconciles against the Wompi API.
 
 ## Sandbox data
 
-Approved Web Checkout card:
+Approved Web Checkout card: `4242 4242 4242 4242` (any future expiry, any CVC). Declined: `4111 1111 1111 1111`.
 
-```text
-4242 4242 4242 4242
-Any future expiry
-Any three-digit CVC
-```
-
-The primary BRE-B example uses `@elias123`. Other successful keys include
-`ecolon@wompi.com`, `3001234567`, `1020304050`, `B00012345`, and `900123456`.
-
-The bank or wallet alternative loads the live sandbox catalogue. It explicitly
-sends the supplier profile's `personType`, legal identity, beneficiary email,
-and transaction reference because Wompi's OpenAPI and prose documentation
-disagree about which are required. The operator only chooses the institution,
-conditional account type, and account or wallet number before a review step.
-
-## Webhook
-
-Configure Payouts events to target:
-
-```text
-/api/payouts-webhook
-```
-
-The handler verifies the raw body with `WOMPI_PAYOUTS_EVENTS_KEY`, rejects bad
-signatures, and logs the ID and status of verified payout events. The example
-polls status in the UI; a production application should persist signed webhook
-results as its durable source of truth.
+Successful BRE-B keys: `@elias123`, `ecolon@wompi.com`, `3001234567`, `1020304050`, `B00012345`, `900123456`.
