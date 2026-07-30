@@ -4,7 +4,9 @@ import { buildCheckoutUrl } from "@pulgueta/wompi/server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestUrl } from "@tanstack/react-start/server";
 
-export const ORDER_AMOUNT_IN_CENTS = 4_950_000;
+import { PRODUCTS, SHIPPING_CENTS } from "#/lib/catalog";
+import { applyPaymentStatus, getPayment, recordPayment } from "./store";
+
 export const ORDER_CURRENCY = "COP" as const;
 
 export type CheckoutErrorDto = {
@@ -17,6 +19,24 @@ export type CheckoutServerResult<T> =
   | { error: CheckoutErrorDto; data: null }
   | { error: null; data: T };
 
+export type CheckoutLineInput = {
+  productId: string;
+  quantity: number;
+};
+
+export type CheckoutBuyerInput = {
+  fullName: string;
+  email: string;
+  phone: string;
+  document: string;
+  documentType: string;
+};
+
+export type CreateCheckoutSessionInput = {
+  lines: CheckoutLineInput[];
+  buyer: CheckoutBuyerInput;
+};
+
 export type CheckoutSessionDto = {
   checkoutUrl: string;
   reference: string;
@@ -27,18 +47,19 @@ export type CheckoutSessionDto = {
 
 export type CheckoutTransactionDto = {
   id: string;
-  status: Transaction["status"];
+  status: Transaction["status"] | string;
   reference: string;
   amountInCents: number | null;
-  currency: string | null;
   paymentMethodType: string | null;
   statusMessage: string | null;
-  createdAt: string | null;
+  /** Whether the final status came from the webhook or an API poll. */
+  source: "webhook" | "api";
 };
 
 export type GetCheckoutTransactionInput = {
   transactionId: string;
-  expectedReference: string;
+  reference: string;
+  amountInCents: number;
   orderProof: string;
 };
 
@@ -56,22 +77,15 @@ class CheckoutInputError extends Error {
   }
 }
 
-function getSandboxPublicKey() {
+function getSandboxCheckoutCredentials() {
   const publicKey = process.env.WOMPI_PUBLIC_KEY?.trim();
-
   if (!publicKey?.startsWith("pub_test_")) {
     throw new CheckoutConfigurationError(
       "Set WOMPI_PUBLIC_KEY to a Wompi sandbox public key (pub_test_...).",
     );
   }
 
-  return publicKey;
-}
-
-function getSandboxCheckoutCredentials() {
-  const publicKey = getSandboxPublicKey();
   const integrityKey = process.env.WOMPI_INTEGRITY_KEY?.trim();
-
   if (!integrityKey?.startsWith("test_integrity_")) {
     throw new CheckoutConfigurationError(
       "Set WOMPI_INTEGRITY_KEY to a Wompi sandbox integrity key (test_integrity_...).",
@@ -118,49 +132,53 @@ function toCheckoutError(error: unknown): CheckoutErrorDto {
   };
 }
 
-function parseTransactionId(
-  input: GetCheckoutTransactionInput | null | undefined,
-) {
-  const transactionId =
-    typeof input?.transactionId === "string" ? input.transactionId.trim() : "";
+const MAX_QUANTITY_PER_LINE = 99;
 
-  if (!transactionId || !/^[A-Za-z0-9_-]{1,200}$/.test(transactionId)) {
-    throw new CheckoutInputError("Enter a valid Wompi transaction ID.");
+/**
+ * The amount is always recomputed on the server from the catalog — the
+ * client only says *what* it wants to buy, never how much it costs.
+ */
+export function computeOrderAmount(lines: CheckoutLineInput[]) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    throw new CheckoutInputError("El carrito está vacío.");
   }
 
-  return transactionId;
+  let subtotal = 0;
+  for (const line of lines) {
+    const product = PRODUCTS.find((p) => p.id === line.productId);
+    if (!product) {
+      throw new CheckoutInputError(`Producto desconocido: ${line.productId}`);
+    }
+    if (
+      !Number.isInteger(line.quantity) ||
+      line.quantity < 1 ||
+      line.quantity > MAX_QUANTITY_PER_LINE
+    ) {
+      throw new CheckoutInputError(
+        `Cantidad inválida para ${product.name} (1–${MAX_QUANTITY_PER_LINE}).`,
+      );
+    }
+    subtotal += product.priceCents * line.quantity;
+  }
+
+  return subtotal + SHIPPING_CENTS;
 }
 
-function parseExpectedReference(
-  input: GetCheckoutTransactionInput | null | undefined,
-) {
-  const expectedReference =
-    typeof input?.expectedReference === "string"
-      ? input.expectedReference.trim()
-      : "";
-
-  if (!/^order-barber-kit-[a-z0-9]+-[a-f0-9]{12}$/.test(expectedReference)) {
+function parseBuyer(buyer: CheckoutBuyerInput | null | undefined) {
+  const email = buyer?.email?.trim() ?? "";
+  const fullName = buyer?.fullName?.trim() ?? "";
+  if (!email.includes("@") || fullName.length === 0) {
     throw new CheckoutInputError(
-      "This browser no longer has the launched order reference. Start another checkout.",
+      "Completa el nombre y el email del comprador.",
     );
   }
-
-  return expectedReference;
-}
-
-function parseOrderProof(
-  input: GetCheckoutTransactionInput | null | undefined,
-) {
-  const orderProof =
-    typeof input?.orderProof === "string" ? input.orderProof.trim() : "";
-
-  if (!/^[a-f0-9]{64}$/.test(orderProof)) {
-    throw new CheckoutInputError(
-      "This browser no longer has a valid checkout proof. Start another checkout.",
-    );
-  }
-
-  return orderProof;
+  return {
+    email,
+    fullName,
+    phone: buyer?.phone?.trim() ?? "",
+    document: buyer?.document?.trim() ?? "",
+    documentType: buyer?.documentType?.trim() ?? "CC",
+  };
 }
 
 export function createOrderReference(
@@ -168,12 +186,14 @@ export function createOrderReference(
   entropy = crypto.randomUUID(),
 ) {
   const compactEntropy = entropy.replaceAll("-", "").slice(0, 12);
-  return `order-barber-kit-${timestamp.toString(36)}-${compactEntropy}`;
+  return `PB-${timestamp.toString(36)}-${compactEntropy}`;
 }
 
-function getOrderProofPayload(reference: string) {
+const ORDER_REFERENCE_PATTERN = /^PB-[a-z0-9]+-[a-f0-9]{12}$/;
+
+function getOrderProofPayload(reference: string, amountInCents: number) {
   return new TextEncoder().encode(
-    `${reference}|${ORDER_AMOUNT_IN_CENTS}|${ORDER_CURRENCY}`,
+    `${reference}|${amountInCents}|${ORDER_CURRENCY}`,
   );
 }
 
@@ -187,14 +207,20 @@ async function getOrderProofKey(integrityKey: string) {
   );
 }
 
+/**
+ * HMAC over `reference|amount|currency` handed to the browser at launch
+ * time; it proves a status lookup belongs to an order this server created,
+ * without keeping per-order state.
+ */
 export async function createOrderProof(
   reference: string,
+  amountInCents: number,
   integrityKey: string,
 ) {
   const signature = await crypto.subtle.sign(
     "HMAC",
     await getOrderProofKey(integrityKey),
-    getOrderProofPayload(reference),
+    getOrderProofPayload(reference, amountInCents),
   );
   return Array.from(new Uint8Array(signature), (byte) =>
     byte.toString(16).padStart(2, "0"),
@@ -203,6 +229,7 @@ export async function createOrderProof(
 
 export async function verifyOrderProof(
   reference: string,
+  amountInCents: number,
   orderProof: string,
   integrityKey: string,
 ) {
@@ -213,7 +240,7 @@ export async function verifyOrderProof(
     "HMAC",
     await getOrderProofKey(integrityKey),
     received,
-    getOrderProofPayload(reference),
+    getOrderProofPayload(reference, amountInCents),
   );
 }
 
@@ -245,113 +272,175 @@ export function getCheckoutRedirectUrl(
   return new URL("/", redirectBase.origin).toString();
 }
 
-export function toCheckoutTransactionDto(
-  transaction: Transaction,
-  expectedReference: string,
-): CheckoutTransactionDto {
+function parseGetTransactionInput(
+  input: GetCheckoutTransactionInput | null | undefined,
+) {
+  const transactionId =
+    typeof input?.transactionId === "string" ? input.transactionId.trim() : "";
+  if (!transactionId || !/^[A-Za-z0-9_-]{1,200}$/.test(transactionId)) {
+    throw new CheckoutInputError("Enter a valid Wompi transaction ID.");
+  }
+
+  const reference =
+    typeof input?.reference === "string" ? input.reference.trim() : "";
+  if (!ORDER_REFERENCE_PATTERN.test(reference)) {
+    throw new CheckoutInputError(
+      "This browser no longer has the launched order reference. Start another checkout.",
+    );
+  }
+
+  const amountInCents = input?.amountInCents;
   if (
-    transaction.reference !== expectedReference ||
-    transaction.amount_in_cents !== ORDER_AMOUNT_IN_CENTS ||
-    transaction.currency !== ORDER_CURRENCY
+    typeof amountInCents !== "number" ||
+    !Number.isInteger(amountInCents) ||
+    amountInCents <= 0
   ) {
     throw new CheckoutInputError(
-      "That transaction does not belong to this sandbox order.",
+      "This browser no longer has the launched order amount. Start another checkout.",
     );
   }
 
-  return {
-    id: transaction.id,
-    status: transaction.status,
-    reference: transaction.reference,
-    amountInCents: transaction.amount_in_cents ?? null,
-    currency: transaction.currency ?? null,
-    paymentMethodType: transaction.payment_method_type ?? null,
-    statusMessage: transaction.status_message ?? null,
-    createdAt: transaction.created_at ?? null,
-  };
+  const orderProof =
+    typeof input?.orderProof === "string" ? input.orderProof.trim() : "";
+  if (!/^[a-f0-9]{64}$/.test(orderProof)) {
+    throw new CheckoutInputError(
+      "This browser no longer has a valid checkout proof. Start another checkout.",
+    );
+  }
+
+  return { transactionId, reference, amountInCents, orderProof };
 }
 
-export async function verifyCheckoutTransaction(
-  input: GetCheckoutTransactionInput,
-  requireApproval = false,
-) {
-  const transactionId = parseTransactionId(input);
-  const expectedReference = parseExpectedReference(input);
-  const orderProof = parseOrderProof(input);
-  const { publicKey, integrityKey } = getSandboxCheckoutCredentials();
-
-  if (!(await verifyOrderProof(expectedReference, orderProof, integrityKey))) {
-    throw new CheckoutInputError(
-      "The checkout proof does not match this sandbox order.",
-    );
-  }
-
-  const client = new WompiClient({ publicKey, sandbox: true });
-  const [error, transaction] =
-    await client.transactions.getTransaction(transactionId);
-
-  if (error) throw error;
-
-  const verified = toCheckoutTransactionDto(transaction, expectedReference);
-  if (requireApproval && verified.status !== "APPROVED") {
-    throw new CheckoutInputError(
-      "The customer checkout must be approved before settling the supplier.",
-    );
-  }
-
-  return verified;
-}
-
-export const createCheckoutSession = createServerFn({ method: "POST" }).handler(
-  async (): Promise<CheckoutServerResult<CheckoutSessionDto>> => {
-    try {
-      const { publicKey, integrityKey } = getSandboxCheckoutCredentials();
-      const reference = createOrderReference();
-      const orderProof = await createOrderProof(reference, integrityKey);
-      const redirectUrl = getCheckoutRedirectUrl(
-        getRequestUrl(),
-        process.env.WOMPI_EXAMPLE_ORIGIN,
-      );
-      const checkoutUrl = await buildCheckoutUrl({
-        publicKey,
-        integrityKey,
-        reference,
-        amountInCents: ORDER_AMOUNT_IN_CENTS,
-        currency: ORDER_CURRENCY,
-        redirectUrl,
-        collectShipping: false,
-        customerData: {
-          email: "laura@example.com",
-          fullName: "Laura Mendoza",
-          phoneNumber: "3001234567",
-          phoneNumberPrefix: "+57",
-        },
-      });
-
-      return {
-        error: null,
-        data: {
-          checkoutUrl,
+export const createCheckoutSession = createServerFn({ method: "POST" })
+  .validator((data: CreateCheckoutSessionInput) => data)
+  .handler(
+    async ({ data }): Promise<CheckoutServerResult<CheckoutSessionDto>> => {
+      try {
+        const { publicKey, integrityKey } = getSandboxCheckoutCredentials();
+        const amountInCents = computeOrderAmount(data.lines);
+        const buyer = parseBuyer(data.buyer);
+        const reference = createOrderReference();
+        const orderProof = await createOrderProof(
           reference,
-          orderProof,
-          amountInCents: ORDER_AMOUNT_IN_CENTS,
+          amountInCents,
+          integrityKey,
+        );
+        const redirectUrl = getCheckoutRedirectUrl(
+          getRequestUrl(),
+          process.env.WOMPI_EXAMPLE_ORIGIN,
+        );
+        const checkoutUrl = await buildCheckoutUrl({
+          publicKey,
+          integrityKey,
+          reference,
+          amountInCents,
           currency: ORDER_CURRENCY,
-        },
-      };
-    } catch (error) {
-      return { error: toCheckoutError(error), data: null };
-    }
-  },
-);
+          redirectUrl,
+          collectShipping: false,
+          customerData: {
+            email: buyer.email,
+            fullName: buyer.fullName,
+            phoneNumber: buyer.phone,
+            phoneNumberPrefix: "+57",
+            legalId: buyer.document,
+            legalIdType: buyer.documentType,
+          },
+        });
+
+        recordPayment(reference, amountInCents);
+
+        return {
+          error: null,
+          data: {
+            checkoutUrl,
+            reference,
+            orderProof,
+            amountInCents,
+            currency: ORDER_CURRENCY,
+          },
+        };
+      } catch (error) {
+        return { error: toCheckoutError(error), data: null };
+      }
+    },
+  );
 
 export const getCheckoutTransaction = createServerFn({ method: "POST" })
   .validator((data: GetCheckoutTransactionInput) => data)
   .handler(
     async ({ data }): Promise<CheckoutServerResult<CheckoutTransactionDto>> => {
       try {
+        const { transactionId, reference, amountInCents, orderProof } =
+          parseGetTransactionInput(data);
+        const { publicKey, integrityKey } = getSandboxCheckoutCredentials();
+
+        if (
+          !(await verifyOrderProof(
+            reference,
+            amountInCents,
+            orderProof,
+            integrityKey,
+          ))
+        ) {
+          throw new CheckoutInputError(
+            "The checkout proof does not match this sandbox order.",
+          );
+        }
+
+        // The webhook is the source of truth: when it already delivered the
+        // final status for this order, answer from it without polling.
+        const recorded = getPayment(reference);
+        if (
+          recorded &&
+          recorded.source === "webhook" &&
+          recorded.status !== "PENDING"
+        ) {
+          return {
+            error: null,
+            data: {
+              id: recorded.transactionId ?? transactionId,
+              status: recorded.status,
+              reference,
+              amountInCents: recorded.amountInCents,
+              paymentMethodType: null,
+              statusMessage: null,
+              source: "webhook",
+            },
+          };
+        }
+
+        const client = new WompiClient({ publicKey, sandbox: true });
+        const [error, transaction] =
+          await client.transactions.getTransaction(transactionId);
+        if (error) throw error;
+
+        if (
+          transaction.reference !== reference ||
+          transaction.amount_in_cents !== amountInCents ||
+          transaction.currency !== ORDER_CURRENCY
+        ) {
+          throw new CheckoutInputError(
+            "That transaction does not belong to this sandbox order.",
+          );
+        }
+
+        applyPaymentStatus(reference, {
+          status: transaction.status,
+          transactionId: transaction.id,
+          source: "api",
+        });
+
         return {
           error: null,
-          data: await verifyCheckoutTransaction(data),
+          data: {
+            id: transaction.id,
+            status: transaction.status,
+            reference: transaction.reference,
+            amountInCents: transaction.amount_in_cents ?? null,
+            paymentMethodType: transaction.payment_method_type ?? null,
+            statusMessage: transaction.status_message ?? null,
+            source: "api",
+          },
         };
       } catch (error) {
         return { error: toCheckoutError(error), data: null };

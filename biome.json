@@ -36,7 +36,12 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "ignore": ["packages/convex-component/**", "**/.vercel/**", "**/routeTree.gen.ts"]
+    "ignore": [
+      "packages/convex-component/**",
+      "**/.vercel/**",
+      "**/routeTree.gen.ts",
+      "**/convex/_generated/**"
+    ]
   },
   "organizeImports": {
     "enabled": false

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <g fill="none" stroke="#111" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+    <rect x="61" y="211" width="118" height="5" rx="2.5" fill="#111" stroke="none"/>
+    <path d="M108 29h24l7 15-7 16h-24l-7-16 7-15Z" fill="#111" stroke="none"/>
+    <path d="M103 59h34v24h-34zM98 75h44"/>
+    <path d="M75 101l17 12-5 76 10 18H79l-13-18 9-88ZM165 101l-17 12 5 76-10 18h18l13-18-9-88Z" fill="#9a9a96" stroke="none"/>
+    <path d="M96 83h48l21 18 9 88-13 18H79l-13-18 9-88 21-18Z"/>
+    <path d="M75 101h90M70 187h100"/>
+    <path d="M75 101l17 12-5 76 10 18M165 101l-17 12 5 76-10 18"/>
+    <rect x="91" y="119" width="58" height="57" fill="#9a9a96"/>
+    <rect x="91" y="132" width="58" height="13" fill="#111" stroke="none"/>
+    <path d="M104 126h32M101 155h38M106 164h28"/>
+    <path d="M103 83V59M137 83V59"/>
+  </g>
+</svg>

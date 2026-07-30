@@ -10,11 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as ApiCheckoutWebhookRouteImport } from './routes/api/checkout-webhook'
 import { Route as ApiPayoutsWebhookRouteImport } from './routes/api/payouts-webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCheckoutWebhookRoute = ApiCheckoutWebhookRouteImport.update({
+  id: '/api/checkout-webhook',
+  path: '/api/checkout-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPayoutsWebhookRoute = ApiPayoutsWebhookRouteImport.update({
@@ -25,27 +37,40 @@ const ApiPayoutsWebhookRoute = ApiPayoutsWebhookRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/api/checkout-webhook': typeof ApiCheckoutWebhookRoute
   '/api/payouts-webhook': typeof ApiPayoutsWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/api/checkout-webhook': typeof ApiCheckoutWebhookRoute
   '/api/payouts-webhook': typeof ApiPayoutsWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/api/checkout-webhook': typeof ApiCheckoutWebhookRoute
   '/api/payouts-webhook': typeof ApiPayoutsWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/payouts-webhook'
+  fullPaths: '/' | '/admin' | '/api/checkout-webhook' | '/api/payouts-webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/payouts-webhook'
-  id: '__root__' | '/' | '/api/payouts-webhook'
+  to: '/' | '/admin' | '/api/checkout-webhook' | '/api/payouts-webhook'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/api/checkout-webhook'
+    | '/api/payouts-webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
+  ApiCheckoutWebhookRoute: typeof ApiCheckoutWebhookRoute
   ApiPayoutsWebhookRoute: typeof ApiPayoutsWebhookRoute
 }
 
@@ -56,6 +81,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/checkout-webhook': {
+      id: '/api/checkout-webhook'
+      path: '/api/checkout-webhook'
+      fullPath: '/api/checkout-webhook'
+      preLoaderRoute: typeof ApiCheckoutWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/payouts-webhook': {
@@ -70,6 +109,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
+  ApiCheckoutWebhookRoute: ApiCheckoutWebhookRoute,
   ApiPayoutsWebhookRoute: ApiPayoutsWebhookRoute,
 }
 export const routeTree = rootRouteImport
