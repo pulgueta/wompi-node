@@ -322,6 +322,16 @@ export const createThread = mutation({
   },
 });
 
+export const deleteThread = mutation({
+  args: { threadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await authorizeThread(ctx, args.threadId);
+    await wompiAgent.deleteThreadAsync(ctx, { threadId: args.threadId });
+    return null;
+  },
+});
+
 export const listThreads = query({
   args: { threadIds: v.array(v.string()) },
   returns: v.array(

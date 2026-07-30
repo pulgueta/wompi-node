@@ -8,6 +8,7 @@ import {
   MessageSquare,
   SendHorizontal,
   SquarePen,
+  Trash2,
   X,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
@@ -15,6 +16,14 @@ import { Streamdown } from "streamdown";
 import { api } from "../../convex/_generated/api";
 import { Button } from "#/components/ui/button";
 import { Bubble, BubbleContent } from "#/components/ui/bubble";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import { Marker, MarkerContent } from "#/components/ui/marker";
 import {
@@ -88,7 +97,9 @@ export function ChatWidget() {
   );
   const [threadError, setThreadError] = useState<string | null>(null);
   const createInFlight = useRef(false);
+  const deleteInFlight = useRef(new Set<string>());
   const createThread = useMutation(api.chat.createThread);
+  const deleteThread = useMutation(api.chat.deleteThread);
 
   const selectThread = useCallback((id: string) => {
     setThreadId(id);
@@ -118,17 +129,42 @@ export function ChatWidget() {
     }
   }, [createThread, rememberThread]);
 
+  const removeThread = useCallback(
+    async (id: string) => {
+      if (deleteInFlight.current.has(id)) return false;
+      deleteInFlight.current.add(id);
+      setThreadError(null);
+      try {
+        await deleteThread({ threadId: id });
+        setThreadIds((current) => {
+          const remaining = storeThreadIds(
+            current.filter((currentId) => currentId !== id),
+          );
+          setThreadId((activeId) =>
+            activeId === id ? (remaining[0] ?? null) : activeId,
+          );
+          return remaining;
+        });
+        return true;
+      } catch (error) {
+        console.error("Failed to delete chat thread", error);
+        setThreadError(
+          "No se pudo eliminar la conversación. Intenta de nuevo.",
+        );
+        return false;
+      } finally {
+        deleteInFlight.current.delete(id);
+      }
+    },
+    [deleteThread],
+  );
+
   useEffect(() => {
     if (!isOpen || threadId) return;
-    void createThread({})
-      .then((id) => {
-        rememberThread(id);
-      })
-      .catch((error) => {
-        console.error("Failed to create chat thread", error);
-        setIsOpen(false);
-      });
-  }, [isOpen, threadId, createThread, rememberThread]);
+    void startNewThread().then((created) => {
+      if (!created) setIsOpen(false);
+    });
+  }, [isOpen, threadId, startNewThread]);
 
   return (
     <>
@@ -140,6 +176,7 @@ export function ChatWidget() {
           threadError={threadError}
           onClearThreadError={() => setThreadError(null)}
           onClose={() => setIsOpen(false)}
+          onDeleteThread={removeThread}
           onNewThread={startNewThread}
           onSelectThread={selectThread}
         />
@@ -164,6 +201,7 @@ function ChatPanel({
   threadError,
   onClearThreadError,
   onClose,
+  onDeleteThread,
   onNewThread,
   onSelectThread,
 }: {
@@ -172,6 +210,7 @@ function ChatPanel({
   threadError: string | null;
   onClearThreadError: () => void;
   onClose: () => void;
+  onDeleteThread: (threadId: string) => Promise<boolean>;
   onNewThread: () => Promise<boolean>;
   onSelectThread: (threadId: string) => void;
 }) {
@@ -179,6 +218,11 @@ function ChatPanel({
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isThreadsOpen, setIsThreadsOpen] = useState(false);
+  const [threadToDelete, setThreadToDelete] = useState<{
+    threadId: string;
+    title: string;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   // Synchronous lock: `isPending` comes from the subscription and lags, so a
   // fast double submit could persist the prompt (and bill a reply) twice.
@@ -271,9 +315,9 @@ function ChatPanel({
           type="button"
           aria-label="Nueva conversación"
           onClick={() => {
-            void onNewThread().then((created) => {
-              if (created) setIsThreadsOpen(false);
-            });
+            setIsThreadsOpen(false);
+            if (messages.length === 0) return;
+            void onNewThread();
           }}
           className="flex size-10 shrink-0 cursor-pointer items-center justify-center transition-colors hover:bg-background/15"
         >
@@ -311,46 +355,63 @@ function ChatPanel({
                 {threads.map((thread) => {
                   const isActive = thread.threadId === threadId;
                   return (
-                    <button
+                    <div
                       key={thread.threadId}
-                      type="button"
-                      onClick={() => {
-                        onSelectThread(thread.threadId);
-                        setIsThreadsOpen(false);
-                      }}
                       className={cn(
-                        "w-full border px-2.5 py-2 text-left transition-colors hover:border-primary",
+                        "flex w-full border transition-colors hover:border-primary",
                         isActive && "border-l-4 border-l-primary",
                       )}
                     >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span
-                          className={cn(
-                            "min-w-0 flex-1 truncate text-[12.5px]",
-                            isActive && "font-semibold",
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectThread(thread.threadId);
+                          setIsThreadsOpen(false);
+                        }}
+                        className="min-w-0 flex-1 px-2.5 py-2 text-left"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={cn(
+                              "min-w-0 flex-1 truncate text-[12.5px]",
+                              isActive && "font-semibold",
+                            )}
+                          >
+                            {thread.title}
+                          </span>
+                          {isActive && (
+                            <span className="shrink-0 bg-primary px-1.5 py-0.5 text-[9px] font-bold tracking-[0.06em] text-primary-foreground">
+                              ACTUAL
+                            </span>
                           )}
-                        >
-                          {thread.title}
                         </span>
-                        {isActive && (
-                          <span className="shrink-0 bg-primary px-1.5 py-0.5 text-[9px] font-bold tracking-[0.06em] text-primary-foreground">
-                            ACTUAL
+                        {thread.createdAt > 0 && (
+                          <span className="mt-1 block text-[10px] text-neutral-700">
+                            {new Date(thread.createdAt).toLocaleDateString(
+                              "es-CO",
+                              {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              },
+                            )}
                           </span>
                         )}
-                      </span>
-                      {thread.createdAt > 0 && (
-                        <span className="mt-1 block text-[10px] text-neutral-700">
-                          {new Date(thread.createdAt).toLocaleDateString(
-                            "es-CO",
-                            {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            },
-                          )}
-                        </span>
-                      )}
-                    </button>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Eliminar conversación ${thread.title}`}
+                        onClick={() =>
+                          setThreadToDelete({
+                            threadId: thread.threadId,
+                            title: thread.title,
+                          })
+                        }
+                        className="flex w-10 shrink-0 items-center justify-center border-l text-neutral-700 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 aria-hidden className="size-4" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -436,6 +497,51 @@ function ChatPanel({
           <SendHorizontal aria-hidden className="size-[15px]" />
         </Button>
       </form>
+      <Dialog
+        open={threadToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setThreadToDelete(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="w-[340px] gap-4 rounded-none border-2 p-5"
+        >
+          <DialogHeader className="gap-2 text-left">
+            <DialogTitle className="text-sm font-extrabold">
+              Eliminar conversación
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed text-neutral-700">
+              “{threadToDelete?.title}” y todos sus mensajes se eliminarán
+              permanentemente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-row justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setThreadToDelete(null)}
+              disabled={isDeleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={() => {
+                if (!threadToDelete) return;
+                setIsDeleting(true);
+                void onDeleteThread(threadToDelete.threadId)
+                  .then(() => setThreadToDelete(null))
+                  .finally(() => setIsDeleting(false));
+              }}
+            >
+              {isDeleting ? "Eliminando…" : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
