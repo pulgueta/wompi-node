@@ -14,8 +14,9 @@
         "WOMPI_PAYOUTS_API_KEY",
         "WOMPI_PAYOUTS_USER_PRINCIPAL_ID",
         "WOMPI_PAYOUTS_EVENTS_KEY",
-        "UPSTASH_REDIS_REST_URL",
-        "UPSTASH_REDIS_REST_TOKEN"
+        "WOMPI_EXAMPLE_ORIGIN",
+        "VITE_CONVEX_URL",
+        "VITE_CONVEX_SITE_URL"
       ]
     },
     "test": {
