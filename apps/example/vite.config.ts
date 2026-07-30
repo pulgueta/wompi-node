@@ -8,7 +8,8 @@ import viteReact from "@vitejs/plugin-react";
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [tailwindcss(), tanstackStart(), viteReact(), nitro()],
-  server: {
-    allowedHosts: ["wompi-localhost.pulgueta.com"],
-  },
+  // Set your ngrok or Cloudflare tunnel URL here to use Wompi webhooks
+  // server: {
+  //   allowedHosts: [],
+  // },
 });

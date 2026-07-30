@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import {
   HeadContent,
   Outlet,
@@ -14,6 +12,9 @@ import { Navbar } from "#/components/navbar";
 import { CartProvider } from "#/lib/cart";
 
 import appCss from "../styles.css?url";
+
+const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+const convexClient = convexUrl ? new ConvexReactClient(convexUrl) : null;
 
 export const Route = createRootRoute({
   head: () => ({
@@ -52,11 +53,6 @@ function AppLayout() {
   // Convex only backs the AI assistant; the store, checkout, and payouts
   // run on TanStack Start server functions. Without a deployment URL the
   // app still works — minus the chat widget.
-  const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
-  const [convexClient] = useState(() =>
-    convexUrl ? new ConvexReactClient(convexUrl) : null,
-  );
-
   const app = (
     <CartProvider>
       <div className="flex min-h-screen flex-col pb-11">
