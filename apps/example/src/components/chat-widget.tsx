@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useUIMessages, useSmoothText } from "@convex-dev/agent/react";
 import { useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import { MessageSquare, SendHorizontal, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 
@@ -24,7 +25,8 @@ const STARTER_QUESTIONS = [
   "Autofill del checkout",
 ];
 
-const THREAD_KEY = "panabarbero:chat-thread";
+const MAX_PROMPT_CHARS = 4000; // keep in sync with convex/chat.ts
+const THREAD_KEY = `panabarbero:chat-thread:${import.meta.env.VITE_CONVEX_URL ?? "local"}`;
 
 export function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
@@ -37,10 +39,15 @@ export function ChatWidget() {
 
   useEffect(() => {
     if (!isOpen || threadId) return;
-    void createThread({}).then((id) => {
-      window.localStorage.setItem(THREAD_KEY, id);
-      setThreadId(id);
-    });
+    void createThread({})
+      .then((id) => {
+        window.localStorage.setItem(THREAD_KEY, id);
+        setThreadId(id);
+      })
+      .catch((error) => {
+        console.error("Failed to create chat thread", error);
+        setIsOpen(false);
+      });
   }, [isOpen, threadId, createThread]);
 
   return (
@@ -70,6 +77,7 @@ function ChatPanel({
   onClose: () => void;
 }) {
   const [input, setInput] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const sendMessage = useMutation(api.chat.sendMessage);
 
@@ -99,8 +107,23 @@ function ChatPanel({
   const ask = (text: string) => {
     const prompt = text.trim();
     if (!prompt || isPending || isStreaming) return;
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      setSendError(
+        `El mensaje no puede superar los ${MAX_PROMPT_CHARS} caracteres.`,
+      );
+      return;
+    }
+    setSendError(null);
     setInput("");
-    void sendMessage({ threadId, prompt });
+    void sendMessage({ threadId, prompt }).catch((error) => {
+      console.error("Failed to send chat message", error);
+      setInput(text);
+      setSendError(
+        error instanceof ConvexError && error.data?.kind === "RateLimited"
+          ? "Límite de mensajes alcanzado. Espera un momento e intenta de nuevo."
+          : "No se pudo enviar el mensaje. Intenta de nuevo.",
+      );
+    });
   };
 
   return (
@@ -175,6 +198,14 @@ function ChatPanel({
           )}
       </div>
 
+      {sendError && (
+        <p
+          role="alert"
+          className="mb-0 border-t px-3.5 py-2 text-[11px] text-brand-700"
+        >
+          {sendError}
+        </p>
+      )}
       <form
         className="flex gap-2 border-t-2 px-3.5 py-2.5"
         onSubmit={(event) => {
