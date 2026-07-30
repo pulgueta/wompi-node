@@ -1,8 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ShoppingCart } from "lucide-react";
+import { ShoppingCart, StarIcon } from "lucide-react";
 
 import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { useCart } from "#/lib/cart";
 import { cn } from "#/lib/utils";
 
@@ -61,6 +61,15 @@ export function Navbar() {
             Carrito ({itemCount})
           </Button>
         )}
+
+        <a
+          href="https://github.com/pulgueta/wompi-node"
+          target="_blank"
+          rel="noreferrer"
+          className={cn(buttonVariants({ variant: "outline" }))}
+        >
+          <StarIcon className="fill-amber-400 text-amber-400" /> GitHub
+        </a>
       </div>
     </nav>
   );
