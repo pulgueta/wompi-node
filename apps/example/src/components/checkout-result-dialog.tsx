@@ -39,10 +39,11 @@ export function CheckoutResultDialog({
   const [binding, setBinding] = useState<CheckoutBinding | null>(null);
   const [bindingReady, setBindingReady] = useState(false);
   const [isFinal, setIsFinal] = useState(false);
+  const [gaveUp, setGaveUp] = useState(false);
   const consecutiveFailures = useRef(0);
 
   useEffect(() => {
-    setBinding(readCheckoutBinding(window.localStorage));
+    setBinding(readCheckoutBinding(window.sessionStorage));
     setBindingReady(true);
   }, []);
 
@@ -60,6 +61,7 @@ export function CheckoutResultDialog({
       if (response.error !== null) {
         consecutiveFailures.current += 1;
         if (consecutiveFailures.current >= 4) {
+          setGaveUp(true);
           setIsFinal(true);
         }
       } else {
@@ -80,14 +82,17 @@ export function CheckoutResultDialog({
 
   const finish = () => {
     clear();
-    clearCheckoutBinding(window.localStorage);
+    clearCheckoutBinding(window.sessionStorage);
     close();
   };
 
   const transaction = result?.data ?? null;
   const status = (transaction?.status ?? "PENDING").toUpperCase();
   const isApproved = status === "APPROVED";
-  const hasError = (bindingReady && binding === null) || result?.error != null;
+  const hasError =
+    (bindingReady && binding === null) ||
+    gaveUp ||
+    (isFinal && result?.error != null);
 
   useEffect(() => {
     if (!isFinal || !isApproved || !binding || !transaction) return;

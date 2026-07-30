@@ -62,7 +62,7 @@ export function CartDrawer() {
         setIsRedirecting(false);
         return;
       }
-      saveCheckoutBinding(window.localStorage, {
+      saveCheckoutBinding(window.sessionStorage, {
         reference: data.reference,
         orderProof: data.orderProof,
         amountInCents: data.amountInCents,
