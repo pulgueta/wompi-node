@@ -9,4 +9,15 @@ import locion from "./locion.svg";
 import gel from "./gel.svg";
 import champu from "./champu.svg";
 
-export const productImages: Record<string, string> = { pomada, cera, alcohol, desinf, toallas, talco, aceite, locion, gel, champu };
+export const productImages: Record<string, string> = {
+  pomada,
+  cera,
+  alcohol,
+  desinf,
+  toallas,
+  talco,
+  aceite,
+  locion,
+  gel,
+  champu,
+};

@@ -17,7 +17,10 @@ const repoRoot = resolve(appDir, "..", "..");
 const files = [];
 
 const docsDir = join(repoRoot, "apps", "docs", "content");
-for (const entry of readdirSync(docsDir, { recursive: true, withFileTypes: true })) {
+for (const entry of readdirSync(docsDir, {
+  recursive: true,
+  withFileTypes: true,
+})) {
   if (entry.isFile() && entry.name.endsWith(".mdx")) {
     files.push(join(entry.parentPath, entry.name));
   }
@@ -59,11 +62,17 @@ for (const file of files) {
 
   console.log(`Ingesting ${source} (${trimmed.length} chars)…`);
   // execFileSync avoids shell quoting issues with the JSON payload.
-  execFileSync("npx", ["convex", "run", "rag:ingestDoc", JSON.stringify(payload)], {
-    cwd: appDir,
-    stdio: "inherit",
-  });
+  execFileSync(
+    "npx",
+    ["convex", "run", "rag:ingestDoc", JSON.stringify(payload)],
+    {
+      cwd: appDir,
+      stdio: "inherit",
+    },
+  );
   ingested += 1;
 }
 
-console.log(`Done: ${ingested} document(s) ingested into the "wompi-docs" namespace.`);
+console.log(
+  `Done: ${ingested} document(s) ingested into the "wompi-docs" namespace.`,
+);
