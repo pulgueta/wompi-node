@@ -6,13 +6,14 @@ import {
   addInterval,
   billingConfigValidator,
   CHARGEABLE_STATUSES,
+  paymentChange,
   paymentDoc,
   retryDelayMs,
   subscriptionChargeReference,
   subscriptionDoc,
   WOMPI_STATUS_TO_PAYMENT_STATUS,
 } from "./shared.js";
-import type { BillingConfig, PaymentStatus } from "./shared.js";
+import type { BillingConfig, PaymentCallbackHandle, PaymentStatus } from "./shared.js";
 
 export const chargeOutcomeValidator = v.object({
   outcome: v.string(),
@@ -37,15 +38,22 @@ type ChargeOutcomeInput = {
  * The single state machine every charge result flows through — webhook
  * deliveries, redirect-return reconciliation and cron charges all converge
  * here, which is what makes the whole engine idempotent.
+ *
+ * When the payment row actually changes and the caller passed a
+ * `callbackHandle`, the app's mutation runs before this returns — in this very
+ * transaction. A callback that throws therefore rolls the payment change back
+ * with it, so the delivery (or cron claim) that produced it can be replayed.
  */
 const applyChargeOutcome = async (
   ctx: MutationCtx,
   payment: Doc<"payments">,
   input: ChargeOutcomeInput,
   config: BillingConfig,
+  callbackHandle?: string,
 ) => {
   const now = Date.now();
   const next = input.nextStatus;
+  const previousStatus = payment.status;
 
   // Allowed transitions. A failed or expired attempt may still end approved
   // (or voided) later: Web Checkout lets the payer retry a declined payment
@@ -164,6 +172,13 @@ const applyChargeOutcome = async (
     subscription = await ctx.db.get("subscriptions", payment.subscriptionId!);
   }
 
+  if (statusChanges && callbackHandle) {
+    await ctx.runMutation(callbackHandle as PaymentCallbackHandle, {
+      payment: paymentChange(updatedPayment),
+      previousStatus,
+    });
+  }
+
   return {
     outcome: statusChanges ? "applied" : "noop",
     paymentChanged: statusChanges,
@@ -192,6 +207,8 @@ export const claimDue = mutation({
   args: {
     batchSize: v.optional(v.number()),
     config: billingConfigValidator,
+    /** App mutation run in this transaction for every payment row it changes. */
+    callbackHandle: v.optional(v.string()),
   },
   returns: v.object({
     claims: v.array(claimValidator),
@@ -292,6 +309,7 @@ export const claimDue = mutation({
           payment,
           { nextStatus: "error", failureReason: "Payment source unavailable" },
           args.config,
+          args.callbackHandle,
         );
         continue;
       }
@@ -370,6 +388,8 @@ export const recordChargeResult = mutation({
     paymentMethodType: v.optional(v.string()),
     failureReason: v.optional(v.string()),
     config: billingConfigValidator,
+    /** App mutation run in this transaction when the payment row changes. */
+    callbackHandle: v.optional(v.string()),
   },
   returns: chargeOutcomeValidator,
   handler: async (ctx, args) => {
@@ -394,6 +414,7 @@ export const recordChargeResult = mutation({
         failureReason: args.failureReason,
       },
       args.config,
+      args.callbackHandle,
     );
   },
 });
@@ -416,6 +437,8 @@ export const applyTransaction = mutation({
     paymentMethodType: v.optional(v.string()),
     statusMessage: v.optional(v.string()),
     config: billingConfigValidator,
+    /** App mutation run in this transaction when the payment row changes. */
+    callbackHandle: v.optional(v.string()),
   },
   returns: chargeOutcomeValidator,
   handler: async (ctx, args) => {
@@ -471,6 +494,7 @@ export const applyTransaction = mutation({
           nextStatus === "declined" || nextStatus === "error" ? args.statusMessage : undefined,
       },
       args.config,
+      args.callbackHandle,
     );
   },
 });

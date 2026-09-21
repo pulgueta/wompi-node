@@ -255,24 +255,81 @@ new Wompi(components.wompi, {
     onSubscriptionChange: async (ctx, subscription) => {
       // grant/revoke entitlements, send emails, ...
     },
-    onPaymentChange: async (ctx, payment) => {},
+    onPaymentChange: internal.payments.onPaymentChange,
   },
 });
 ```
 
 Callbacks fire once per state change, whether the change arrived via webhook,
 cron, or confirmation: redeliveries and repeated confirmations are no-ops.
-Payment callbacks run after the component state commits, so a crash between
-the two can skip a callback (at-most-once) — a webhook retry reprocesses the
-delivery when the state was not applied, but not when only the callback was
-lost. Reconcile from `payments`/`subscriptions` if your side effects must be
-exact.
 
 `registerRoutes(http, { onEvent })` is different: it runs for every verified
 delivery that was not already applied. Two deliveries of the same event that
-overlap before the first outcome is stored, or a redelivery after a crash
-mid-apply, both reach `onEvent` — make it idempotent (key on
-`event.signature.checksum` or the transaction id).
+overlap before the first outcome is stored both reach `onEvent` — make it
+idempotent (key on `event.signature.checksum` or the transaction id).
+
+## Reacting to payments
+
+`onPaymentChange` is an **internal app mutation**, given as a reference. The
+component runs it inside the transaction that changes the payment row, so the
+payment state and your side effect commit together — or neither does.
+
+```ts
+// convex/payments.ts
+import { internalMutation } from "./_generated/server";
+import { paymentChangeArgs } from "@pulgueta/wompi-convex";
+
+export const onPaymentChange = internalMutation({
+  args: paymentChangeArgs,
+  handler: async (ctx, { payment, previousStatus }) => {
+    // Your own rows: the app decides what a payment means.
+    const orderId = payment.metadata?.orderId as string | undefined;
+    if (!orderId) return;
+
+    if (payment.status === "approved") {
+      await ctx.db.patch(orderId as Id<"orders">, { paid: true });
+    } else if (payment.status === "voided" && previousStatus === "approved") {
+      // A refund or void of a payment you already granted: take it back.
+      await ctx.db.patch(orderId as Id<"orders">, { paid: false });
+    }
+  },
+});
+
+// in the Wompi configuration
+import { internal } from "./_generated/api";
+
+events: {
+  onPaymentChange: internal.payments.onPaymentChange,
+},
+```
+
+`payment` is the row after the change (reference, status, amount, `metadata`,
+`wompiTransactionId`, …) with ids as plain strings; `previousStatus` is what it
+held before, which is how you tell a first approval from a later `VOIDED` or
+refund of a payment you already credited. Declare the arguments with the
+exported `paymentChangeArgs` validator so the shape stays in step with the
+component.
+
+The guarantee, on all three paths that change a payment — the webhook route,
+`confirmTransaction`, and the billing cron:
+
+- The payment (and subscription) update, your callback, and — for a webhook —
+  the delivery record all commit in **one transaction**.
+- If your callback throws, every part of it rolls back. Nothing is recorded, so
+  Wompi's webhook retry replays the delivery, and a cron claim is reclaimed on
+  the next run. Make the callback deterministic; do not swallow errors you want
+  replayed.
+- A redelivery of an event that was already applied is a no-op and never calls
+  back a second time.
+
+Look a payment up by the reference the callback carries:
+
+```ts
+const payment = await wompi.getPayment(ctx, { reference });
+```
+
+It answers from the `by_reference` index and returns `null` for a reference the
+component does not know.
 
 ## Dispersions (Pagos a Terceros)
 

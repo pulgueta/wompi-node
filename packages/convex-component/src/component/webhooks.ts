@@ -3,7 +3,9 @@ import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
 import { mutation } from "./_generated/server.js";
-import { dispersionDoc } from "./shared.js";
+import { chargeOutcomeValidator } from "./billing.js";
+import { billingConfigValidator, dispersionDoc } from "./shared.js";
+import type { BillingConfig } from "./shared.js";
 
 type DispersionDoc = Infer<typeof dispersionDoc>;
 type DispersionChange = Pick<
@@ -44,7 +46,15 @@ type DeliveryResult = {
 
 const recordEventReference = makeFunctionReference<
   "mutation",
-  { checksum: string; eventType: string; timestamp: number; sentAt?: string },
+  {
+    checksum: string;
+    eventType: string;
+    environment?: string;
+    timestamp: number;
+    sentAt?: string;
+    transactionId?: string;
+    reference?: string;
+  },
   DeliveryResult
 >("webhooks:recordEvent");
 
@@ -83,6 +93,24 @@ const applyTransactionUpdateReference = makeFunctionReference<
   },
   { changed: boolean; dispersionChanged: boolean; dispersion: DispersionDoc }
 >("dispersions:applyTransactionUpdate");
+
+type ChargeOutcome = Infer<typeof chargeOutcomeValidator>;
+
+const applyTransactionReference = makeFunctionReference<
+  "mutation",
+  {
+    reference: string;
+    wompiTransactionId: string;
+    wompiStatus: string;
+    amountInCents?: number;
+    currency?: string;
+    paymentMethodType?: string;
+    statusMessage?: string;
+    config: BillingConfig;
+    callbackHandle?: string;
+  },
+  ChargeOutcome
+>("billing:applyTransaction");
 
 const normalizeEventTimestamp = (timestamp: number): number =>
   // Payments events use Unix seconds; Payouts events use Unix milliseconds.
@@ -144,6 +172,70 @@ export const markOutcome = mutation({
 const processedDelivery = v.object({
   duplicate: v.boolean(),
   outcome: v.string(),
+});
+
+/**
+ * Deduplicate, apply and dispatch one `transaction.updated` delivery inside a
+ * single Convex mutation. The delivery record, the payment (and subscription)
+ * state change, the app callback and the recorded outcome all commit together:
+ * an app callback that throws rolls every one of them back, so Wompi's retry
+ * replays the delivery instead of it being lost after the component committed.
+ */
+export const processTransactionUpdate = mutation({
+  args: {
+    checksum: v.string(),
+    eventType: v.string(),
+    environment: v.optional(v.string()),
+    timestamp: v.number(),
+    sentAt: v.optional(v.string()),
+    callbackHandle: v.optional(v.string()),
+    config: billingConfigValidator,
+    transaction: v.object({
+      reference: v.string(),
+      wompiTransactionId: v.string(),
+      wompiStatus: v.string(),
+      amountInCents: v.optional(v.number()),
+      currency: v.optional(v.string()),
+      paymentMethodType: v.optional(v.string()),
+      statusMessage: v.optional(v.string()),
+    }),
+  },
+  returns: v.object({
+    duplicate: v.boolean(),
+    outcome: v.string(),
+    /** Null when a settled duplicate short-circuited before applying. */
+    charge: v.union(chargeOutcomeValidator, v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const delivery = await ctx.runMutation(recordEventReference, {
+      checksum: args.checksum,
+      eventType: args.eventType,
+      environment: args.environment,
+      timestamp: args.timestamp,
+      sentAt: args.sentAt,
+      transactionId: args.transaction.wompiTransactionId,
+      reference: args.transaction.reference,
+    });
+
+    // A duplicate that already recorded an outcome was fully applied; one
+    // without an outcome predates this atomic path and must be reprocessed.
+    if (delivery.duplicate && delivery.outcome !== undefined) {
+      return { duplicate: true, outcome: delivery.outcome, charge: null };
+    }
+
+    const charge = await ctx.runMutation(applyTransactionReference, {
+      ...args.transaction,
+      config: args.config,
+      callbackHandle: args.callbackHandle,
+    });
+
+    await ctx.runMutation(markOutcomeReference, {
+      eventId: delivery.eventId,
+      outcome: charge.outcome,
+    });
+
+    return { duplicate: delivery.duplicate, outcome: charge.outcome, charge };
+  },
 });
 
 /**

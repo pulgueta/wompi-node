@@ -51,6 +51,7 @@ import type { ComponentApi } from "../component/_generated/component.js";
 import {
   dispersionDoc,
   dispersionTransactionDoc,
+  paymentChangeValidator,
   paymentDoc,
   paymentSourceInputValidator,
   productInputValidator,
@@ -58,11 +59,16 @@ import {
   subscriptionWithProduct,
 } from "../component/shared.js";
 
+export { paymentChangeArgs } from "../component/shared.js";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 export type PaymentDoc = Infer<typeof paymentDoc>;
+/** The payment row an `onPaymentChange` mutation receives. */
+export type PaymentChange = Infer<typeof paymentChangeValidator>;
+export type PaymentStatus = PaymentChange["status"];
 export type DispersionDoc = Infer<typeof dispersionDoc>;
 export type DispersionTransactionDoc = Infer<typeof dispersionTransactionDoc>;
 export type DispersionChange = Pick<
@@ -112,8 +118,21 @@ export type ChargeOutcome = {
 };
 
 export type WompiEventCallbacks = {
-  /** Fires whenever a payment row's status actually changes. */
-  onPaymentChange?: (ctx: RunMutationCtx, payment: PaymentDoc) => void | Promise<void>;
+  /**
+   * Internal app mutation called atomically whenever a payment row's status
+   * actually changes. It receives `{ payment, previousStatus }` — declare it
+   * with the exported `paymentChangeArgs` validator.
+   *
+   * It runs inside the transaction that applies the change, so a callback that
+   * throws rolls the payment change (and, for a webhook, the delivery record)
+   * back with it, and Wompi's retry replays the delivery.
+   */
+  onPaymentChange?: FunctionReference<
+    "mutation",
+    "internal",
+    { payment: PaymentChange; previousStatus: PaymentStatus },
+    unknown
+  >;
   /** Fires whenever a subscription's state actually changes. */
   onSubscriptionChange?: (
     ctx: RunMutationCtx,
@@ -358,11 +377,21 @@ export class Wompi {
     };
   }
 
+  /**
+   * A handle to the app's `onPaymentChange` mutation, so the component can run
+   * it inside the same transaction that applies the change.
+   */
+  private async paymentCallbackHandle(): Promise<string | undefined> {
+    const callback = this.config.events?.onPaymentChange;
+    return callback ? await createFunctionHandle(callback) : undefined;
+  }
+
+  /**
+   * Subscription callbacks only. Payment callbacks are not dispatched here:
+   * they run inside the component mutation that changed the row.
+   */
   private async dispatch(ctx: RunMutationCtx, outcome: ChargeOutcome): Promise<void> {
     try {
-      if (outcome.paymentChanged && outcome.payment) {
-        await this.config.events?.onPaymentChange?.(ctx, outcome.payment);
-      }
       if (outcome.subscriptionChanged && outcome.subscription) {
         await this.config.events?.onSubscriptionChange?.(ctx, outcome.subscription);
       }
@@ -514,6 +543,7 @@ export class Wompi {
       paymentMethodType: transaction.payment_method_type,
       statusMessage: transaction.status_message ?? undefined,
       config: this.billingConfig,
+      callbackHandle: await this.paymentCallbackHandle(),
     })) as ChargeOutcome;
 
     await this.dispatch(ctx, outcome);
@@ -704,6 +734,7 @@ export class Wompi {
         nextStatus: "error",
         failureReason: chargeError.message,
         config: this.billingConfig,
+        callbackHandle: await this.paymentCallbackHandle(),
       })) as ChargeOutcome;
       await this.dispatch(ctx, outcome);
       return outcome;
@@ -743,6 +774,17 @@ export class Wompi {
       userId: args.userId,
       limit: args.limit,
     });
+  }
+
+  /**
+   * Look a payment up by the reference that ties it to Wompi — the key an
+   * `onPaymentChange` callback carries, and the one a redirect return or an
+   * out-of-band reconciliation has in hand. Null when nothing matches.
+   */
+  async getPayment(ctx: RunQueryCtx, args: { reference: string }): Promise<PaymentDoc | null> {
+    return (await ctx.runQuery(this.component.payments.getByReference, {
+      reference: args.reference,
+    })) as PaymentDoc | null;
   }
 
   async cancelSubscription(
@@ -849,6 +891,7 @@ export class Wompi {
     const { claims, finalized } = (await ctx.runMutation(this.component.billing.claimDue, {
       batchSize: options?.batchSize,
       config: this.billingConfig,
+      callbackHandle: await this.paymentCallbackHandle(),
     })) as {
       claims: {
         payment: PaymentDoc;
@@ -985,6 +1028,7 @@ export class Wompi {
             nextStatus: "expired",
             failureReason: "Expired without a transaction",
             config: this.billingConfig,
+            callbackHandle: await this.paymentCallbackHandle(),
           })) as ChargeOutcome;
           await this.dispatch(ctx, outcome);
           summary.expired++;
@@ -1324,46 +1368,68 @@ export class Wompi {
           ? event.data.transaction
           : undefined;
 
-        const delivery = (await ctx.runMutation(this.component.webhooks.recordEvent, {
-          checksum: event.signature.checksum,
-          eventType: event.event,
-          environment: event.environment,
-          timestamp: event.timestamp,
-          sentAt: event.sent_at,
-          transactionId: transaction?.id,
-          reference: transaction?.reference,
-        })) as { duplicate: boolean; eventId: string; outcome?: string };
-
-        // A duplicate with no recorded outcome crashed between recording and
-        // applying on a previous delivery; Wompi's retry must reprocess it,
-        // not be told it was handled.
-        if (delivery.duplicate && delivery.outcome !== undefined) {
-          return new Response(JSON.stringify({ received: true, duplicate: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        const eventId = delivery.eventId;
-
-        let outcome = "ignored";
+        let duplicate: boolean;
+        /** A redelivery of an event a previous delivery already finished. */
+        let alreadyApplied: boolean;
 
         if (transaction) {
-          const result = await this.applyWompiTransaction(ctx, transaction);
-          outcome = result.outcome;
+          // Recording the delivery, applying the transaction, running the app
+          // callback and storing the outcome are one transaction: a failure
+          // anywhere rolls all of it back for Wompi's retry to replay.
+          const processed = (await ctx.runMutation(
+            this.component.webhooks.processTransactionUpdate,
+            {
+              checksum: event.signature.checksum,
+              eventType: event.event,
+              environment: event.environment,
+              timestamp: event.timestamp,
+              sentAt: event.sent_at,
+              callbackHandle: await this.paymentCallbackHandle(),
+              config: this.billingConfig,
+              transaction: {
+                reference: transaction.reference,
+                wompiTransactionId: transaction.id,
+                wompiStatus: transaction.status,
+                amountInCents: transaction.amount_in_cents,
+                currency: transaction.currency,
+                paymentMethodType: transaction.payment_method_type,
+                statusMessage: transaction.status_message ?? undefined,
+              },
+            },
+          )) as { duplicate: boolean; outcome: string; charge: ChargeOutcome | null };
+
+          duplicate = processed.duplicate;
+          // A null charge means a settled duplicate short-circuited.
+          alreadyApplied = processed.charge === null;
+          if (processed.charge) await this.dispatch(ctx, processed.charge);
+        } else {
+          const delivery = (await ctx.runMutation(this.component.webhooks.recordEvent, {
+            checksum: event.signature.checksum,
+            eventType: event.event,
+            environment: event.environment,
+            timestamp: event.timestamp,
+            sentAt: event.sent_at,
+          })) as { duplicate: boolean; eventId: string; outcome?: string };
+
+          alreadyApplied = delivery.duplicate && delivery.outcome !== undefined;
+          if (!alreadyApplied) {
+            await ctx.runMutation(this.component.webhooks.markOutcome, {
+              eventId: delivery.eventId as never,
+              outcome: "ignored",
+            });
+          }
+          duplicate = delivery.duplicate;
         }
 
-        await ctx.runMutation(this.component.webhooks.markOutcome, {
-          eventId: eventId as never,
-          outcome,
-        });
-
-        try {
-          await options?.onEvent?.(ctx, event);
-        } catch (callbackError) {
-          console.error("Wompi onEvent callback failed:", callbackError);
+        if (!alreadyApplied) {
+          try {
+            await options?.onEvent?.(ctx, event);
+          } catch (callbackError) {
+            console.error("Wompi onEvent callback failed:", callbackError);
+          }
         }
 
-        return new Response(JSON.stringify({ received: true, duplicate: delivery.duplicate }), {
+        return new Response(JSON.stringify({ received: true, duplicate }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -1540,9 +1606,7 @@ export class Wompi {
         args: { reference: v.string() },
         handler: async (ctx, args) => {
           const user = await getUser(ctx);
-          const payment = (await ctx.runQuery(this.component.payments.getByReference, {
-            reference: args.reference,
-          })) as PaymentDoc | null;
+          const payment = await this.getPayment(ctx, { reference: args.reference });
           if (!payment || payment.userId !== user.userId) return null;
           return payment;
         },

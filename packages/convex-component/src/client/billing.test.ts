@@ -4,7 +4,7 @@ import type { FunctionReference } from "convex/server";
 import { computeEventChecksum } from "@pulgueta/wompi/server";
 import type { ChargeOutcome, WompiConfig } from "./index.js";
 import { Wompi } from "./index.js";
-import { components, initConvexTest } from "./setup.test.js";
+import { components, initConvexTest, paymentCallback } from "./setup.test.js";
 
 const EVENTS_KEY = "test_events_key";
 const REFERENCE_USED = {
@@ -152,6 +152,12 @@ const subscriptionOf = (t: ReturnType<typeof initConvexTest>, subscriptionId: st
     subscriptionId: subscriptionId as never,
   });
 
+/** Statuses the app's `onPaymentChange` mutation recorded, in order. */
+const callbackStatuses = async (t: ReturnType<typeof initConvexTest>) =>
+  (await t.run(async (ctx) => await ctx.db.query("creditLedger").collect())).map(
+    (row) => row.status,
+  );
+
 describe("renewal charge idempotency", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -195,14 +201,7 @@ describe("renewal charge idempotency", () => {
     ]);
     vi.stubGlobal("fetch", fetchMock);
 
-    const changes: string[] = [];
-    const wompiWithEvents = makeWompi({
-      events: {
-        onPaymentChange: async (_ctx, payment) => {
-          changes.push(payment.status);
-        },
-      },
-    });
+    const wompiWithEvents = makeWompi({ events: { onPaymentChange: paymentCallback } });
 
     const first = await t.action(async (ctx) => await wompiWithEvents.processBilling(ctx));
     expect(first.claimed).toBe(1);
@@ -221,7 +220,7 @@ describe("renewal charge idempotency", () => {
 
     // Nothing was finalized, so no callback fired and the subscription is
     // untouched (no dunning step, no fresh reference).
-    expect(changes).toEqual([]);
+    expect(await callbackStatuses(t)).toEqual([]);
     const sub = await subscriptionOf(t, subscription._id);
     expect(sub?.status).toBe("active");
     expect(sub?.failedAttempts).toBe(0);
@@ -239,7 +238,7 @@ describe("renewal charge idempotency", () => {
     expect(settled?.wompiTransactionId).toBe("tx_renewal");
     expect(payments.filter((p) => p.status === "pending")).toHaveLength(0);
     expect(posted).toEqual([renewal!.reference, renewal!.reference]);
-    expect(changes).toEqual(["approved"]);
+    expect(await callbackStatuses(t)).toEqual(["approved"]);
   });
 
   test("a rejected request (4xx) finalizes the attempt as an error", async () => {
@@ -505,7 +504,7 @@ describe("payments webhook", () => {
     expect((await recordedEvent(t, "deadbeef")).duplicate).toBe(false);
   });
 
-  test("a crash after recording the delivery is repaired by Wompi's retry", async () => {
+  test("a crash mid-delivery records nothing and Wompi's retry replays it", async () => {
     const t = initConvexTest();
     const { customer } = await seed(t);
     await t.mutation(components.wompi.payments.createCheckout, {
@@ -515,27 +514,20 @@ describe("payments webhook", () => {
       productKey: "sticker-pack",
     });
 
-    const callbacks: string[] = [];
-    makeWompi({
-      events: {
-        onPaymentChange: async (_ctx, payment) => {
-          callbacks.push(payment.status);
-        },
-      },
-    }).registerRoutes(http as never);
+    makeWompi({ events: { onPaymentChange: paymentCallback } }).registerRoutes(http as never);
     const handler = routes.get("/wompi/webhook")!._handler;
     const event = await signedEvent();
 
-    // First delivery: the event is recorded, then applying it fails (OCC,
-    // transient error) and the endpoint answers 500 → Wompi retries.
+    // First delivery: processing it fails (OCC, transient error) and the
+    // endpoint answers 500 → Wompi retries.
     let crashOnce = true;
     await expect(
       t.action(async (ctx) => {
         const flaky = {
           ...ctx,
           runMutation: async (ref: FunctionReference<"mutation">, args: unknown) => {
-            // `applyTransaction` is the only mutation carrying a Wompi status.
-            if (crashOnce && typeof args === "object" && args !== null && "wompiStatus" in args) {
+            // `processTransactionUpdate` is the only mutation carrying one.
+            if (crashOnce && typeof args === "object" && args !== null && "transaction" in args) {
               crashOnce = false;
               throw new Error("write conflict");
             }
@@ -550,25 +542,25 @@ describe("payments webhook", () => {
       reference: "wmpk_hook",
     });
     expect(payment?.status).toBe("pending");
-    expect(callbacks).toEqual([]);
+    expect(await callbackStatuses(t)).toEqual([]);
 
-    // Retry: same checksum → duplicate delivery, but with no recorded
-    // outcome it must be reprocessed, not short-circuited.
+    // Recording the delivery rolled back with the apply, so the retry is a
+    // fresh delivery rather than a duplicate that has to be reprocessed.
     const retry = await t.action(async (ctx) => await deliver(handler, ctx, event));
     expect(retry.status).toBe(200);
-    expect(retry.body).toEqual({ received: true, duplicate: true });
+    expect(retry.body).toEqual({ received: true, duplicate: false });
 
     payment = await t.query(components.wompi.payments.getByReference, {
       reference: "wmpk_hook",
     });
     expect(payment?.status).toBe("approved");
     expect(payment?.wompiTransactionId).toBe("tx_hook");
-    expect(callbacks).toEqual(["approved"]);
+    expect(await callbackStatuses(t)).toEqual(["approved"]);
 
     // A third delivery is a plain duplicate: no reprocessing, no callback.
     const third = await t.action(async (ctx) => await deliver(handler, ctx, event));
     expect(third.body).toEqual({ received: true, duplicate: true });
-    expect(callbacks).toEqual(["approved"]);
+    expect(await callbackStatuses(t)).toEqual(["approved"]);
 
     const recorded = await recordedEvent(t, event.signature.checksum);
     expect(recorded.duplicate).toBe(true);
