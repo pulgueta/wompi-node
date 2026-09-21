@@ -29,6 +29,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           amountInCents?: number;
+          callbackHandle?: string;
           config: {
             leaseMs: number;
             maxRetries: number;
@@ -116,6 +117,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           batchSize?: number;
+          callbackHandle?: string;
           config: {
             leaseMs: number;
             maxRetries: number;
@@ -229,6 +231,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         {
+          callbackHandle?: string;
           config: {
             leaseMs: number;
             maxRetries: number;
@@ -1230,6 +1233,105 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           timestamp: number;
         },
         { duplicate: boolean; outcome: string },
+        Name
+      >;
+      processTransactionUpdate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callbackHandle?: string;
+          checksum: string;
+          config: {
+            leaseMs: number;
+            maxRetries: number;
+            onExhausted: "mark_unpaid" | "cancel";
+            retryScheduleMs: Array<number>;
+          };
+          environment?: string;
+          eventType: string;
+          sentAt?: string;
+          timestamp: number;
+          transaction: {
+            amountInCents?: number;
+            currency?: string;
+            paymentMethodType?: string;
+            reference: string;
+            statusMessage?: string;
+            wompiStatus: string;
+            wompiTransactionId: string;
+          };
+        },
+        {
+          charge: {
+            note?: string;
+            outcome: string;
+            payment: {
+              _creationTime: number;
+              _id: string;
+              amountInCents: number;
+              attempt?: number;
+              currency: string;
+              customerId?: string;
+              description?: string;
+              failureReason?: string;
+              finalizedAt?: number;
+              kind: "checkout" | "subscription";
+              metadata?: Record<string, any>;
+              paymentMethodType?: string;
+              periodEnd?: number;
+              periodStart?: number;
+              productId?: string;
+              productKey?: string;
+              reference: string;
+              status:
+                | "pending"
+                | "approved"
+                | "declined"
+                | "voided"
+                | "error"
+                | "expired";
+              subscriptionId?: string;
+              userId: string;
+              wompiTransactionId?: string;
+            } | null;
+            paymentChanged: boolean;
+            subscription: {
+              _creationTime: number;
+              _id: string;
+              amountInCents: number;
+              cancelAtPeriodEnd: boolean;
+              canceledAt?: number;
+              currency: string;
+              currentPeriodEnd: number;
+              currentPeriodStart: number;
+              customerId: string;
+              endedAt?: number;
+              failedAttempts: number;
+              interval: "day" | "week" | "month" | "year";
+              intervalCount: number;
+              lastError?: string;
+              metadata?: Record<string, any>;
+              nextChargeAt?: number;
+              paymentSourceId: string;
+              pendingProductId?: string;
+              pendingProductKey?: string;
+              productId: string;
+              productKey: string;
+              status:
+                | "incomplete"
+                | "trialing"
+                | "active"
+                | "past_due"
+                | "unpaid"
+                | "canceled";
+              trialEndsAt?: number;
+              userId: string;
+            } | null;
+            subscriptionChanged: boolean;
+          } | null;
+          duplicate: boolean;
+          outcome: string;
+        },
         Name
       >;
       recordEvent: FunctionReference<

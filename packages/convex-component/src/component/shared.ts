@@ -1,5 +1,7 @@
+import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
+import type { Doc } from "./_generated/dataModel.js";
 import schema from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,75 @@ export const subscriptionWithProduct = v.object({
   ...subscriptionDoc.fields,
   product: v.union(productDoc, v.null()),
 });
+
+// ---------------------------------------------------------------------------
+// The payment row handed to an app callback. Component document ids cross the
+// boundary as plain strings, so every id here is `v.string()` — an app-side
+// `v.id(...)` validator would reject an id minted in the component's tables.
+// ---------------------------------------------------------------------------
+
+export const paymentChangeValidator = v.object({
+  paymentId: v.string(),
+  reference: v.string(),
+  kind: schema.tables.payments.validator.fields.kind,
+  status: schema.tables.payments.validator.fields.status,
+  userId: v.string(),
+  customerId: v.optional(v.string()),
+  productKey: v.optional(v.string()),
+  subscriptionId: v.optional(v.string()),
+  amountInCents: v.number(),
+  currency: v.string(),
+  description: v.optional(v.string()),
+  attempt: v.optional(v.number()),
+  periodStart: v.optional(v.number()),
+  periodEnd: v.optional(v.number()),
+  wompiTransactionId: v.optional(v.string()),
+  paymentMethodType: v.optional(v.string()),
+  failureReason: v.optional(v.string()),
+  finalizedAt: v.optional(v.number()),
+  metadata: v.optional(v.record(v.string(), v.any())),
+});
+
+export type PaymentChange = Infer<typeof paymentChangeValidator>;
+
+/**
+ * The argument validator an app's `onPaymentChange` mutation declares.
+ * `previousStatus` is what the row held before this change, which is what
+ * tells an approval apart from a later `VOIDED`/refund of an approved payment.
+ */
+export const paymentChangeArgs = {
+  payment: paymentChangeValidator,
+  previousStatus: schema.tables.payments.validator.fields.status,
+};
+
+export const paymentChange = (payment: Doc<"payments">): PaymentChange => ({
+  paymentId: payment._id,
+  reference: payment.reference,
+  kind: payment.kind,
+  status: payment.status,
+  userId: payment.userId,
+  customerId: payment.customerId,
+  productKey: payment.productKey,
+  subscriptionId: payment.subscriptionId,
+  amountInCents: payment.amountInCents,
+  currency: payment.currency,
+  description: payment.description,
+  attempt: payment.attempt,
+  periodStart: payment.periodStart,
+  periodEnd: payment.periodEnd,
+  wompiTransactionId: payment.wompiTransactionId,
+  paymentMethodType: payment.paymentMethodType,
+  failureReason: payment.failureReason,
+  finalizedAt: payment.finalizedAt,
+  metadata: payment.metadata,
+});
+
+/** The handle type an app callback is invoked through. */
+export type PaymentCallbackHandle = FunctionHandle<
+  "mutation",
+  { payment: PaymentChange; previousStatus: PaymentStatus },
+  unknown
+>;
 
 // ---------------------------------------------------------------------------
 // Billing configuration, threaded into mutations from the client class so the
