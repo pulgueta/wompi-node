@@ -233,6 +233,12 @@ export type ProcessBillingSummary = {
   finalizedCancellations: number;
   sweptPending: number;
   expired: number;
+  /**
+   * True when the run left work for an immediate next run: more due
+   * subscriptions than the batch holds, or more stale payments than the
+   * sweep takes. Schedule the next run now instead of at the next interval.
+   */
+  remaining: boolean;
   errors: string[];
 };
 
@@ -282,6 +288,22 @@ const chargeMayHaveReachedWompi = (error: WompiErrorResult): boolean => {
   }
   // The SDK rejects malformed input before any request is sent.
   return !error.message.startsWith("Invalid input");
+};
+
+/** Wompi requests that one billing run keeps in flight at the same time. */
+const BILLING_CONCURRENCY = 5;
+
+/** Run `task` for each item, with no more than `limit` tasks in flight. */
+const forEachBounded = async <T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> => {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await task(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 };
 
 /**
@@ -885,14 +907,18 @@ export class Wompi {
       finalizedCancellations: 0,
       sweptPending: 0,
       expired: 0,
+      remaining: false,
       errors: [],
     };
 
-    const { claims, finalized } = (await ctx.runMutation(this.component.billing.claimDue, {
-      batchSize: options?.batchSize,
-      config: this.billingConfig,
-      callbackHandle: await this.paymentCallbackHandle(),
-    })) as {
+    const { claims, finalized, hasMore } = (await ctx.runMutation(
+      this.component.billing.claimDue,
+      {
+        batchSize: options?.batchSize,
+        config: this.billingConfig,
+        callbackHandle: await this.paymentCallbackHandle(),
+      },
+    )) as {
       claims: {
         payment: PaymentDoc;
         subscription: SubscriptionDoc;
@@ -901,9 +927,11 @@ export class Wompi {
         action: "charge" | "reconcile";
       }[];
       finalized: SubscriptionDoc[];
+      hasMore: boolean;
     };
 
     summary.claimed = claims.length;
+    summary.remaining = hasMore;
     summary.finalizedCancellations = finalized.length;
 
     for (const subscription of finalized) {
@@ -928,7 +956,7 @@ export class Wompi {
       }
     }
 
-    for (const claim of claims) {
+    await forEachBounded(claims, BILLING_CONCURRENCY, async (claim) => {
       try {
         let outcome: ChargeOutcome;
 
@@ -938,13 +966,13 @@ export class Wompi {
           );
           if (error) {
             summary.errors.push(`${claim.payment.reference}: ${error.message}`);
-            continue;
+            return;
           }
           outcome = await this.applyWompiTransaction(ctx, transaction);
         } else {
           if (!tokens) {
             summary.errors.push(`${claim.payment.reference}: no acceptance tokens`);
-            continue;
+            return;
           }
           outcome = await this.chargeClaimedPayment(ctx, {
             payment: claim.payment,
@@ -956,8 +984,10 @@ export class Wompi {
               "integrity key",
               "WOMPI_INTEGRITY_KEY",
             ),
-            // Renewals are non-interactive: poll less, let webhooks/sweeps finish.
-            pollAttempts: 2,
+            // Renewals are non-interactive: do not wait for the result. A
+            // pending charge keeps its transaction id, and the webhook or the
+            // next run resolves it.
+            pollAttempts: 0,
           });
         }
 
@@ -974,16 +1004,20 @@ export class Wompi {
           `${claim.payment.reference}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    }
+    });
 
     // Sweep stale pendings: reconcile the ones Wompi knows about, expire the
-    // ones nothing will ever resolve.
-    const stale = (await ctx.runQuery(this.component.payments.listStalePending, {
+    // ones nothing will ever resolve. The claim rotates through the stale
+    // rows, so a row that stays pending cannot keep another one out of reach.
+    const stale = (await ctx.runMutation(this.component.payments.claimStalePending, {
       olderThanMs: this.billingOptions.pendingSweepAfterMs,
+      expireAfterMs: this.billingOptions.expirePendingAfterMs,
       limit: 50,
-    })) as PaymentDoc[];
+    })) as { payments: PaymentDoc[]; hasMore: boolean };
 
-    for (const payment of stale) {
+    if (stale.hasMore) summary.remaining = true;
+
+    await forEachBounded(stale.payments, BILLING_CONCURRENCY, async (payment) => {
       try {
         if (payment.wompiTransactionId) {
           const [error, transaction] = await this.client.transactions.getTransaction(
@@ -993,7 +1027,7 @@ export class Wompi {
             const outcome = await this.applyWompiTransaction(ctx, transaction);
             if (outcome.paymentChanged) summary.sweptPending++;
           }
-          continue;
+          return;
         }
 
         const age = Date.now() - payment._creationTime;
@@ -1013,12 +1047,12 @@ export class Wompi {
           });
           if (error) {
             summary.errors.push(`sweep ${payment.reference}: ${error.message}`);
-            continue;
+            return;
           }
           if (existing.length > 0) {
             const outcome = await this.applyWompiTransaction(ctx, pickTransaction(existing));
             if (outcome.paymentChanged) summary.sweptPending++;
-            continue;
+            return;
           }
         }
 
@@ -1038,7 +1072,7 @@ export class Wompi {
           `sweep ${payment.reference}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    }
+    });
 
     await ctx.runMutation(this.component.webhooks.cleanup, {
       // Wompi event timestamps are in seconds.

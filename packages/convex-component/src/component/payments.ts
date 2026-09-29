@@ -96,21 +96,70 @@ export const listByUser = query({
   },
 });
 
-/**
- * Pending payments the billing sweep should look at: either reconcile against
- * the Wompi API (when a transaction id exists) or expire (abandoned
- * checkouts).
- */
-export const listStalePending = query({
-  args: { olderThanMs: v.number(), limit: v.optional(v.number()) },
-  returns: v.array(paymentDoc),
-  handler: async (ctx, args) => {
-    const cutoff = Date.now() - args.olderThanMs;
-    const pending = await ctx.db
-      .query("payments")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .take(Math.min(args.limit ?? 50, 200));
+/** Rows one sweep reads at most, including the ones it has no work for. */
+const SWEEP_SCAN_LIMIT = 500;
 
-    return pending.filter((p) => p._creationTime <= cutoff);
+/**
+ * Claim the pending payments the billing sweep must look at: reconcile
+ * against the Wompi API (when a transaction id exists, and for server-side
+ * charges) or expire (abandoned checkouts).
+ *
+ * The sweep rotates. It takes the stale rows it never visited, oldest first,
+ * then the rows it visited more than `olderThanMs` ago, least recent first,
+ * and stamps each one with `sweptAt`. A row that stays pending thus goes to
+ * the end of the line, so each stale row is reached however many there are.
+ *
+ * An abandoned checkout has no work until it is `expireAfterMs` old. It is
+ * stamped but not returned, so it does not use a place in the batch.
+ *
+ * `hasMore` is true when stale rows remain for an immediate next call.
+ */
+export const claimStalePending = mutation({
+  args: {
+    olderThanMs: v.number(),
+    expireAfterMs: v.number(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({ payments: v.array(paymentDoc), hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const staleBefore = now - args.olderThanMs;
+    const expirableBefore = now - args.expireAfterMs;
+    const limit = Math.min(args.limit ?? 50, 200);
+
+    const neverSwept = await ctx.db
+      .query("payments")
+      .withIndex("by_status_swept_at", (q) =>
+        q.eq("status", "pending").eq("sweptAt", undefined).lte("_creationTime", staleBefore),
+      )
+      .take(SWEEP_SCAN_LIMIT + 1);
+
+    const sweptBefore =
+      neverSwept.length > SWEEP_SCAN_LIMIT
+        ? []
+        : await ctx.db
+            .query("payments")
+            .withIndex("by_status_swept_at", (q) =>
+              q.eq("status", "pending").gte("sweptAt", 0).lte("sweptAt", staleBefore),
+            )
+            .take(SWEEP_SCAN_LIMIT + 1 - neverSwept.length);
+
+    const candidates = [...neverSwept, ...sweptBefore];
+    const payments = [];
+    let visited = 0;
+
+    for (const payment of candidates.slice(0, SWEEP_SCAN_LIMIT)) {
+      if (payments.length === limit) break;
+      visited++;
+      await ctx.db.patch("payments", payment._id, { sweptAt: now });
+
+      const waitsToExpire =
+        payment.kind === "checkout" &&
+        payment.wompiTransactionId === undefined &&
+        payment._creationTime > expirableBefore;
+      if (!waitsToExpire) payments.push({ ...payment, sweptAt: now });
+    }
+
+    return { payments, hasMore: visited < candidates.length };
   },
 });

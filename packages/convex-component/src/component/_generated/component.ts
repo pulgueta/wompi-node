@@ -224,6 +224,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             trialEndsAt?: number;
             userId: string;
           }>;
+          hasMore: boolean;
         },
         Name
       >;
@@ -562,6 +563,45 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     payments: {
+      claimStalePending: FunctionReference<
+        "mutation",
+        "internal",
+        { expireAfterMs: number; limit?: number; olderThanMs: number },
+        {
+          hasMore: boolean;
+          payments: Array<{
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            attempt?: number;
+            currency: string;
+            customerId?: string;
+            description?: string;
+            failureReason?: string;
+            finalizedAt?: number;
+            kind: "checkout" | "subscription";
+            metadata?: Record<string, any>;
+            paymentMethodType?: string;
+            periodEnd?: number;
+            periodStart?: number;
+            productId?: string;
+            productKey?: string;
+            reference: string;
+            status:
+              | "pending"
+              | "approved"
+              | "declined"
+              | "voided"
+              | "error"
+              | "expired";
+            subscriptionId?: string;
+            sweptAt?: number;
+            userId: string;
+            wompiTransactionId?: string;
+          }>;
+        },
+        Name
+      >;
       createCheckout: FunctionReference<
         "mutation",
         "internal",
@@ -644,41 +684,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         { limit?: number; userId: string },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          amountInCents: number;
-          attempt?: number;
-          currency: string;
-          customerId?: string;
-          description?: string;
-          failureReason?: string;
-          finalizedAt?: number;
-          kind: "checkout" | "subscription";
-          metadata?: Record<string, any>;
-          paymentMethodType?: string;
-          periodEnd?: number;
-          periodStart?: number;
-          productId?: string;
-          productKey?: string;
-          reference: string;
-          status:
-            | "pending"
-            | "approved"
-            | "declined"
-            | "voided"
-            | "error"
-            | "expired";
-          subscriptionId?: string;
-          userId: string;
-          wompiTransactionId?: string;
-        }>,
-        Name
-      >;
-      listStalePending: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number; olderThanMs: number },
         Array<{
           _creationTime: number;
           _id: string;

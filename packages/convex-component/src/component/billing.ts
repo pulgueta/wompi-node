@@ -213,15 +213,19 @@ export const claimDue = mutation({
   returns: v.object({
     claims: v.array(claimValidator),
     finalized: v.array(subscriptionDoc),
+    /** True when more subscriptions are due than this batch holds. */
+    hasMore: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
     const batchSize = Math.min(args.batchSize ?? 25, 100);
 
-    const due = await ctx.db
+    // One row more than the batch tells if work remains after it.
+    const dueRows = await ctx.db
       .query("subscriptions")
       .withIndex("by_next_charge_at", (q) => q.gt("nextChargeAt", 0).lte("nextChargeAt", now))
-      .take(batchSize);
+      .take(batchSize + 1);
+    const due = dueRows.slice(0, batchSize);
 
     const claims = [];
     const finalized = [];
@@ -368,7 +372,7 @@ export const claimDue = mutation({
       });
     }
 
-    return { claims, finalized };
+    return { claims, finalized, hasMore: dueRows.length > batchSize };
   },
 });
 
