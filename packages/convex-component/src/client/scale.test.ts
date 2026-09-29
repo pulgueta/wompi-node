@@ -486,4 +486,53 @@ describe("processBilling: stale sweep", () => {
     // An abandoned checkout that cannot expire yet costs no request.
     expect(wompi.to("GET", /\/transactions\?reference=/)).toEqual([]);
   });
+
+  test("a run right after a complete pass does not ask Wompi about the same payment again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const t = initConvexTest();
+      await seedProducts(t);
+      const customer = await t.mutation(components.wompi.customers.upsert, {
+        userId: "user_1",
+        email: "ada@example.com",
+      });
+      await t.mutation(components.wompi.payments.createCheckout, {
+        reference: "wmpk_slow",
+        customerId: customer._id,
+        userId: "user_1",
+        productKey: "sticker-pack",
+      });
+      await t.mutation(components.wompi.billing.applyTransaction, {
+        reference: "wmpk_slow",
+        wompiTransactionId: "tx_slow",
+        wompiStatus: "PENDING",
+        config: CRON_CONFIG,
+      });
+      // Wompi keeps the transaction pending.
+      const wompi = mockWompi([
+        {
+          method: "GET",
+          path: /\/transactions\/tx_slow$/,
+          respond: () =>
+            json({
+              data: transaction("tx_slow", "PENDING", "wmpk_slow", 500_000),
+            }),
+        },
+      ]);
+      const billing = makeWompi({ pendingSweepAfterMs: 10 * 60_000 });
+      const run = () =>
+        t.action(async (ctx) => await billing.processBilling(ctx));
+      vi.advanceTimersByTime(11 * 60_000);
+
+      await run();
+      await run();
+      expect(wompi.to("GET", /\/transactions\/tx_slow$/)).toHaveLength(1);
+
+      vi.advanceTimersByTime(10 * 60_000);
+      await run();
+      expect(wompi.to("GET", /\/transactions\/tx_slow$/)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

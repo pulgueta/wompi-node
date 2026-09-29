@@ -203,10 +203,59 @@ describe("claimStalePending", () => {
     expect(references(third.payments)).toEqual(["wmpk_5"]);
     expect(third.hasMore).toBe(false);
 
-    // The pass is complete, so the next sweep starts again with the oldest
-    // payment.
+    // The wait time between passes did not stop the pass between its calls.
+    // The pass is complete, and the next pass waits for the sweep age.
+    expect(await sweep()).toEqual({ payments: [], hasMore: false });
+
+    vi.advanceTimersByTime(10 * MINUTE_MS);
     const again = await sweep();
     expect(references(again.payments)).toEqual(["wmpk_1", "wmpk_2"]);
+  });
+
+  test("waits for the sweep age after the start of a pass before the next pass", async () => {
+    const t = initConvexTest();
+    const customer = await seed(t);
+    await checkout(t, customer._id, "wmpk_1", "tx_1");
+    await checkout(t, customer._id, "wmpk_2", "tx_2");
+    vi.advanceTimersByTime(11 * MINUTE_MS);
+
+    // The first call has no state row.
+    const first = await t.mutation(api.payments.claimStalePending, SWEEP);
+    expect(references(first.payments)).toEqual(["wmpk_1", "wmpk_2"]);
+    expect(first.hasMore).toBe(false);
+
+    vi.advanceTimersByTime(10 * MINUTE_MS - 1);
+    expect(await t.mutation(api.payments.claimStalePending, SWEEP)).toEqual({
+      payments: [],
+      hasMore: false,
+    });
+
+    await t.mutation(api.billing.applyTransaction, {
+      reference: "wmpk_1",
+      wompiTransactionId: "tx_1",
+      wompiStatus: "APPROVED",
+      config: CONFIG,
+    });
+    vi.advanceTimersByTime(1);
+    const next = await t.mutation(api.payments.claimStalePending, SWEEP);
+    expect(references(next.payments)).toEqual(["wmpk_2"]);
+  });
+
+  test("a call that finds no stale payment does not start the wait time", async () => {
+    const t = initConvexTest();
+    const customer = await seed(t);
+    expect(await t.mutation(api.payments.claimStalePending, SWEEP)).toEqual({
+      payments: [],
+      hasMore: false,
+    });
+
+    await checkout(t, customer._id, "wmpk_1", "tx_1");
+    vi.advanceTimersByTime(11 * MINUTE_MS);
+    const { payments } = await t.mutation(
+      api.payments.claimStalePending,
+      SWEEP,
+    );
+    expect(references(payments)).toEqual(["wmpk_1"]);
   });
 
   test("a new pass includes the payments that became stale during the last pass", async () => {

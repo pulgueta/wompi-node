@@ -140,6 +140,14 @@ export const claimStalePending = mutation({
 
     // No row before the first call: the pass starts at the oldest payment.
     const state = await ctx.db.query("sweepCursors").first();
+    const inPass = state !== null && state.cursor !== 0;
+    // A new pass waits `olderThanMs` after the start of the last one. Thus
+    // runs that schedule themselves do not ask Wompi about the same payments
+    // again and again.
+    if (!inPass && state && now - state.passStartedAt < args.olderThanMs) {
+      return { payments: [], hasMore: false };
+    }
+
     const stale = ctx.db
       .query("payments")
       .withIndex("by_status", (q) =>
@@ -180,10 +188,15 @@ export const claimStalePending = mutation({
 
     // At the end of the stale rows, the next pass starts at the oldest one.
     const next = hasMore ? cursor : 0;
-    if (state) {
+    if (inPass) {
       if (state.cursor !== next) await ctx.db.patch("sweepCursors", state._id, { cursor: next });
-    } else if (next !== 0) {
-      await ctx.db.insert("sweepCursors", { cursor: next });
+    } else if (visited > 0) {
+      // A pass that visited a row always writes the row. Two runs that start
+      // a pass at the same time thus conflict, and Convex runs them one after
+      // the other: the second one gets the wait time.
+      const row = { cursor: next, passStartedAt: now };
+      if (state) await ctx.db.patch("sweepCursors", state._id, row);
+      else await ctx.db.insert("sweepCursors", row);
     }
 
     return { payments, hasMore };
