@@ -447,14 +447,21 @@ export class Wompi {
    * Nequi token that the customer did not approve yet cannot become a Wompi
    * payment source, so it is stored with its `tokenId` only and waits for
    * the `nequi_token.updated` event.
+   *
+   * A Nequi token that has a source already sends no creation request: the
+   * result is the Wompi payment source that the component stores. If the
+   * source has none, it waits, and `applyNequiToken` creates it with a claim.
    */
-  private async resolvePaymentSource(args: {
-    token: string;
-    type?: "CARD" | "NEQUI";
-    customerEmail: string;
-    tokens: AcceptanceTokens;
-    paymentMethod?: PaymentMethodDetails;
-  }): Promise<PaymentSourceInput> {
+  private async resolvePaymentSource(
+    ctx: RunQueryCtx,
+    args: {
+      token: string;
+      type?: "CARD" | "NEQUI";
+      customerEmail: string;
+      tokens: AcceptanceTokens;
+      paymentMethod?: PaymentMethodDetails;
+    },
+  ): Promise<PaymentSourceInput> {
     const type = args.type ?? "CARD";
 
     if (type === "NEQUI") {
@@ -465,6 +472,16 @@ export class Wompi {
       }
       if (nequiToken.status === "PENDING") {
         return { type, status: "PENDING", tokenId: args.token, ...args.paymentMethod };
+      }
+
+      const stored = (await ctx.runQuery(this.component.paymentSources.getByTokenId, {
+        tokenId: args.token,
+      })) as { source: { wompiSourceId?: number; status: string } } | null;
+      if (stored) {
+        const { wompiSourceId, status } = stored.source;
+        return wompiSourceId === undefined
+          ? { type, status: "PENDING", tokenId: args.token, ...args.paymentMethod }
+          : { wompiSourceId, type, status, tokenId: args.token, ...args.paymentMethod };
       }
     }
 
@@ -833,7 +850,7 @@ export class Wompi {
     const { user, customer } = await this.ensureCustomer(ctx);
 
     const tokens = await this.acceptanceTokens();
-    const paymentSource = await this.resolvePaymentSource({
+    const paymentSource = await this.resolvePaymentSource(ctx, {
       token: args.token,
       type: args.type,
       customerEmail: user.email,
@@ -934,7 +951,7 @@ export class Wompi {
       );
     }
 
-    const paymentSource = await this.resolvePaymentSource({
+    const paymentSource = await this.resolvePaymentSource(ctx, {
       token: args.token,
       type: args.type,
       customerEmail: user.email,

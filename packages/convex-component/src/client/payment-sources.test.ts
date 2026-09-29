@@ -812,6 +812,56 @@ describe("a Nequi token that is submitted again", () => {
     expect(await tokenStatus(t)).toBe("AVAILABLE");
   });
 
+  test("a second subscribe with an approved token uses the source that the token has", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const { subscription } = await subscribeWithNequi(t, wompi);
+
+    // The customer approves the token, and the first charge is declined.
+    api.transactionStatuses = ["DECLINED", "APPROVED"];
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+    expect((await subscriptionOf(t, subscription._id))?.status).toBe("incomplete");
+
+    api.tokenStatuses = ["APPROVED"];
+    const again = await subscribeWithNequi(t, wompi);
+
+    expect(again.awaitingApproval).toBe(false);
+    expect(again.subscription.status).toBe("active");
+    expect(again.subscription.paymentSourceId).toBe(subscription.paymentSourceId);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678, 5678]);
+  });
+
+  test("a replacement with an approved token uses the source that the token has", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    api.tokenStatuses = ["APPROVED"];
+    const withNequi = await subscribeWithNequi(t, wompi);
+    expect(withNequi.subscription.status).toBe("active");
+
+    const replace = (token: string, type?: "NEQUI") =>
+      t.action(
+        async (ctx) =>
+          await wompi.updateSubscriptionPaymentSource(ctx, {
+            subscriptionId: withNequi.subscription._id,
+            token,
+            type,
+          }),
+      );
+    const withCard = await replace("tok_card_1");
+    expect(withCard.subscription.paymentSourceId).not.toBe(
+      withNequi.subscription.paymentSourceId,
+    );
+
+    const back = await replace(NEQUI_TOKEN, "NEQUI");
+
+    expect(back.awaitingApproval).toBe(false);
+    expect(back.subscription.paymentSourceId).toBe(withNequi.subscription.paymentSourceId);
+    expect(api.createdSources.map((s) => s.token)).toEqual([NEQUI_TOKEN, "tok_card_1"]);
+  });
+
   test("a token of another user is rejected", async () => {
     const t = initConvexTest();
     await seed(t);
