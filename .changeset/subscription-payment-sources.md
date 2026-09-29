@@ -25,5 +25,6 @@ New in `api()`: `updateSubscriptionPaymentSource` and `getNequiTokenStatus`
 The results of `subscribe` have a new `awaitingApproval` field.
 
 **Schema.** The `paymentSources` table has two new optional fields, `tokenId`
-and `subscriptionId`, and a new `by_token_id` index. `wompiSourceId` is now
-optional. Rows that exist stay valid, so no migration is necessary.
+and `subscriptionId`. `wompiSourceId` is now optional. The new `nequiTokens`
+table finds the payment source of a Nequi token. No table that exists has a
+new index, and rows that exist stay valid, so no migration is necessary.

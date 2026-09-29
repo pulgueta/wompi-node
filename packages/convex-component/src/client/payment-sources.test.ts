@@ -444,6 +444,92 @@ describe("Nequi subscriptions", () => {
   });
 });
 
+describe("a Nequi token that is submitted again", () => {
+  test("a second subscribe with the same token keeps one source, and the approval charges once", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+
+    const first = await subscribeWithNequi(t, wompi);
+    const second = await subscribeWithNequi(t, wompi);
+
+    expect(second.awaitingApproval).toBe(true);
+    expect(second.subscription._id).toBe(first.subscription._id);
+    expect(second.subscription.paymentSourceId).toBe(first.subscription.paymentSourceId);
+    expect(second.payment?._id).toBe(first.payment?._id);
+    expect(await tokenStatus(t)).toBe("PENDING");
+
+    const response = await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    expect(response.status).toBe(200);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges).toHaveLength(1);
+    expect((await subscriptionOf(t, first.subscription._id))?.status).toBe("active");
+    expect(await tokenStatus(t)).toBe("AVAILABLE");
+  });
+
+  test("a second replacement with the same token keeps one source", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const before = await activeSubscription(t, wompi, api);
+    const replace = () =>
+      t.action(
+        async (ctx) =>
+          await wompi.updateSubscriptionPaymentSource(ctx, {
+            subscriptionId: before._id,
+            token: NEQUI_TOKEN,
+            type: "NEQUI",
+          }),
+      );
+
+    await replace();
+    await replace();
+    expect(await tokenStatus(t)).toBe("PENDING");
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    expect(api.createdSources.map((s) => s.token)).toEqual(["tok_card_1", NEQUI_TOKEN]);
+    expect((await subscriptionOf(t, before._id))?.paymentSourceId).not.toBe(
+      before.paymentSourceId,
+    );
+    expect(await tokenStatus(t)).toBe("AVAILABLE");
+  });
+
+  test("a token of another user is rejected", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const owner = await subscribeWithNequi(t, makeWompi());
+
+    const intruder = makeWompi({
+      getUserInfo: async () => ({ userId: "user_2", email: "eve@example.com" }),
+    });
+
+    await expect(subscribeWithNequi(t, intruder)).rejects.toThrow(
+      "This Nequi token is already in use",
+    );
+    expect(await tokenStatus(t)).toBe("PENDING");
+    expect((await subscriptionOf(t, owner.subscription._id))?.paymentSourceId).toBe(
+      owner.subscription.paymentSourceId,
+    );
+    expect(
+      await t.query(components.wompi.subscriptions.listByUser, { userId: "user_2" }),
+    ).toEqual([]);
+  });
+
+  test("a token of another subscription is rejected", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    await subscribeWithNequi(t, wompi);
+
+    await expect(subscribeWithNequi(t, wompi, "pro-trial")).rejects.toThrow(
+      "This Nequi token is already in use",
+    );
+    expect(await tokenStatus(t)).toBe("PENDING");
+  });
+});
+
 describe("payment source replacement", () => {
   const replaceWith = (t: T, wompi: Wompi, subscriptionId: string, type?: "CARD" | "NEQUI") =>
     t.action(

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Infer } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -100,6 +101,59 @@ export const swapPaymentSource = async (
   return (await ctx.db.get("subscriptions", subscription._id))!;
 };
 
+/** The payment source a Nequi token belongs to. */
+export const findTokenSource = async (
+  ctx: QueryCtx,
+  tokenId: string,
+): Promise<Doc<"paymentSources"> | null> => {
+  const token = await ctx.db
+    .query("nequiTokens")
+    .withIndex("by_token_id", (q) => q.eq("tokenId", tokenId))
+    .unique();
+  return token ? await ctx.db.get("paymentSources", token.paymentSourceId) : null;
+};
+
+/**
+ * Save the payment source of a subscription. A Nequi token has one row: a
+ * token that is submitted again (double submit, action retry) gets the row
+ * it already has.
+ */
+const savePaymentSource = async (
+  ctx: MutationCtx,
+  args: {
+    customerId: Id<"customers">;
+    userId: string;
+    paymentSource: Infer<typeof paymentSourceInputValidator>;
+    subscriptionId?: Id<"subscriptions">;
+  },
+): Promise<Id<"paymentSources">> => {
+  const { tokenId } = args.paymentSource;
+  const known = tokenId === undefined ? null : await findTokenSource(ctx, tokenId);
+
+  if (known) {
+    if (known.userId !== args.userId || known.subscriptionId !== args.subscriptionId) {
+      throw new Error("This Nequi token is already in use for another subscription");
+    }
+    // A token read that is older than the approval must not undo it.
+    if (known.wompiSourceId === undefined || args.paymentSource.wompiSourceId !== undefined) {
+      await ctx.db.patch("paymentSources", known._id, args.paymentSource);
+    }
+    return known._id;
+  }
+
+  const paymentSourceId = await ctx.db.insert("paymentSources", {
+    customerId: args.customerId,
+    userId: args.userId,
+    ...args.paymentSource,
+    subscriptionId: args.subscriptionId,
+    termsAcceptedAt: Date.now(),
+  });
+  if (tokenId !== undefined) {
+    await ctx.db.insert("nequiTokens", { tokenId, paymentSourceId });
+  }
+  return paymentSourceId;
+};
+
 /**
  * Create (or resume) a subscription for a saved payment source.
  *
@@ -157,19 +211,18 @@ export const create = mutation({
       );
     }
 
-    const paymentSourceId = await ctx.db.insert("paymentSources", {
-      customerId: args.customerId,
-      userId: args.userId,
-      ...args.paymentSource,
-      termsAcceptedAt: now,
-    });
-
     const resumable = sameProduct.find(
       (s) => s.status === "incomplete" || s.status === "unpaid",
     );
 
+    const paymentSourceId = await savePaymentSource(ctx, {
+      customerId: args.customerId,
+      userId: args.userId,
+      paymentSource: args.paymentSource,
+      subscriptionId: resumable?._id,
+    });
+
     if (resumable) {
-      await ctx.db.patch("paymentSources", paymentSourceId, { subscriptionId: resumable._id });
       await ctx.db.patch("subscriptions", resumable._id, {
         paymentSourceId,
         amountInCents: product.amountInCents,
@@ -467,12 +520,11 @@ export const replacePaymentSource = mutation({
     }
     assertPaymentSourceInput(args.paymentSource);
 
-    const paymentSourceId = await ctx.db.insert("paymentSources", {
+    const paymentSourceId = await savePaymentSource(ctx, {
       customerId: subscription.customerId,
       userId: subscription.userId,
-      ...args.paymentSource,
+      paymentSource: args.paymentSource,
       subscriptionId: subscription._id,
-      termsAcceptedAt: Date.now(),
     });
 
     if (args.paymentSource.wompiSourceId === undefined) {

@@ -86,8 +86,7 @@ export default defineSchema({
     // Wompi's payment source status, or the token status (`PENDING`,
     // `DECLINED`) while there is no Wompi payment source.
     status: v.string(),
-    // The Nequi token this source comes from; `nequi_token.updated` events
-    // find the row through it.
+    // The Nequi token this source comes from; `nequiTokens` finds the row.
     tokenId: v.optional(v.string()),
     // The subscription this source is for. A replacement source that waits
     // for approval is not the subscription's current source yet.
@@ -103,8 +102,15 @@ export default defineSchema({
   })
     .index("by_customer_id", ["customerId"])
     .index("by_user_id", ["userId"])
-    .index("by_wompi_source_id", ["wompiSourceId"])
-    .index("by_token_id", ["tokenId"]),
+    .index("by_wompi_source_id", ["wompiSourceId"]),
+
+  // The payment source of each Nequi token; `nequi_token.updated` events
+  // find the source through it. A table of its own, because a new index on
+  // `paymentSources` must backfill the rows of each installation.
+  nequiTokens: defineTable({
+    tokenId: v.string(),
+    paymentSourceId: v.id("paymentSources"),
+  }).index("by_token_id", ["tokenId"]),
 
   // The billing engine's state machine. Wompi has no native subscriptions:
   // periods, renewals and dunning are computed here.

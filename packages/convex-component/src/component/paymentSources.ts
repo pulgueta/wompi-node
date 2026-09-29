@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { applyChargeOutcome } from "./billing.js";
 import { billingConfigValidator, paymentDoc, paymentSourceDoc, subscriptionDoc } from "./shared.js";
-import { claimResumePayment, swapPaymentSource } from "./subscriptions.js";
+import { claimResumePayment, findTokenSource, swapPaymentSource } from "./subscriptions.js";
 
 const tokenOutcome = v.object({
   outcome: v.string(),
@@ -32,10 +32,7 @@ export const getByTokenId = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
-    const source = await ctx.db
-      .query("paymentSources")
-      .withIndex("by_token_id", (q) => q.eq("tokenId", args.tokenId))
-      .unique();
+    const source = await findTokenSource(ctx, args.tokenId);
     if (!source) return null;
 
     const customer = await ctx.db.get("customers", source.customerId);
@@ -57,10 +54,7 @@ export const activate = mutation({
   args: { tokenId: v.string(), wompiSourceId: v.number(), status: v.string() },
   returns: tokenOutcome,
   handler: async (ctx, args) => {
-    const source = await ctx.db
-      .query("paymentSources")
-      .withIndex("by_token_id", (q) => q.eq("tokenId", args.tokenId))
-      .unique();
+    const source = await findTokenSource(ctx, args.tokenId);
     if (!source) return UNKNOWN_TOKEN;
 
     const activated = source.wompiSourceId === undefined;
@@ -118,10 +112,7 @@ export const decline = mutation({
   },
   returns: tokenOutcome,
   handler: async (ctx, args) => {
-    const source = await ctx.db
-      .query("paymentSources")
-      .withIndex("by_token_id", (q) => q.eq("tokenId", args.tokenId))
-      .unique();
+    const source = await findTokenSource(ctx, args.tokenId);
     if (!source) return UNKNOWN_TOKEN;
 
     // Only a token that still waits can be declined.
@@ -189,10 +180,7 @@ export const getStatusByTokenId = query({
   args: { tokenId: v.string(), userId: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
-    const source = await ctx.db
-      .query("paymentSources")
-      .withIndex("by_token_id", (q) => q.eq("tokenId", args.tokenId))
-      .unique();
+    const source = await findTokenSource(ctx, args.tokenId);
     if (!source || source.userId !== args.userId) return null;
     return source.status;
   },

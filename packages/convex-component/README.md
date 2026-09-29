@@ -541,6 +541,7 @@ back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
 | `customers` | Your users in the billing domain (`userId` ↔ email). |
 | `products` | The catalog you define (`one_time` or `subscription` with interval/trial). |
 | `paymentSources` | Saved Wompi payment sources (brand/last four for display, `termsAcceptedAt`), and Nequi tokens that wait for approval (`tokenId`). |
+| `nequiTokens` | The payment source of each Nequi token, one row per token. |
 | `subscriptions` | The state machine: status, period, `nextChargeAt`, dunning counters. |
 | `payments` | One row per charge attempt, keyed by unique Wompi reference. |
 | `dispersions` | Payout batches (Pagos a Terceros), keyed by Wompi payout id. |
