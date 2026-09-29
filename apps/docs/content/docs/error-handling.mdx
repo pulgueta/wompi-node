@@ -133,7 +133,7 @@ import { isGatewayError } from "@pulgueta/wompi/schemas";
 const [error, payout] = await payouts.createPayout(input, { idempotencyKey });
 
 if (error && isGatewayError(error)) {
-  // Try again later with the same idempotency key.
+  // Try again with the same idempotency key, before the key expires.
   return scheduleRetry();
 }
 ```
@@ -144,6 +144,8 @@ if (error && isGatewayError(error)) {
 
 :::caution[A write request can be complete]
 A gateway error does not prove that Wompi ignored the request. Use the same `reference` or idempotency key when you try a write again, so Wompi rejects the duplicate.
+
+Wompi remembers a Payouts idempotency key for 24 hours. After that time, the same key can create a second batch. If the retry can run later than that, first make sure that the batch does not exist. For a bank batch, `listTransactionsByReference` gives the transactions of a batch `reference`.
 :::
 
 ## Pre-flight input validation
