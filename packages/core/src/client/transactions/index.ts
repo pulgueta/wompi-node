@@ -29,10 +29,16 @@ export class Transactions extends WompiRequest {
 
   /**
    * Get a single transaction by ID.
-   * No authentication required.
+   * Requires private key (BearerPrivateKey).
    */
   async getTransaction(id: string): Promise<Result<Transaction>> {
-    return this.get(`/transactions/${id}`, TransactionResponseSchema);
+    if (!this.privateKey) {
+      return [new WompiError("Private key is required for this operation"), null];
+    }
+
+    return this.get(`/transactions/${id}`, TransactionResponseSchema, {
+      Authorization: `Bearer ${this.privateKey}`,
+    });
   }
 
   /**
