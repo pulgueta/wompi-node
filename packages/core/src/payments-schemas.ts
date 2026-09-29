@@ -568,6 +568,39 @@ export class WompiRequestError extends WompiError {
   }
 }
 
+/**
+ * Wompi, or a gateway in front of it, cannot serve the request at this time:
+ * a `502`, `503` or `504`, or a `5xx` with a body that is not JSON (an HTML
+ * error page). The request is safe to try again after a delay.
+ *
+ * It extends {@link WompiRequestError}, so code that reads `statusCode` from a
+ * request error continues to operate. `body` is `null` when the response was
+ * not JSON.
+ */
+export class WompiServiceUnavailableError extends WompiRequestError {
+  readonly type = "SERVICE_UNAVAILABLE_ERROR" as const;
+  readonly retryable = true as const;
+
+  constructor(statusCode: number, body: unknown) {
+    super(statusCode, body);
+    this.name = "WompiServiceUnavailableError";
+    this.message = `Wompi is temporarily unavailable (status ${statusCode})`;
+  }
+}
+
+const GATEWAY_STATUS_CODES: readonly number[] = [502, 503, 504];
+
+/**
+ * True when the error is a gateway or availability failure: a
+ * {@link WompiServiceUnavailableError}, or an SDK error with a `502`, `503`
+ * or `504` status code. Try the request again after a delay.
+ */
+export const isGatewayError = (error: unknown): boolean => {
+  if (error instanceof WompiServiceUnavailableError) return true;
+  if (!(error instanceof WompiError) || !("statusCode" in error)) return false;
+  return typeof error.statusCode === "number" && GATEWAY_STATUS_CODES.includes(error.statusCode);
+};
+
 export class WompiWebhookVerificationError extends WompiError {
   readonly type = "WEBHOOK_VERIFICATION_ERROR" as const;
 
@@ -587,6 +620,7 @@ export type WompiErrorResult =
   | WompiNotFoundError
   | WompiPayoutApiError
   | WompiRequestError
+  | WompiServiceUnavailableError
   | WompiValidationError
   | WompiWebhookVerificationError;
 

@@ -6,9 +6,13 @@ import {
   WompiError,
   WompiNotFoundError,
   WompiRequestError,
+  WompiServiceUnavailableError,
   WompiValidationError,
 } from "@/schemas";
 import type { Result } from "@/schemas";
+
+/** Marks an error body that is not JSON, e.g. the HTML page of a gateway. */
+const NOT_JSON = Symbol("not-json");
 
 const BASE_URLS = {
   production: "https://production.wompi.co/v1",
@@ -69,7 +73,8 @@ export class WompiRequest {
     }
 
     if (!response.ok) {
-      const raw = await response.json().catch(() => null);
+      const parsed: unknown = await response.json().catch(() => NOT_JSON);
+      const raw = parsed === NOT_JSON ? null : parsed;
 
       const notFound = NotFoundErrorResponseSchema.safeParse(raw);
       if (response.status === 404 && notFound.success) {
@@ -83,6 +88,11 @@ export class WompiRequest {
 
       const mappedError = this.errorMapper?.(response.status, raw);
       if (mappedError) return [mappedError, null];
+
+      const isGatewayStatus = response.status >= 502 && response.status <= 504;
+      if (isGatewayStatus || (response.status >= 500 && parsed === NOT_JSON)) {
+        return [new WompiServiceUnavailableError(response.status, raw), null];
+      }
 
       return [new WompiRequestError(response.status, raw), null];
     }

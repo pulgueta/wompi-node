@@ -5,9 +5,12 @@ import {
   WompiNotFoundError,
   WompiValidationError,
   WompiRequestError,
+  WompiServiceUnavailableError,
+  WompiPayoutApiError,
   WompiError,
+  isGatewayError,
 } from "../src/schemas";
-import { okJson, okEmpty, errorJson } from "./helpers";
+import { okJson, okEmpty, errorJson, errorHtml } from "./helpers";
 
 const TestSchema = z.object({ data: z.string() });
 
@@ -175,6 +178,95 @@ describe("WompiRequest", () => {
 
     expect(data).toBeNull();
     expect(error).toBeInstanceOf(WompiRequestError);
+  });
+
+  it("should keep a JSON 500 as a plain WompiRequestError", async () => {
+    const request = new TestableWompiRequest();
+
+    mockFetch.mockResolvedValueOnce(errorJson(500, { error: { type: "INTERNAL_ERROR" } }));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(error).toBeInstanceOf(WompiRequestError);
+    expect(error).not.toBeInstanceOf(WompiServiceUnavailableError);
+    expect(isGatewayError(error)).toBe(false);
+  });
+
+  it.each([502, 503, 504])(
+    "should return [WompiServiceUnavailableError, null] on an HTML %i",
+    async (status) => {
+      const request = new TestableWompiRequest();
+
+      mockFetch.mockResolvedValueOnce(errorHtml(status));
+
+      const [error, data] = await request.testGet("/test", TestSchema);
+
+      expect(data).toBeNull();
+      expect(error).toBeInstanceOf(WompiServiceUnavailableError);
+      expect(error).toBeInstanceOf(WompiRequestError);
+      expect((error as WompiServiceUnavailableError).statusCode).toBe(status);
+      expect((error as WompiServiceUnavailableError).retryable).toBe(true);
+      expect((error as WompiServiceUnavailableError).body).toBeNull();
+      expect(isGatewayError(error)).toBe(true);
+    }
+  );
+
+  it("should return [WompiServiceUnavailableError, null] on a JSON 503", async () => {
+    const request = new TestableWompiRequest();
+    const body = { error: { type: "SERVICE_UNAVAILABLE" } };
+
+    mockFetch.mockResolvedValueOnce(errorJson(503, body));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(error).toBeInstanceOf(WompiServiceUnavailableError);
+    expect((error as WompiServiceUnavailableError).body).toEqual(body);
+  });
+
+  it("should return [WompiServiceUnavailableError, null] on an HTML 500", async () => {
+    const request = new TestableWompiRequest();
+
+    mockFetch.mockResolvedValueOnce(errorHtml(500));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(error).toBeInstanceOf(WompiServiceUnavailableError);
+    expect((error as WompiServiceUnavailableError).statusCode).toBe(500);
+    expect(isGatewayError(error)).toBe(true);
+  });
+
+  it("should not classify an HTML 4xx as a gateway error", async () => {
+    const request = new TestableWompiRequest();
+
+    mockFetch.mockResolvedValueOnce(errorHtml(403));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(error).toBeInstanceOf(WompiRequestError);
+    expect(error).not.toBeInstanceOf(WompiServiceUnavailableError);
+    expect(isGatewayError(error)).toBe(false);
+  });
+
+  it("should let the product error mapper classify a structured 503 first", async () => {
+    const mapped = new WompiPayoutApiError(503, { code: "SERVICE_UNAVAILABLE", message: "Down" });
+    const request = new TestableWompiRequest({ errorMapper: () => mapped });
+
+    mockFetch.mockResolvedValueOnce(errorJson(503, { code: "SERVICE_UNAVAILABLE" }));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(error).toBe(mapped);
+    expect(isGatewayError(error)).toBe(true);
+  });
+
+  it("should not classify a network error as a gateway error", async () => {
+    const request = new TestableWompiRequest();
+
+    mockFetch.mockRejectedValueOnce(new Error("Network failure"));
+
+    const [error] = await request.testGet("/test", TestSchema);
+
+    expect(isGatewayError(error)).toBe(false);
   });
 
   it("does not classify a flat payments error as a payouts error", async () => {
