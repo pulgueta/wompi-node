@@ -239,7 +239,9 @@ Wompi has no subscription engine, so the component is one:
    (server-side charges every run, checkouts once before expiring) so a
    payment that reached Wompi without a webhook is still recorded; abandoned
    checkouts expire after ~26h. A late `APPROVED` still reopens an expired or
-   declined row.
+   declined row. The sweep rotates: it takes the payments it never visited
+   first, then the ones it visited least recently, so a payment that stays
+   pending cannot keep another one out of reach.
 
 Defaults are tunable:
 
@@ -262,6 +264,58 @@ new Wompi(components.wompi, {
 
 Callbacks fire once per state change, whether the change arrived via webhook,
 cron, or confirmation: redeliveries and repeated confirmations are no-ops.
+
+### Scale and limits
+
+One billing run has these limits:
+
+| Limit                                  | Value                        |
+| -------------------------------------- | ---------------------------- |
+| Subscriptions claimed                  | `batchSize`: 25, maximum 100 |
+| Wompi requests in flight               | 5                            |
+| Stale payments the sweep works on      | 50                           |
+| Stale payments the sweep reads         | 500                          |
+| Webhook events removed after retention | 100                          |
+
+With the 15-minute cron from the wiring example, the engine does 96 runs each
+day. That is 2,400 renewals each day with the default `batchSize`, and 9,600
+with `batchSize: 100`. Renewals above that number are charged late, not lost.
+
+To remove the limit of the cron interval, read `remaining` from the summary.
+It is `true` when the run left due subscriptions or stale payments for an
+immediate next run. Replace `wompi.billing()` with an action that schedules
+itself:
+
+```ts
+// convex/billing.ts
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+import { wompi } from "./wompi";
+
+export const run = internalAction({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const summary = await wompi.processBilling(ctx, { batchSize: 100 });
+    if (summary.remaining) {
+      await ctx.scheduler.runAfter(0, internal.billing.run, {});
+    }
+    return null;
+  },
+});
+```
+
+The next run always gets different work. A claimed subscription has a lease
+(`billing.leaseMs`, default 10 minutes), and a payment that the sweep visited
+is not visited again for `billing.pendingSweepAfterMs` (default 10 minutes).
+Do not set these two options to `0` in production: the action would schedule
+itself without end.
+
+The cron sends the charges five at a time and does not wait for a result. A
+renewal that Wompi keeps `PENDING` keeps its transaction id and resolves with
+the webhook. Without the webhook, it resolves in the first run after the lease
+ends.
 
 `registerRoutes(http, { onEvent })` is different: it runs for every verified
 delivery that was not already applied. Two deliveries of the same event that
