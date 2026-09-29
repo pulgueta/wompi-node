@@ -113,6 +113,7 @@ const makeDue = async (
 describe("Credential-on-File flag on subscription charges", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test("the initial charge, the renewal and the dunning retry send recurrent: true", async () => {
