@@ -322,7 +322,7 @@ describe("processBilling: charges in parallel", () => {
     expect(new Set(sources).size).toBe(12);
   });
 
-  test("one charge that throws does not stop the other charges", async () => {
+  test("one charge that Wompi rejects does not stop the other charges", async () => {
     const t = initConvexTest();
     await dueRenewals(t, 6);
     mockWompi([
@@ -355,6 +355,37 @@ describe("processBilling: charges in parallel", () => {
     );
 
     expect(summary).toMatchObject({ claimed: 6, approved: 5, declined: 1 });
+  });
+
+  test("one charge with a network failure does not stop the other charges", async () => {
+    const t = initConvexTest();
+    await dueRenewals(t, 6);
+    mockWompi([
+      MERCHANT,
+      {
+        method: "POST",
+        path: /\/transactions$/,
+        respond: ({ body }) => {
+          if (body.payment_source_id === 1002) throw new Error("socket hang up");
+          return json({
+            data: transaction(
+              `tx_${String(body.reference)}`,
+              "APPROVED",
+              String(body.reference),
+              2_990_000,
+            ),
+          });
+        },
+      },
+      NO_TRANSACTIONS,
+    ]);
+
+    const summary = await t.action(
+      async (ctx) => await makeWompi().processBilling(ctx, { batchSize: 6 }),
+    );
+
+    expect(summary).toMatchObject({ claimed: 6, approved: 5, declined: 0 });
+    expect(summary.errors).toHaveLength(1);
   });
 });
 
