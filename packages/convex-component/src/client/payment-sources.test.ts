@@ -867,6 +867,41 @@ describe("a source that another source replaced", () => {
     expect(await tokenStatus(t, "nequi_new")).toBe("AVAILABLE");
   });
 
+  test("a token that waits is superseded when the user has many newer sources", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const before = await activeSubscription(t, wompi, api);
+    await replaceWithNequi(t, wompi, before._id, NEQUI_TOKEN);
+
+    // The user gets 65 newer sources for a different subscription.
+    const { subscription: other } = await t.action(
+      async (ctx) => await wompi.subscribe(ctx, { productKey: "pro-trial", token: "tok_card_2" }),
+    );
+    for (let i = 0; i < 65; i++) {
+      await t.mutation(components.wompi.subscriptions.replacePaymentSource, {
+        subscriptionId: other._id as never,
+        userId: "user_1",
+        paymentSource: { wompiSourceId: 9_000 + i, type: "CARD", status: "AVAILABLE" },
+      });
+    }
+
+    const { subscription: withCard } = await t.action(
+      async (ctx) =>
+        await wompi.updateSubscriptionPaymentSource(ctx, {
+          subscriptionId: before._id,
+          token: "tok_card_3",
+        }),
+    );
+    expect(await tokenStatus(t)).toBe("SUPERSEDED");
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    expect((await subscriptionOf(t, before._id))?.paymentSourceId).toBe(
+      withCard.paymentSourceId,
+    );
+  });
+
   test("a token that is submitted again after a card waits for the approval again", async () => {
     const t = initConvexTest();
     await seed(t);

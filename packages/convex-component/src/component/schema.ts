@@ -114,7 +114,11 @@ export default defineSchema({
   nequiTokens: defineTable({
     tokenId: v.string(),
     paymentSourceId: v.id("paymentSources"),
-  }).index("by_token_id", ["tokenId"]),
+    // Finds each source of a subscription that can wait for approval.
+    subscriptionId: v.optional(v.id("subscriptions")),
+  })
+    .index("by_token_id", ["tokenId"])
+    .index("by_subscription_id", ["subscriptionId"]),
 
   // The billing engine's state machine. Wompi has no native subscriptions:
   // periods, renewals and dunning are computed here.

@@ -93,15 +93,15 @@ const supersedePendingSources = async (
   subscription: Doc<"subscriptions">,
   keep: Id<"paymentSources">[],
 ): Promise<void> => {
-  const sources = await ctx.db
-    .query("paymentSources")
-    .withIndex("by_user_id", (q) => q.eq("userId", subscription.userId))
-    .order("desc")
-    .take(64);
+  // Only the source of a Nequi token can wait for approval.
+  const tokens = ctx.db
+    .query("nequiTokens")
+    .withIndex("by_subscription_id", (q) => q.eq("subscriptionId", subscription._id));
 
-  for (const source of sources) {
+  for await (const token of tokens) {
+    const source = await ctx.db.get("paymentSources", token.paymentSourceId);
     if (
-      source.subscriptionId === subscription._id &&
+      source &&
       source.wompiSourceId === undefined &&
       source.status === "PENDING" &&
       !keep.includes(source._id)
@@ -178,9 +178,30 @@ const savePaymentSource = async (
     termsAcceptedAt: Date.now(),
   });
   if (tokenId !== undefined) {
-    await ctx.db.insert("nequiTokens", { tokenId, paymentSourceId });
+    await ctx.db.insert("nequiTokens", {
+      tokenId,
+      paymentSourceId,
+      subscriptionId: args.subscriptionId,
+    });
   }
   return paymentSourceId;
+};
+
+/** Give the source of a new subscription, and its Nequi token, the subscription. */
+const assignSubscription = async (
+  ctx: MutationCtx,
+  paymentSourceId: Id<"paymentSources">,
+  tokenId: string | undefined,
+  subscriptionId: Id<"subscriptions">,
+): Promise<void> => {
+  await ctx.db.patch("paymentSources", paymentSourceId, { subscriptionId });
+  if (tokenId === undefined) return;
+
+  const token = await ctx.db
+    .query("nequiTokens")
+    .withIndex("by_token_id", (q) => q.eq("tokenId", tokenId))
+    .unique();
+  if (token) await ctx.db.patch("nequiTokens", token._id, { subscriptionId });
 };
 
 /**
@@ -299,7 +320,7 @@ export const create = mutation({
         failedAttempts: 0,
         metadata: args.metadata,
       });
-      await ctx.db.patch("paymentSources", paymentSourceId, { subscriptionId });
+      await assignSubscription(ctx, paymentSourceId, args.paymentSource.tokenId, subscriptionId);
 
       return { subscription: (await ctx.db.get("subscriptions", subscriptionId))!, payment: null };
     }
@@ -321,7 +342,7 @@ export const create = mutation({
       failedAttempts: 0,
       metadata: args.metadata,
     });
-    await ctx.db.patch("paymentSources", paymentSourceId, { subscriptionId });
+    await assignSubscription(ctx, paymentSourceId, args.paymentSource.tokenId, subscriptionId);
 
     const paymentId = await ctx.db.insert("payments", {
       reference: subscriptionChargeReference(subscriptionId, "init", 0),
