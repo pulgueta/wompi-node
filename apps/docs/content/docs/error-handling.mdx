@@ -40,15 +40,15 @@ narrowing on every access — the tuple gets it for free.
 Every SDK error extends the base `WompiError`. The response source determines
 which subclass you receive:
 
-| Class                           | Discriminant                                                    | Returned when                                                            |
-| ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `WompiError`                    | —                                                               | Local validation, missing key, or another pre-request failure.           |
-| `WompiValidationError`          | `type === "INPUT_VALIDATION_ERROR"`                             | The Payments API rejects the body with HTTP 422.                         |
-| `WompiNotFoundError`            | `type === "NOT_FOUND_ERROR"`                                    | The Payments API answers HTTP 404.                                       |
-| `WompiRequestError`             | `statusCode` and `body`                                         | Another Payments API response has a non-2xx status.                      |
-| `WompiServiceUnavailableError`  | `type === "SERVICE_UNAVAILABLE_ERROR"`; `retryable === true`    | Wompi or its gateway answers 502, 503 or 504, or a 5xx that is not JSON. |
-| `WompiPayoutApiError`           | `type === "PAYOUT_API_ERROR"`; `code`, `statusCode`, and `body` | The Payouts API returns a structured error.                              |
-| `WompiWebhookVerificationError` | `type === "WEBHOOK_VERIFICATION_ERROR"`                         | A payment or payout webhook fails parsing or signature verification.     |
+| Class                           | Discriminant                                                    | Returned when                                                                                         |
+| ------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `WompiError`                    | —                                                               | Local validation, missing key, or another pre-request failure.                                        |
+| `WompiValidationError`          | `type === "INPUT_VALIDATION_ERROR"`                             | The Payments API rejects the body with HTTP 422.                                                      |
+| `WompiNotFoundError`            | `type === "NOT_FOUND_ERROR"`                                    | The Payments API answers HTTP 404.                                                                    |
+| `WompiRequestError`             | `statusCode` and `body`                                         | A different non-2xx response, from the Payments API or from the Payouts API with no structured error. |
+| `WompiServiceUnavailableError`  | `type === "SERVICE_UNAVAILABLE_ERROR"`; `retryable === true`    | Wompi or its gateway answers 502, 503 or 504, or a 5xx that is not JSON.                              |
+| `WompiPayoutApiError`           | `type === "PAYOUT_API_ERROR"`; `code`, `statusCode`, and `body` | The Payouts API returns a structured error.                                                           |
+| `WompiWebhookVerificationError` | `type === "WEBHOOK_VERIFICATION_ERROR"`                         | A payment or payout webhook fails parsing or signature verification.                                  |
 
 ## Branching on `type`
 
