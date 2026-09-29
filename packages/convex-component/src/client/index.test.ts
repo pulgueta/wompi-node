@@ -1400,7 +1400,8 @@ describe("api()", () => {
           }),
       )) as Record<string, { userId: string; status: string }>;
 
-    expect(Object.keys(result).sort()).toEqual(["payment", "subscription"]);
+    // The internal charge outcome stays on the server.
+    expect(result).not.toHaveProperty("outcome");
     expect(result.subscription).toMatchObject({
       userId: "user_2",
       status: "active",
