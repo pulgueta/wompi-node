@@ -273,23 +273,34 @@ export const subscriptionChargeReference = (
  * same amount as before, so it is false only when the subscription's last
  * approved payment has a different amount or currency (for example after a
  * plan or price change). With no approved payment it is true.
+ *
+ * A `voided` payment counts as approved: Wompi voids only an approved
+ * transaction, and the row does not keep its earlier status.
  */
 export const isRecurrentCharge = async (
   ctx: QueryCtx,
   subscriptionId: Doc<"subscriptions">["_id"],
   payment: Pick<Doc<"payments">, "amountInCents" | "currency">,
 ): Promise<boolean> => {
-  const lastApproved = await ctx.db
-    .query("payments")
-    .withIndex("by_subscription_id_status", (q) =>
-      q.eq("subscriptionId", subscriptionId).eq("status", "approved"),
-    )
-    .order("desc")
-    .first();
+  const [approved, voided] = await Promise.all(
+    (["approved", "voided"] as const).map((status) =>
+      ctx.db
+        .query("payments")
+        .withIndex("by_subscription_id_status", (q) =>
+          q.eq("subscriptionId", subscriptionId).eq("status", status),
+        )
+        .order("desc")
+        .first(),
+    ),
+  );
+  const last =
+    approved && voided
+      ? voided._creationTime > approved._creationTime
+        ? voided
+        : approved
+      : (approved ?? voided);
   return (
-    !lastApproved ||
-    (lastApproved.amountInCents === payment.amountInCents &&
-      lastApproved.currency === payment.currency)
+    !last || (last.amountInCents === payment.amountInCents && last.currency === payment.currency)
   );
 };
 

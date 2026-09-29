@@ -202,6 +202,58 @@ describe("Credential-on-File flag on subscription charges", () => {
     expect(charges.map((charge) => charge.recurrent)).toEqual([true, false, false, true]);
   });
 
+  test("a renewal after the changed-amount charge was voided sends recurrent: true", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const charges = mockWompi([]);
+
+    const { subscription } = await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card" }),
+    );
+    await t.mutation(components.wompi.products.sync, {
+      products: [
+        {
+          key: "pro-plus",
+          name: "Pro Plus",
+          type: "subscription" as const,
+          amountInCents: 4_990_000,
+          interval: "month" as const,
+        },
+      ],
+    });
+    await t.mutation(components.wompi.subscriptions.changeProduct, {
+      subscriptionId: subscription._id as never,
+      userId: "user_1",
+      productKey: "pro-plus",
+    });
+
+    // The first renewal at the new amount is approved, then voided.
+    await makeDue(t, subscription._id);
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+    const voided = await t.mutation(components.wompi.billing.applyTransaction, {
+      reference: String(charges[1].reference),
+      wompiTransactionId: "tx_2",
+      wompiStatus: "VOIDED",
+      config: {
+        leaseMs: 0,
+        maxRetries: 3,
+        onExhausted: "mark_unpaid",
+        retryScheduleMs: [1_000],
+      },
+    });
+    expect(voided.payment?.status).toBe("voided");
+
+    await makeDue(t, subscription._id);
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    expect(charges.map((charge) => charge.amount_in_cents)).toEqual([
+      2_990_000, 4_990_000, 4_990_000,
+    ]);
+    expect(charges.map((charge) => charge.recurrent)).toEqual([true, false, true]);
+  });
+
   describe("resuming an unpaid subscription", () => {
     // One approved charge, then a renewal and 3 retries that all decline.
     const resumeAfterPriceChange = async (newAmount: number) => {
