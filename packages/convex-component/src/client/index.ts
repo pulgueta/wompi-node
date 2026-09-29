@@ -685,6 +685,10 @@ export class Wompi {
       // Wompi requires installments when charging a saved card source.
       payment_method: { installments: args.installments ?? 1 },
       reference: payment.reference,
+      // Credential-on-File: a periodic charge of the same amount on a stored
+      // source. Wompi processes the charge without COF when the franchise or
+      // the processor does not support it.
+      recurrent: true,
     });
 
     if (chargeError) {
