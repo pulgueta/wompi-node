@@ -1731,13 +1731,22 @@ export class Wompi {
               event.event === "nequi_token.updated"
                 ? NequiTokenUpdatedEventSchema.safeParse(event)
                 : null;
-            const outcome = nequiEvent?.success
-              ? (await this.applyNequiToken(ctx, nequiEvent.data.data.nequi_token)).outcome
-              : "ignored";
+            const applied = nequiEvent?.success
+              ? await this.applyNequiToken(ctx, nequiEvent.data.data.nequi_token)
+              : null;
+            if (applied?.charge?.outcome === "unresolved") {
+              // Nothing else charges this payment. Leave the delivery without
+              // an outcome: Wompi's retry charges the same payment under the
+              // same reference.
+              return new Response(JSON.stringify({ error: "Charge unresolved" }), {
+                status: 503,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
 
             await ctx.runMutation(this.component.webhooks.markOutcome, {
               eventId: delivery.eventId as never,
-              outcome,
+              outcome: applied?.outcome ?? "ignored",
             });
           }
           duplicate = delivery.duplicate;

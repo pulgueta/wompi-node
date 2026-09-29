@@ -292,8 +292,8 @@ describe("Nequi subscriptions", () => {
     const wompi = makeWompi();
     const { subscription } = await subscribeWithNequi(t, wompi);
 
-    // The charge request fails at the transport level: the endpoint answers
-    // with an error, and the delivery stays without an outcome.
+    // The charge request fails at the transport level: the charge is not
+    // resolved, and the delivery stays without an outcome.
     const chargeFails = api.fetch.getMockImplementation()!;
     let failOnce = true;
     api.fetch.mockImplementation(async (input, init) => {
@@ -305,13 +305,18 @@ describe("Nequi subscriptions", () => {
     });
 
     const approved = await nequiEvent("APPROVED");
-    await deliver(t, wompi, approved);
+    const failed = await deliver(t, wompi, approved);
+    expect(failed.status).toBe(503);
+    expect(await recordedOutcome(t, approved.signature.checksum)).toBeUndefined();
     expect(await tokenStatus(t)).toBe("AVAILABLE");
     expect((await subscriptionOf(t, subscription._id))?.status).toBe("incomplete");
 
-    // A later delivery finds the source active and charges the same payment.
-    await deliver(t, wompi, await nequiEvent("APPROVED", NEQUI_TOKEN, 1_700_000_500));
+    // Wompi sends the delivery again: it finds the source active and charges
+    // the same payment.
+    const retry = await deliver(t, wompi, approved);
 
+    expect(retry).toEqual({ status: 200, body: { received: true, duplicate: true } });
+    expect(await recordedOutcome(t, approved.signature.checksum)).toBe("noop");
     expect(api.createdSources).toHaveLength(1);
     expect(api.charges).toHaveLength(1);
     expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");

@@ -247,7 +247,9 @@ The `nequi_token.updated` webhook applies the approval or the refusal, so
 polling is not necessary. `subscribe` also reads the token again after it
 saves the subscription: an approval that arrives during the call is not lost.
 A redelivery of the event does not create a second payment source and does
-not charge again.
+not charge again. If the charge of an approval has no result (a network error
+or an error of Wompi), the webhook answers `503`. Wompi then sends the event
+again, and the component charges the same payment with the same reference.
 
 A token has one payment source. If the customer submits the same token again,
 the component uses the source that it has. A token that waits becomes
