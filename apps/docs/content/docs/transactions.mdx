@@ -11,7 +11,7 @@ The transactions resource handles the actual money movement. There are four meth
 
 | Method                                         | HTTP                                     | Public key | Private key |
 | ---------------------------------------------- | ---------------------------------------- | ---------- | ----------- |
-| `getTransaction`                               | `GET /transactions/&#123;id&#125;`       | —          | —           |
+| `getTransaction`                               | `GET /transactions/&#123;id&#125;`       | —          | Required    |
 | `listTransactions`                             | `GET /transactions`                      | —          | Required    |
 | `createTransaction` (with `payment_method`)    | `POST /transactions`                     | Required   | —           |
 | `createTransaction` (with `payment_source_id`) | `POST /transactions`                     | —          | Required    |
@@ -103,6 +103,8 @@ const [error, response] = await wompi.transactions.createTransaction({
 ## getTransaction(id)
 
 Look a transaction up by id. Useful for polling a `PENDING` status from a webhook handler or a status page.
+
+Requires the private key. Call it from your server. Wompi returns `404 Not Found` for a lookup that has no private key, so the SDK returns a `WompiError` and sends no request when the client has no `privateKey`.
 
 ```ts
 const [error, response] = await wompi.transactions.getTransaction("txn_abc123");

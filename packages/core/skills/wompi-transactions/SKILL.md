@@ -112,6 +112,16 @@ await wompi.transactions.createTransaction({
 });
 ```
 
+### Get a transaction by ID
+
+`getTransaction` requires `privateKey`. Call it from your server. Wompi returns `404 Not Found` for a lookup that has no private key.
+
+```typescript
+const [error, transaction] = await wompi.transactions.getTransaction('txn-123');
+if (error) throw error;
+console.log(transaction.status);
+```
+
 ### List and filter transactions
 
 `listTransactions` requires `privateKey`. Dates must be `YYYY-MM-DD` (not ISO timestamps). `page_size` max is 200.
@@ -380,7 +390,7 @@ const wompi = new WompiClient({
 });
 ```
 
-`listTransactions` and `voidTransaction` require `privateKey`. Transactions using `payment_source_id` also require it.
+`getTransaction`, `listTransactions` and `voidTransaction` require `privateKey`. Transactions using `payment_source_id` also require it.
 
 Source: `packages/core/src/client/transactions/index.ts`
 

@@ -56,6 +56,7 @@ throwing. When `error` is `null`, `data` holds the parsed response; when `error`
 is set, `data` is `null`.
 
 ```typescript
+// `getTransaction` requires the private key. Call it from your server.
 const [error, response] = await wompi.transactions.getTransaction("txn-id");
 
 if (error) {
