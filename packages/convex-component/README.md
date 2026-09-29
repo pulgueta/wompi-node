@@ -239,8 +239,8 @@ Wompi has no subscription engine, so the component is one:
    (server-side charges every run, checkouts once before expiring) so a
    payment that reached Wompi without a webhook is still recorded; abandoned
    checkouts expire after ~26h. A late `APPROVED` still reopens an expired or
-   declined row. The sweep rotates: it takes the payments it never visited
-   first, then the ones it visited least recently, so a payment that stays
+   declined row. The sweep rotates: each run continues after the last payment
+   that the previous run visited, oldest first, so a payment that stays
    pending cannot keep another one out of reach.
 
 Defaults are tunable:
@@ -299,7 +299,9 @@ export const run = internalAction({
   returns: v.null(),
   handler: async (ctx) => {
     const summary = await wompi.processBilling(ctx, { batchSize: 100 });
-    if (summary.remaining) {
+    // After a run with errors, wait for the cron. Thus an outage of Wompi
+    // does not use the full backlog in a loop.
+    if (summary.remaining && summary.errors.length === 0) {
       await ctx.scheduler.runAfter(0, internal.billing.run, {});
     }
     return null;
