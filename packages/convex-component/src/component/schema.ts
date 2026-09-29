@@ -89,6 +89,9 @@ export default defineSchema({
     status: v.string(),
     // The Nequi token this source comes from; `nequiTokens` finds the row.
     tokenId: v.optional(v.string()),
+    // When a run claimed the creation of the Wompi payment source. The claim
+    // is a lease: a run that crashed can be done again after it expires.
+    activationClaimedAt: v.optional(v.number()),
     // The subscription this source is for. A replacement source that waits
     // for approval is not the subscription's current source yet.
     subscriptionId: v.optional(v.id("subscriptions")),

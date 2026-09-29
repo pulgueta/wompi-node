@@ -630,7 +630,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             userId: string;
           } | null;
           subscriptionChanged: boolean;
+          wompiSourceId?: number;
         },
+        Name
+      >;
+      claimActivation: FunctionReference<
+        "mutation",
+        "internal",
+        { leaseMs: number; tokenId: string },
+        {
+          claimed: boolean;
+          customerEmail: string;
+          status: string;
+          wompiSourceId?: number;
+        } | null,
         Name
       >;
       decline: FunctionReference<
@@ -711,33 +724,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             userId: string;
           } | null;
           subscriptionChanged: boolean;
+          wompiSourceId?: number;
         },
-        Name
-      >;
-      getByTokenId: FunctionReference<
-        "query",
-        "internal",
-        { tokenId: string },
-        {
-          customerEmail: string;
-          source: {
-            _creationTime: number;
-            _id: string;
-            brand?: string;
-            cardHolder?: string;
-            customerId: string;
-            expMonth?: string;
-            expYear?: string;
-            lastFour?: string;
-            status: string;
-            subscriptionId?: string;
-            termsAcceptedAt?: number;
-            tokenId?: string;
-            type: string;
-            userId: string;
-            wompiSourceId?: number;
-          };
-        } | null,
         Name
       >;
       getStatusByTokenId: FunctionReference<

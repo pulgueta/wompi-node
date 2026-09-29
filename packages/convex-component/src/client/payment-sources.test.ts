@@ -449,6 +449,122 @@ describe("Nequi subscriptions", () => {
   });
 });
 
+describe("the creation of the Wompi payment source", () => {
+  // A claim that stays valid during the test, as in production.
+  const withLease = () =>
+    makeWompi({
+      billing: { leaseMs: 60_000, pollAttempts: 1, pollIntervalMs: 0, pendingSweepAfterMs: 0 },
+    });
+
+  test("two deliveries at the same time create one payment source", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = withLease();
+    const { subscription } = await subscribeWithNequi(t, wompi);
+
+    // The first creation request waits until the second delivery is complete.
+    const original = api.fetch.getMockImplementation()!;
+    let reached = () => {};
+    let release = () => {};
+    const inCreation = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held = false;
+    api.fetch.mockImplementation(async (input, init) => {
+      if (!held && init?.method === "POST" && /\/payment_sources$/.test(String(input))) {
+        held = true;
+        reached();
+        await gate;
+      }
+      return await original(input, init);
+    });
+
+    const first = deliver(t, wompi, await nequiEvent("APPROVED"));
+    await inCreation;
+    const other = await nequiEvent("APPROVED", NEQUI_TOKEN, 1_700_000_500);
+    const second = await deliver(t, wompi, other);
+    release();
+
+    expect(second.status).toBe(503);
+    expect(await recordedOutcome(t, other.signature.checksum)).toBeUndefined();
+    expect((await first).status).toBe(200);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678]);
+    expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");
+
+    // The delivery that Wompi sends again finds the work done.
+    expect((await deliver(t, wompi, other)).status).toBe(200);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges).toHaveLength(1);
+  });
+
+  test("a run that failed after Wompi created the source is not repeated while its claim is valid", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = withLease();
+    const { subscription } = await subscribeWithNequi(t, wompi);
+
+    // Wompi creates the source, but the response does not arrive.
+    const original = api.fetch.getMockImplementation()!;
+    let lost = false;
+    api.fetch.mockImplementation(async (input, init) => {
+      if (!lost && init?.method === "POST" && /\/payment_sources$/.test(String(input))) {
+        lost = true;
+        api.createdSources.push(JSON.parse(String(init.body)) as Body);
+        throw new TypeError("fetch failed");
+      }
+      return await original(input, init);
+    });
+
+    const approved = await nequiEvent("APPROVED");
+    await expect(deliver(t, wompi, approved)).rejects.toThrow();
+    expect(await tokenStatus(t)).toBe("PENDING");
+
+    const early = await deliver(t, wompi, approved);
+    expect(early.status).toBe(503);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges).toEqual([]);
+
+    // Wompi has no request to find the first source again. When the claim
+    // is not valid anymore, the retry creates a source and charges it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 61_000);
+      const late = await deliver(t, wompi, approved);
+
+      expect(late.status).toBe(200);
+      expect(api.createdSources).toHaveLength(2);
+      expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678]);
+      expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");
+      expect(await tokenStatus(t)).toBe("AVAILABLE");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the charge uses the payment source that the row stores", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    await subscribeWithNequi(t, makeWompi());
+
+    const first = await t.mutation(components.wompi.paymentSources.activate, {
+      tokenId: NEQUI_TOKEN,
+      wompiSourceId: 111,
+      status: "AVAILABLE",
+    });
+    // A second run that created a source of its own.
+    const second = await t.mutation(components.wompi.paymentSources.activate, {
+      tokenId: NEQUI_TOKEN,
+      wompiSourceId: 222,
+      status: "AVAILABLE",
+    });
+
+    expect(first.wompiSourceId).toBe(111);
+    expect(second.outcome).toBe("noop");
+    expect(second.wompiSourceId).toBe(111);
+    expect(second.payment?._id).toBe(first.payment?._id);
+  });
+});
+
 describe("a Nequi token that is submitted again", () => {
   test("a second subscribe with the same token keeps one source, and the approval charges once", async () => {
     const t = initConvexTest();

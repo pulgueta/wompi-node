@@ -558,6 +558,11 @@ back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
 
 ## Current limitations
 
+- Wompi has no idempotency key for payment sources, and no request to find
+  a payment source by its token. Only one run at a time creates the payment
+  source of a Nequi token. If that run stops after Wompi created the source
+  and before the component saved it, a retry after `billing.leaseMs` creates
+  a second source. The first source stays in Wompi and is not charged.
 - No proration on plan changes (they apply at the next renewal).
 - Refunds/voids update payment rows and surface a note, but never mutate
   subscription periods — handle refund policy in `onPaymentChange`.

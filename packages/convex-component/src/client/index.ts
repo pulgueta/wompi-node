@@ -182,7 +182,10 @@ export type WompiBillingOptions = {
   retryScheduleMs?: number[];
   /** What happens when dunning is exhausted. Default "mark_unpaid". */
   onExhausted?: "mark_unpaid" | "cancel";
-  /** Charge lease before the cron may re-attempt a claim. Default 10 min. */
+  /**
+   * Charge lease before the cron may re-attempt a claim, and lease of the run
+   * that creates the Wompi payment source of a Nequi token. Default 10 min.
+   */
   leaseMs?: number;
   /** How long an interactive charge polls Wompi for a final status. Default 8 × 1.5s. */
   pollAttempts?: number;
@@ -495,8 +498,9 @@ export class Wompi {
    * save the source: an approval that arrived before the source existed is
    * not lost.
    *
-   * Safe to repeat. A source that already has its Wompi payment source is not
-   * created again, and the charge has a deterministic reference.
+   * Safe to repeat. Only the run that claims the source creates its Wompi
+   * payment source, a source that already has one is not created again, and
+   * the charge has a deterministic reference.
    */
   private async applyNequiToken(
     ctx: RunMutationCtx,
@@ -529,22 +533,30 @@ export class Wompi {
       return { outcome: declined.outcome, subscription: declined.subscription, charge: null };
     }
 
-    const waiting = (await ctx.runQuery(this.component.paymentSources.getByTokenId, {
+    const waiting = (await ctx.runMutation(this.component.paymentSources.claimActivation, {
       tokenId: token.id,
+      leaseMs: this.billingConfig.leaseMs,
     })) as {
-      source: { wompiSourceId?: number; status: string };
+      claimed: boolean;
+      status: string;
+      wompiSourceId?: number;
       customerEmail: string;
     } | null;
     if (!waiting) return { outcome: "unknown_token", subscription: null, charge: null };
 
-    this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
-    const tokens = await this.acceptanceTokens();
-    let { wompiSourceId, status } = waiting.source;
+    let { wompiSourceId, status } = waiting;
 
     if (wompiSourceId === undefined) {
-      // A declined token never becomes a payment source.
+      // A declined or superseded token never becomes a payment source.
       if (status !== "PENDING") return { outcome: "noop", subscription: null, charge: null };
+      // Another run creates the payment source now.
+      if (!waiting.claimed) return { outcome: "in_progress", subscription: null, charge: null };
+    }
 
+    this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
+    const tokens = await this.acceptanceTokens();
+
+    if (wompiSourceId === undefined) {
       // The event (or the token read) reported the approval; do not read
       // the token again, its state could be older than the event.
       const created = await this.createWompiSource({
@@ -566,6 +578,7 @@ export class Wompi {
       subscriptionChanged: boolean;
       subscription: SubscriptionDoc | null;
       payment: PaymentDoc | null;
+      wompiSourceId?: number;
     };
 
     if (activated.subscriptionChanged && activated.subscription) {
@@ -585,7 +598,8 @@ export class Wompi {
     const charge = await this.chargeClaimedPayment(ctx, {
       payment: activated.payment,
       customerEmail: waiting.customerEmail,
-      wompiSourceId,
+      // The source that the row stores, not one that only this run knows.
+      wompiSourceId: activated.wompiSourceId ?? wompiSourceId,
       tokens,
       integrityKey: this.requireKey(this.integrityKey, "integrity key", "WOMPI_INTEGRITY_KEY"),
       // Not interactive: poll less, let webhooks/sweeps finish.
@@ -1734,11 +1748,15 @@ export class Wompi {
             const applied = nequiEvent?.success
               ? await this.applyNequiToken(ctx, nequiEvent.data.data.nequi_token)
               : null;
-            if (applied?.charge?.outcome === "unresolved") {
-              // Nothing else charges this payment. Leave the delivery without
-              // an outcome: Wompi's retry charges the same payment under the
-              // same reference.
-              return new Response(JSON.stringify({ error: "Charge unresolved" }), {
+            if (
+              applied?.outcome === "in_progress" ||
+              applied?.charge?.outcome === "unresolved"
+            ) {
+              // Nothing else finishes this approval. Leave the delivery
+              // without an outcome: Wompi's retry creates the payment source
+              // if the other run did not, and charges the same payment under
+              // the same reference.
+              return new Response(JSON.stringify({ error: "Approval not complete" }), {
                 status: 503,
                 headers: { "Content-Type": "application/json" },
               });
