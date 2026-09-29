@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { computeEventChecksum, getSignatureKey } from "@pulgueta/wompi/server";
 import { WompiValidationError } from "@pulgueta/wompi/schemas";
@@ -176,14 +175,22 @@ const authedConfig: Partial<WompiConfig> = {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthenticated");
     return {
-      userId: identity.subject,
+      userId: identity.tokenIdentifier,
       email: identity.email ?? "user@example.com",
     };
   },
 };
 
-const ADA = { subject: "user_1", email: "ada@example.com" };
-const BOB = { subject: "user_2", email: "bob@example.com" };
+const ADA = {
+  subject: "user_1",
+  tokenIdentifier: "https://issuer.example|user_1",
+  email: "ada@example.com",
+};
+const BOB = {
+  subject: "user_2",
+  tokenIdentifier: "https://issuer.example|user_2",
+  email: "bob@example.com",
+};
 
 const CRON_CONFIG = {
   maxRetries: 3,
@@ -1378,9 +1385,9 @@ describe("api()", () => {
       "bob@example.com",
     );
 
-    expect(await paymentsOf(t, "user_1")).toEqual([]);
-    expect(await paymentsOf(t, "user_2")).toMatchObject([
-      { reference: result.reference, userId: "user_2", amountInCents: 500_000 },
+    expect(await paymentsOf(t, ADA.tokenIdentifier)).toEqual([]);
+    expect(await paymentsOf(t, BOB.tokenIdentifier)).toMatchObject([
+      { reference: result.reference, userId: BOB.tokenIdentifier, amountInCents: 500_000 },
     ]);
   });
 
@@ -1401,17 +1408,17 @@ describe("api()", () => {
     // The internal charge outcome stays on the server.
     expect(result).not.toHaveProperty("outcome");
     expect(result.subscription).toMatchObject({
-      userId: "user_2",
+      userId: BOB.tokenIdentifier,
       status: "active",
     });
     expect(result.payment).toMatchObject({
-      userId: "user_2",
+      userId: BOB.tokenIdentifier,
       status: "approved",
     });
 
     const [source] = wompi.to("POST", /\/payment_sources$/);
     expect(source.body.customer_email).toBe("bob@example.com");
-    expect(await subscriptionsOf(t, "user_1")).toEqual([]);
+    expect(await subscriptionsOf(t, ADA.tokenIdentifier)).toEqual([]);
   });
 
   test("the queries give each user only their rows", async () => {
@@ -1438,7 +1445,7 @@ describe("api()", () => {
     ) => as.query(async (ctx) => await handlerOf(fn)(ctx, args));
 
     expect(await query(asAda, api.getCurrentSubscription)).toMatchObject({
-      userId: "user_1",
+      userId: ADA.tokenIdentifier,
       status: "active",
       product: { key: "pro-monthly" },
     });
@@ -1482,7 +1489,7 @@ describe("api()", () => {
       ).rejects.toThrow("Subscription not found");
     }
 
-    const [subscription] = await subscriptionsOf(t, "user_1");
+    const [subscription] = await subscriptionsOf(t, ADA.tokenIdentifier);
     expect(subscription).toMatchObject({
       status: "active",
       cancelAtPeriodEnd: false,
