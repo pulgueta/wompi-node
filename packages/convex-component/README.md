@@ -568,6 +568,11 @@ back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
   source of a Nequi token. If that run stops after Wompi created the source
   and before the component saved it, a retry after `billing.leaseMs` creates
   a second source. The first source stays in Wompi and is not charged.
+- `subscribe` and `updateSubscriptionPaymentSource` create the payment source
+  of a card, or of a Nequi token that is approved and new, before they save
+  it. If the subscription changes during the call (for example, a cancel),
+  the call fails. The token is used, and the payment source stays in Wompi
+  without a row in the component.
 - No proration on plan changes (they apply at the next renewal).
 - Refunds/voids update payment rows and surface a note, but never mutate
   subscription periods — handle refund policy in `onPaymentChange`.
