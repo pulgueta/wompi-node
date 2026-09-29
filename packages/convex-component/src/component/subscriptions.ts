@@ -4,6 +4,7 @@ import type { QueryCtx } from "./_generated/server.js";
 import type { Doc } from "./_generated/dataModel.js";
 import {
   ENTITLED_STATUSES,
+  isRecurrentCharge,
   paymentDoc,
   paymentSourceInputValidator,
   subscriptionChargeReference,
@@ -43,6 +44,8 @@ export const create = mutation({
   returns: v.object({
     subscription: subscriptionDoc,
     payment: v.union(paymentDoc, v.null()),
+    /** Credential-on-File flag for the returned payment. */
+    recurrent: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const product = await ctx.db
@@ -113,6 +116,7 @@ export const create = mutation({
         return {
           subscription: (await ctx.db.get("subscriptions", resumable._id))!,
           payment: inFlight,
+          recurrent: await isRecurrentCharge(ctx, resumable._id, inFlight),
         };
       }
 
@@ -152,6 +156,8 @@ export const create = mutation({
       return {
         subscription: (await ctx.db.get("subscriptions", resumable._id))!,
         payment: (await ctx.db.get("payments", paymentId))!,
+        // A resumed subscription may have approved payments at an older price.
+        recurrent: await isRecurrentCharge(ctx, resumable._id, product),
       };
     }
 
@@ -181,7 +187,11 @@ export const create = mutation({
         metadata: args.metadata,
       });
 
-      return { subscription: (await ctx.db.get("subscriptions", subscriptionId))!, payment: null };
+      return {
+        subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
+        payment: null,
+        recurrent: true,
+      };
     }
 
     const subscriptionId = await ctx.db.insert("subscriptions", {
@@ -220,6 +230,8 @@ export const create = mutation({
     return {
       subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
       payment: (await ctx.db.get("payments", paymentId))!,
+      // A new subscription has no approved payment yet.
+      recurrent: true,
     };
   },
 });

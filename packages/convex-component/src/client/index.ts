@@ -603,7 +603,7 @@ export class Wompi {
     });
     if (sourceError) throw sourceError;
 
-    const { subscription, payment } = (await ctx.runMutation(
+    const { subscription, payment, recurrent } = (await ctx.runMutation(
       this.component.subscriptions.create,
       {
         customerId: customer._id,
@@ -617,7 +617,11 @@ export class Wompi {
         },
         metadata: args.metadata,
       },
-    )) as { subscription: SubscriptionDoc; payment: PaymentDoc | null };
+    )) as {
+      subscription: SubscriptionDoc;
+      payment: PaymentDoc | null;
+      recurrent: boolean;
+    };
 
     if (!payment) {
       // Trial: no initial charge. Surface the new subscription to callbacks.
@@ -639,8 +643,7 @@ export class Wompi {
       integrityKey,
       pollAttempts: this.billingOptions.pollAttempts,
       installments: args.installments,
-      // The initial charge has no earlier approved charge to differ from.
-      recurrent: true,
+      recurrent,
     });
 
     return {

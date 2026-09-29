@@ -202,6 +202,61 @@ describe("Credential-on-File flag on subscription charges", () => {
     expect(charges.map((charge) => charge.recurrent)).toEqual([true, false, false, true]);
   });
 
+  describe("resuming an unpaid subscription", () => {
+    // One approved charge, then a renewal and 3 retries that all decline.
+    const resumeAfterPriceChange = async (newAmount: number) => {
+      const t = initConvexTest();
+      await seed(t);
+      const wompi = makeWompi();
+      const charges = mockWompi(["APPROVED", "DECLINED", "DECLINED", "DECLINED", "DECLINED"]);
+
+      const { subscription } = await t.action(
+        async (ctx) =>
+          await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card" }),
+      );
+      for (let i = 0; i < 4; i++) {
+        await makeDue(t, subscription._id);
+        await t.action(async (ctx) => await wompi.processBilling(ctx));
+      }
+      const unpaid = await t.query(components.wompi.subscriptions.getCurrent, {
+        userId: "user_1",
+      });
+      expect(unpaid).toBeNull();
+
+      await t.mutation(components.wompi.products.sync, {
+        products: [
+          {
+            key: "pro-monthly",
+            name: "Pro",
+            type: "subscription" as const,
+            amountInCents: newAmount,
+            interval: "month" as const,
+          },
+        ],
+      });
+      const resumed = await t.action(
+        async (ctx) =>
+          await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card_2" }),
+      );
+      expect(resumed.subscription._id).toBe(subscription._id);
+      return charges;
+    };
+
+    test("sends recurrent: false when the product price changed", async () => {
+      const charges = await resumeAfterPriceChange(3_990_000);
+      expect(charges).toHaveLength(6);
+      expect(charges[5].amount_in_cents).toBe(3_990_000);
+      expect(charges[5].recurrent).toBe(false);
+    });
+
+    test("sends recurrent: true when the price is unchanged", async () => {
+      const charges = await resumeAfterPriceChange(2_990_000);
+      expect(charges).toHaveLength(6);
+      expect(charges[5].amount_in_cents).toBe(2_990_000);
+      expect(charges[5].recurrent).toBe(true);
+    });
+  });
+
   test("a one-time checkout creates no server-side charge, so it sends no flag", async () => {
     const t = initConvexTest();
     await seed(t);

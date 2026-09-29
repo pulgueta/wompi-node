@@ -6,6 +6,7 @@ import {
   addInterval,
   billingConfigValidator,
   CHARGEABLE_STATUSES,
+  isRecurrentCharge,
   paymentChange,
   paymentDoc,
   retryDelayMs,
@@ -359,20 +360,7 @@ export const claimDue = mutation({
         payment = (await ctx.db.get("payments", paymentId))!;
       }
 
-      // COF: `recurrent` means the same amount as before. A changed amount
-      // (plan change, including its dunning retries) is a stored-card charge
-      // with a different amount, so `recurrent` is false.
-      const lastApproved = await ctx.db
-        .query("payments")
-        .withIndex("by_subscription_id_status", (q) =>
-          q.eq("subscriptionId", subscription._id).eq("status", "approved"),
-        )
-        .order("desc")
-        .first();
-      const recurrent =
-        !lastApproved ||
-        (lastApproved.amountInCents === payment.amountInCents &&
-          lastApproved.currency === payment.currency);
+      const recurrent = await isRecurrentCharge(ctx, subscription._id, payment);
 
       await ctx.db.patch("subscriptions", subscription._id, { nextChargeAt: now + args.config.leaseMs });
 
