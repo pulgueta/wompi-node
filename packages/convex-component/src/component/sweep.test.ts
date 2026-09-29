@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { initConvexTest } from "./setup.test.js";
+import { convexTest } from "convex-test";
+import { initConvexTest, modules } from "./setup.test.js";
+import schema from "./schema.js";
 import { api } from "./_generated/api.js";
 
 const MINUTE_MS = 60_000;
@@ -201,17 +203,13 @@ describe("claimStalePending", () => {
     expect(references(third.payments)).toEqual(["wmpk_5"]);
     expect(third.hasMore).toBe(false);
 
-    // Each payment had its sweep a moment ago, so there is no more work.
-    expect(await sweep()).toEqual({ payments: [], hasMore: false });
-
-    // After the sweep age, the rotation starts again with the payment that
-    // had its sweep first.
-    vi.advanceTimersByTime(11 * MINUTE_MS);
+    // The pass is complete, so the next sweep starts again with the oldest
+    // payment.
     const again = await sweep();
     expect(references(again.payments)).toEqual(["wmpk_1", "wmpk_2"]);
   });
 
-  test("a payment without a sweep goes before one that had a sweep", async () => {
+  test("a new pass includes the payments that became stale during the last pass", async () => {
     const t = initConvexTest();
     const customer = await seed(t);
     await checkout(t, customer._id, "wmpk_old", "tx_old");
@@ -225,7 +223,58 @@ describe("claimStalePending", () => {
       SWEEP,
     );
 
-    expect(references(payments)).toEqual(["wmpk_new", "wmpk_old"]);
+    expect(references(payments)).toEqual(["wmpk_old", "wmpk_new"]);
+  });
+
+  test("does not change a payment row", async () => {
+    const t = initConvexTest();
+    const customer = await seed(t);
+    const payment = await checkout(t, customer._id, "wmpk_1", "tx_1");
+    const stored = () =>
+      t.run(async (ctx) => await ctx.db.get("payments", payment._id));
+    vi.advanceTimersByTime(11 * MINUTE_MS);
+    const before = await stored();
+
+    const { payments } = await t.mutation(
+      api.payments.claimStalePending,
+      SWEEP,
+    );
+
+    expect(payments).toEqual([before]);
+    expect(await stored()).toEqual(before);
+  });
+
+  test("stops before it reads more bytes than the transaction can hold", async () => {
+    const MiB = 1 << 20;
+    const t = convexTest({
+      schema,
+      modules,
+      transactionLimits: { bytesRead: 5 * MiB },
+    });
+    const customer = await seed(t);
+    // Ten payments of about 600 KB each: together more than the read limit.
+    for (let i = 0; i < 10; i++) {
+      const payment = await checkout(t, customer._id, `wmpk_${i}`, `tx_${i}`);
+      await t.run(async (ctx) => {
+        await ctx.db.patch("payments", payment._id, {
+          metadata: { note: "x".repeat(600_000) },
+        });
+      });
+      vi.advanceTimersByTime(1);
+    }
+    vi.advanceTimersByTime(11 * MINUTE_MS);
+
+    const seen: string[] = [];
+    let hasMore = true;
+    for (let call = 0; hasMore && call < 10; call++) {
+      const result = await t.mutation(api.payments.claimStalePending, SWEEP);
+      expect(result.payments.length).toBeLessThan(10);
+      seen.push(...references(result.payments));
+      hasMore = result.hasMore;
+    }
+
+    expect(hasMore).toBe(false);
+    expect(seen).toEqual(Array.from({ length: 10 }, (_, i) => `wmpk_${i}`));
   });
 });
 

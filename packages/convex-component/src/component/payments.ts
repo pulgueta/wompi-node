@@ -100,17 +100,28 @@ export const listByUser = query({
 const SWEEP_SCAN_LIMIT = 500;
 
 /**
+ * Read bytes that the sweep keeps free in its transaction. It stops when less
+ * remains. This is more than one document of the maximum size (1 MiB) plus
+ * the row that tells if more work remains.
+ */
+const SWEEP_READ_RESERVE_BYTES = 4 * 1024 * 1024;
+
+/**
  * Claim the pending payments the billing sweep must look at: reconcile
  * against the Wompi API (when a transaction id exists, and for server-side
  * charges) or expire (abandoned checkouts).
  *
- * The sweep rotates. It takes the stale rows it never visited, oldest first,
- * then the rows it visited more than `olderThanMs` ago, least recent first,
- * and stamps each one with `sweptAt`. A row that stays pending thus goes to
- * the end of the line, so each stale row is reached however many there are.
+ * The sweep rotates. Each call continues after the last stale row that the
+ * previous call visited, oldest first. When a call gets to the end of the
+ * stale rows, the next call starts again at the oldest one. Thus each stale
+ * row is reached however many rows stay pending. The position is in the
+ * `sweepCursors` table, so the sweep writes no payment row.
+ *
+ * A call stops at `limit` returned rows, at `SWEEP_SCAN_LIMIT` visited rows,
+ * or when less than `SWEEP_READ_RESERVE_BYTES` of the read limit remains.
  *
  * An abandoned checkout has no work until it is `expireAfterMs` old. It is
- * stamped but not returned, so it does not use a place in the batch.
+ * passed but not returned, so it does not use a place in the batch.
  *
  * `hasMore` is true when stale rows remain for an immediate next call.
  */
@@ -127,39 +138,54 @@ export const claimStalePending = mutation({
     const expirableBefore = now - args.expireAfterMs;
     const limit = Math.min(args.limit ?? 50, 200);
 
-    const neverSwept = await ctx.db
+    // No row before the first call: the pass starts at the oldest payment.
+    const state = await ctx.db.query("sweepCursors").first();
+    const stale = ctx.db
       .query("payments")
-      .withIndex("by_status_swept_at", (q) =>
-        q.eq("status", "pending").eq("sweptAt", undefined).lte("_creationTime", staleBefore),
-      )
-      .take(SWEEP_SCAN_LIMIT + 1);
+      .withIndex("by_status", (q) =>
+        q
+          .eq("status", "pending")
+          .gt("_creationTime", state?.cursor ?? 0)
+          .lte("_creationTime", staleBefore),
+      );
 
-    const sweptBefore =
-      neverSwept.length > SWEEP_SCAN_LIMIT
-        ? []
-        : await ctx.db
-            .query("payments")
-            .withIndex("by_status_swept_at", (q) =>
-              q.eq("status", "pending").gte("sweptAt", 0).lte("sweptAt", staleBefore),
-            )
-            .take(SWEEP_SCAN_LIMIT + 1 - neverSwept.length);
-
-    const candidates = [...neverSwept, ...sweptBefore];
     const payments = [];
     let visited = 0;
+    let cursor = 0;
+    let full = false;
+    let hasMore = false;
 
-    for (const payment of candidates.slice(0, SWEEP_SCAN_LIMIT)) {
-      if (payments.length === limit) break;
+    for await (const payment of stale) {
+      // Do not stop between two rows with the same `_creationTime`: the
+      // cursor cannot tell them apart, so the next call would skip one.
+      if (full && payment._creationTime !== cursor) {
+        hasMore = true;
+        break;
+      }
+      cursor = payment._creationTime;
       visited++;
-      await ctx.db.patch("payments", payment._id, { sweptAt: now });
 
       const waitsToExpire =
         payment.kind === "checkout" &&
         payment.wompiTransactionId === undefined &&
         payment._creationTime > expirableBefore;
-      if (!waitsToExpire) payments.push({ ...payment, sweptAt: now });
+      if (!waitsToExpire) payments.push(payment);
+
+      const { bytesRead } = await ctx.meta.getTransactionMetrics();
+      full =
+        payments.length >= limit ||
+        visited >= SWEEP_SCAN_LIMIT ||
+        bytesRead.remaining < SWEEP_READ_RESERVE_BYTES;
     }
 
-    return { payments, hasMore: visited < candidates.length };
+    // At the end of the stale rows, the next pass starts at the oldest one.
+    const next = hasMore ? cursor : 0;
+    if (state) {
+      if (state.cursor !== next) await ctx.db.patch("sweepCursors", state._id, { cursor: next });
+    } else if (next !== 0) {
+      await ctx.db.insert("sweepCursors", { cursor: next });
+    }
+
+    return { payments, hasMore };
   },
 });

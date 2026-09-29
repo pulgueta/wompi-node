@@ -595,7 +595,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               | "error"
               | "expired";
             subscriptionId?: string;
-            sweptAt?: number;
             userId: string;
             wompiTransactionId?: string;
           }>;

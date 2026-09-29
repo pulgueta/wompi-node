@@ -159,10 +159,6 @@ export default defineSchema({
     paymentMethodType: v.optional(v.string()),
     failureReason: v.optional(v.string()),
     finalizedAt: v.optional(v.number()),
-    // When the stale-pending sweep last visited this row. The sweep takes
-    // the rows it never visited first, then the ones it visited least
-    // recently, so no pending row can keep another one out of reach.
-    sweptAt: v.optional(v.number()),
     metadata: v.optional(v.record(v.string(), v.any())),
   })
     .index("by_reference", ["reference"])
@@ -170,7 +166,7 @@ export default defineSchema({
     .index("by_subscription_id", ["subscriptionId"])
     .index("by_subscription_id_status", ["subscriptionId", "status"])
     .index("by_wompi_transaction_id", ["wompiTransactionId"])
-    .index("by_status_swept_at", ["status", "sweptAt"]),
+    .index("by_status", ["status"]),
 
   // Payout batches (Pagos a Terceros), one row per Wompi payout, updated in
   // place as `payout.updated` events land.
@@ -230,4 +226,12 @@ export default defineSchema({
   })
     .index("by_checksum", ["checksum"])
     .index("by_timestamp", ["timestamp"]),
+
+  // Position of the stale-pending sweep: one row at most. `cursor` is the
+  // `_creationTime` of the last stale payment that the sweep visited, or 0 at
+  // the start of a pass. It is kept out of the payment rows so that the sweep
+  // writes no payment.
+  sweepCursors: defineTable({
+    cursor: v.number(),
+  }),
 });
