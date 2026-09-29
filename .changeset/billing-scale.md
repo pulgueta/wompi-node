@@ -13,12 +13,16 @@ Remove the scale limits of the billing engine and document the ones that stay.
 - **`ProcessBillingSummary.remaining`.** It is `true` when the run left due
   subscriptions or stale payments for an immediate next run. The README shows an
   action that schedules itself with it.
-- **The stale sweep rotates.** It takes the payments it never visited first, then
-  the ones it visited least recently. Before, it read the 50 oldest pending
+- **The stale sweep rotates.** Each run continues after the last payment that
+  the previous run visited, oldest first. At the end of the stale payments, the
+  next run starts again at the oldest one. Before, it read the 50 oldest pending
   payments in each run, so payments that stayed pending kept all later ones out
   of reach. An abandoned checkout that cannot expire yet does not use a place in
   the batch.
+- **The stale sweep has a read limit.** It stops when less than 4 MiB of the
+  read limit of the transaction remains. Payments with large `metadata` cannot
+  make the run fail.
 
-The `payments` table has a new optional field, `sweptAt`, and the index
-`by_status_swept_at` replaces `by_status`. Convex builds the index when you
-deploy the new version. No data migration is necessary.
+The component has a new table, `sweepCursors`, with one row: the position of
+the sweep. The sweep writes no payment row. The `payments` table and its indexes
+do not change. No data migration is necessary.
