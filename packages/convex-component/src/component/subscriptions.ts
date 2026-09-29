@@ -84,6 +84,34 @@ export const claimResumePayment = async (
 };
 
 /**
+ * Mark the sources of the subscription that wait for approval as
+ * `SUPERSEDED`, except `keep`. The approval of a source that another source
+ * replaced arrives late, and must not make it the current source again.
+ */
+const supersedePendingSources = async (
+  ctx: MutationCtx,
+  subscription: Doc<"subscriptions">,
+  keep: Id<"paymentSources">[],
+): Promise<void> => {
+  const sources = await ctx.db
+    .query("paymentSources")
+    .withIndex("by_user_id", (q) => q.eq("userId", subscription.userId))
+    .order("desc")
+    .take(64);
+
+  for (const source of sources) {
+    if (
+      source.subscriptionId === subscription._id &&
+      source.wompiSourceId === undefined &&
+      source.status === "PENDING" &&
+      !keep.includes(source._id)
+    ) {
+      await ctx.db.patch("paymentSources", source._id, { status: "SUPERSEDED" });
+    }
+  }
+};
+
+/**
  * Make a saved source the one the subscription charges. Period, trial and
  * dunning state stay as they are; a `past_due` subscription becomes due now,
  * so the next billing run charges the new source and does not wait for the
@@ -98,6 +126,7 @@ export const swapPaymentSource = async (
     paymentSourceId,
     ...(subscription.status === "past_due" ? { nextChargeAt: Date.now() } : {}),
   });
+  await supersedePendingSources(ctx, subscription, [paymentSourceId]);
   return (await ctx.db.get("subscriptions", subscription._id))!;
 };
 
@@ -232,6 +261,7 @@ export const create = mutation({
         productId: product._id,
         lastError: undefined,
       });
+      await supersedePendingSources(ctx, resumable, [paymentSourceId]);
 
       const payment = await claimResumePayment(
         ctx,
@@ -528,6 +558,11 @@ export const replacePaymentSource = mutation({
     });
 
     if (args.paymentSource.wompiSourceId === undefined) {
+      // The newest token is the replacement that waits.
+      await supersedePendingSources(ctx, subscription, [
+        paymentSourceId,
+        subscription.paymentSourceId,
+      ]);
       return { subscription, changed: false };
     }
 

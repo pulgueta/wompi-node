@@ -946,7 +946,8 @@ export class Wompi {
 
   /**
    * The state of the source that a Nequi token of this user waits for:
-   * `PENDING`, `AVAILABLE` or `DECLINED`. Null for an unknown token.
+   * `PENDING`, `AVAILABLE`, `DECLINED` or `SUPERSEDED` (another source
+   * replaced it). Null for an unknown token.
    */
   async getNequiTokenStatus(
     ctx: RunQueryCtx,
@@ -1936,8 +1937,9 @@ export class Wompi {
 
       /**
        * Reactive state of the source that a Nequi token waits for, for an
-       * "approve in your Nequi app" screen: `PENDING`, `AVAILABLE` or
-       * `DECLINED`. Null for a token that is not of the signed-in user.
+       * "approve in your Nequi app" screen: `PENDING`, `AVAILABLE`,
+       * `DECLINED` or `SUPERSEDED`. Null for a token that is not of the
+       * signed-in user.
        */
       getNequiTokenStatus: queryGeneric({
         args: { tokenId: v.string() },

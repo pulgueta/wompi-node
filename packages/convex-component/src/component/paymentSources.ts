@@ -58,6 +58,11 @@ export const activate = mutation({
     if (!source) return UNKNOWN_TOKEN;
 
     const activated = source.wompiSourceId === undefined;
+    // Only a token that still waits can become active: not a declined token,
+    // and not a source that another source replaced.
+    if (activated && source.status !== "PENDING") {
+      return { outcome: "noop", subscriptionChanged: false, subscription: null, payment: null };
+    }
     if (activated) {
       await ctx.db.patch("paymentSources", source._id, {
         wompiSourceId: args.wompiSourceId,

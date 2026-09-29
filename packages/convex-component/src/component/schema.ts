@@ -84,7 +84,8 @@ export default defineSchema({
     wompiSourceId: v.optional(v.number()),
     type: v.string(),
     // Wompi's payment source status, or the token status (`PENDING`,
-    // `DECLINED`) while there is no Wompi payment source.
+    // `DECLINED`) while there is no Wompi payment source. `SUPERSEDED` is a
+    // token that waited when another source replaced it.
     status: v.string(),
     // The Nequi token this source comes from; `nequiTokens` finds the row.
     tokenId: v.optional(v.string()),

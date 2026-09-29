@@ -530,6 +530,129 @@ describe("a Nequi token that is submitted again", () => {
   });
 });
 
+describe("a source that another source replaced", () => {
+  const replaceWithNequi = (t: T, wompi: Wompi, subscriptionId: string, token: string) =>
+    t.action(
+      async (ctx) =>
+        await wompi.updateSubscriptionPaymentSource(ctx, {
+          subscriptionId,
+          token,
+          type: "NEQUI",
+        }),
+    );
+
+  test("a late approval does not replace the card that replaced the token", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const before = await activeSubscription(t, wompi, api);
+    await replaceWithNequi(t, wompi, before._id, NEQUI_TOKEN);
+
+    const { subscription: withCard } = await t.action(
+      async (ctx) =>
+        await wompi.updateSubscriptionPaymentSource(ctx, {
+          subscriptionId: before._id,
+          token: "tok_card_2",
+        }),
+    );
+    expect(await tokenStatus(t)).toBe("SUPERSEDED");
+
+    const approved = await nequiEvent("APPROVED");
+    await deliver(t, wompi, approved);
+
+    expect(api.createdSources.map((s) => s.token)).toEqual(["tok_card_1", "tok_card_2"]);
+    expect((await subscriptionOf(t, before._id))?.paymentSourceId).toBe(
+      withCard.paymentSourceId,
+    );
+    expect(await tokenStatus(t)).toBe("SUPERSEDED");
+    expect(await recordedOutcome(t, approved.signature.checksum)).toBe("noop");
+  });
+
+  test("a late approval does not charge the token of an incomplete subscription", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    await subscribeWithNequi(t, wompi);
+
+    // The customer tries again with a card, and the card is declined.
+    api.transactionStatuses = ["DECLINED", "APPROVED"];
+    const withCard = await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card_1" }),
+    );
+    expect(withCard.subscription.status).toBe("incomplete");
+    expect(await tokenStatus(t)).toBe("SUPERSEDED");
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    expect(api.createdSources.map((s) => s.token)).toEqual(["tok_card_1"]);
+    expect(api.charges).toHaveLength(1);
+    const after = await subscriptionOf(t, withCard.subscription._id);
+    expect(after?.status).toBe("incomplete");
+    expect(after?.paymentSourceId).toBe(withCard.subscription.paymentSourceId);
+  });
+
+  test("a refusal of the token that was replaced keeps the subscription", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    await subscribeWithNequi(t, wompi);
+    api.transactionStatuses = ["DECLINED"];
+    const withCard = await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card_1" }),
+    );
+
+    await deliver(t, wompi, await nequiEvent("DECLINED"));
+
+    expect((await subscriptionOf(t, withCard.subscription._id))?.status).toBe("incomplete");
+    expect(await tokenStatus(t)).toBe("SUPERSEDED");
+  });
+
+  test("the newest token wins, and the approval of the older token does nothing", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const before = await activeSubscription(t, wompi, api);
+    await replaceWithNequi(t, wompi, before._id, "nequi_old");
+    await replaceWithNequi(t, wompi, before._id, "nequi_new");
+    expect(await tokenStatus(t, "nequi_old")).toBe("SUPERSEDED");
+    expect(await tokenStatus(t, "nequi_new")).toBe("PENDING");
+
+    await deliver(t, wompi, await nequiEvent("APPROVED", "nequi_old"));
+    expect((await subscriptionOf(t, before._id))?.paymentSourceId).toBe(before.paymentSourceId);
+
+    await deliver(t, wompi, await nequiEvent("APPROVED", "nequi_new"));
+
+    expect(api.createdSources.map((s) => s.token)).toEqual(["tok_card_1", "nequi_new"]);
+    expect((await subscriptionOf(t, before._id))?.paymentSourceId).not.toBe(
+      before.paymentSourceId,
+    );
+    expect(await tokenStatus(t, "nequi_new")).toBe("AVAILABLE");
+  });
+
+  test("a token that is submitted again after a card waits for the approval again", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const { subscription } = await subscribeWithNequi(t, wompi);
+    api.transactionStatuses = ["DECLINED", "APPROVED"];
+    await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card_1" }),
+    );
+
+    const again = await subscribeWithNequi(t, wompi);
+    expect(again.subscription.paymentSourceId).toBe(subscription.paymentSourceId);
+    expect(await tokenStatus(t)).toBe("PENDING");
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678, 5679]);
+    expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");
+  });
+});
+
 describe("payment source replacement", () => {
   const replaceWith = (t: T, wompi: Wompi, subscriptionId: string, type?: "CARD" | "NEQUI") =>
     t.action(

@@ -220,7 +220,7 @@ const { tokenizeNequi } = useWompiTokenizer(api.wompi.getConfig);
 const subscribe = useAction(api.wompi.subscribe);
 const [tokenId, setTokenId] = useState<string | null>(null);
 
-// "PENDING" | "AVAILABLE" | "DECLINED" | null — a reactive query
+// "PENDING" | "AVAILABLE" | "DECLINED" | "SUPERSEDED" | null — a reactive query
 const tokenStatus = useQuery(
   api.wompi.getNequiTokenStatus,
   tokenId ? { tokenId } : "skip",
@@ -248,6 +248,12 @@ polling is not necessary. `subscribe` also reads the token again after it
 saves the subscription: an approval that arrives during the call is not lost.
 A redelivery of the event does not create a second payment source and does
 not charge again.
+
+A token has one payment source. If the customer submits the same token again,
+the component uses the source that it has. A token that waits becomes
+`SUPERSEDED` when the customer gives a different payment method for the
+subscription. The approval or the refusal of a `SUPERSEDED` token does
+nothing.
 
 ### Update the payment source
 
