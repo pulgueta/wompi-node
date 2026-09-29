@@ -212,7 +212,8 @@ const assignSubscription = async (
  * - Fresh subscription without a trial: starts `incomplete` and claims the
  *   initial payment row the caller must charge.
  * - Existing `incomplete`/`unpaid` subscription for the same product: reused
- *   with the new payment source and a fresh charge attempt.
+ *   with the new payment source and a fresh charge attempt. A token that
+ *   waits for approval does not replace the source of a charge in progress.
  *
  * A source without a `wompiSourceId` is a Nequi token that waits for the
  * customer's approval. The rows are the same, but the caller must not charge
@@ -273,8 +274,22 @@ export const create = mutation({
     });
 
     if (resumable) {
+      // A charge in progress can still be approved on the current source. A
+      // token that waits does not replace that source: the approval does.
+      const inFlight = await ctx.db
+        .query("payments")
+        .withIndex("by_subscription_id_status", (q) =>
+          q.eq("subscriptionId", resumable._id).eq("status", "pending"),
+        )
+        .first();
+      const current = await ctx.db.get("paymentSources", resumable.paymentSourceId);
+      const waits =
+        args.paymentSource.wompiSourceId === undefined &&
+        inFlight !== null &&
+        current?.wompiSourceId !== undefined;
+
       await ctx.db.patch("subscriptions", resumable._id, {
-        paymentSourceId,
+        paymentSourceId: waits ? resumable.paymentSourceId : paymentSourceId,
         amountInCents: product.amountInCents,
         currency: product.currency,
         interval: product.interval,

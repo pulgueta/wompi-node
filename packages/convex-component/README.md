@@ -257,6 +257,11 @@ the component uses the source that it has. A token that waits becomes
 subscription. The approval or the refusal of a `SUPERSEDED` token does
 nothing.
 
+If a charge of the subscription is in progress, a token that waits does not
+replace the payment source of that charge. The approval of the token replaces
+it. A refusal changes nothing: the charge in progress can still be approved,
+and the renewals use its payment source.
+
 ### Update the payment source
 
 Cards expire, and customers change their payment method. Replace the source
