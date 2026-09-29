@@ -273,9 +273,9 @@ One billing run has these limits:
 | -------------------------------------- | ---------------------------- |
 | Subscriptions claimed                  | `batchSize`: 25, maximum 100 |
 | Wompi requests in flight               | 5                            |
-| Stale payments the sweep works on      | 50                           |
-| Stale payments the sweep reads         | 500                          |
-| Read space the sweep keeps free        | 4 MiB                        |
+| Stale payments the sweep works on      | 50 (see below)               |
+| Stale payments the sweep reads         | 500 (see below)              |
+| Read space the sweep keeps free        | 4 MiB (see below)            |
 | Webhook events removed after retention | 100                          |
 
 With the 15-minute cron from the wiring example, the engine does 96 runs each
@@ -313,14 +313,27 @@ production: the action would schedule itself without end.
 
 The sweep rotates through the stale payments, oldest first. Each run continues
 after the last payment that the previous run visited. When a run gets to the
-end of the stale payments, `remaining` is `false` for the sweep, and the next
-run starts again at the oldest one. Thus payments that stay pending for a long
-time cannot keep a later payment out of reach. The sweep keeps its position in
-one row of the `sweepCursors` table. It does not write to the payment rows.
+end of the stale payments, the pass is complete and `remaining` is `false` for
+the sweep. Thus payments that stay pending for a long time cannot keep a later
+payment out of reach. The sweep keeps its position in one row of the
+`sweepCursors` table. It does not write to the payment rows.
+
+The sweep waits between passes. A new pass starts only when
+`billing.pendingSweepAfterMs` (default 10 minutes) has passed since the start
+of the last pass. Before that, the sweep does no work. Thus the sweep asks
+Wompi about a payment one time in each pass, not one time in each run. Two
+runs that start a pass at the same time do not get the same payments: Convex
+runs them one after the other, and the second run waits. A pass that needs more
+than one run does not wait between its runs. If you set this option to `0`,
+there is no wait, and each run can ask Wompi about the same payments again.
 
 The sweep also stops when less than 4 MiB of the read limit of the transaction
 remains. Thus payments with large `metadata` cannot make the run fail. The
 payments that it did not read go to the next run.
+
+The sweep limits in the table are not exact. Payments with the same creation
+time stay together in one run. Thus a run can go above each sweep limit by the
+number of payments in that group.
 
 The cron sends the charges five at a time and does not wait for a result. A
 renewal that Wompi keeps `PENDING` keeps its transaction id and resolves with

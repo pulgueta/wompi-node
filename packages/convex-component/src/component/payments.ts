@@ -96,13 +96,20 @@ export const listByUser = query({
   },
 });
 
-/** Rows one sweep reads at most, including the ones it has no work for. */
+/**
+ * Rows one sweep visits before it stops, including the ones it has no work
+ * for. Rows with an equal `_creationTime` stay together, so a call can visit
+ * more rows by the size of that group.
+ */
 const SWEEP_SCAN_LIMIT = 500;
 
 /**
  * Read bytes that the sweep keeps free in its transaction. It stops when less
- * remains. This is more than one document of the maximum size (1 MiB) plus
- * the row that tells if more work remains.
+ * remains. After the stop, the sweep reads the row that tells if more work
+ * remains, and it can read more rows that have the same `_creationTime` as the
+ * last visited row. Each row can be 1 MiB (the maximum document size). Thus
+ * 4 MiB holds the next row plus a small group of rows with an equal
+ * `_creationTime`. A larger group can go above the reserve.
  */
 const SWEEP_READ_RESERVE_BYTES = 4 * 1024 * 1024;
 
@@ -113,15 +120,21 @@ const SWEEP_READ_RESERVE_BYTES = 4 * 1024 * 1024;
  *
  * The sweep rotates. Each call continues after the last stale row that the
  * previous call visited, oldest first. When a call gets to the end of the
- * stale rows, the next call starts again at the oldest one. Thus each stale
- * row is reached however many rows stay pending. The position is in the
- * `sweepCursors` table, so the sweep writes no payment row.
+ * stale rows, the pass is complete. Thus each stale row is reached however
+ * many rows stay pending. The position is in the `sweepCursors` table, so the
+ * sweep writes no payment row.
  *
- * A call stops at `limit` returned rows, at `SWEEP_SCAN_LIMIT` visited rows,
- * or when less than `SWEEP_READ_RESERVE_BYTES` of the read limit remains.
+ * A new pass starts only when `olderThanMs` has passed since the start of the
+ * last pass. Before that, a call returns no rows. A call that finds no stale
+ * row does not start a pass.
  *
- * An abandoned checkout has no work until it is `expireAfterMs` old. It is
- * passed but not returned, so it does not use a place in the batch.
+ * A call stops after it gets to `limit` returned rows, `SWEEP_SCAN_LIMIT`
+ * visited rows, or less than `SWEEP_READ_RESERVE_BYTES` of free read space.
+ * These are not hard limits: rows with an equal `_creationTime` stay together
+ * in one call, so a call can go above each limit by the size of that group.
+ *
+ * An abandoned checkout has no work until it is `expireAfterMs` old. It counts
+ * as visited and moves the cursor, but it is not in the returned batch.
  *
  * `hasMore` is true when stale rows remain for an immediate next call.
  */
@@ -160,13 +173,15 @@ export const claimStalePending = mutation({
     const payments = [];
     let visited = 0;
     let cursor = 0;
-    let full = false;
+    let budgetReached = false;
     let hasMore = false;
 
     for await (const payment of stale) {
-      // Do not stop between two rows with the same `_creationTime`: the
-      // cursor cannot tell them apart, so the next call would skip one.
-      if (full && payment._creationTime !== cursor) {
+      // The loop stops one row after the budget is reached. That row tells
+      // if more work remains. The loop also does not stop between two rows
+      // with the same `_creationTime`: the cursor cannot tell them apart, so
+      // the next call would skip one.
+      if (budgetReached && payment._creationTime !== cursor) {
         hasMore = true;
         break;
       }
@@ -180,7 +195,7 @@ export const claimStalePending = mutation({
       if (!waitsToExpire) payments.push(payment);
 
       const { bytesRead } = await ctx.meta.getTransactionMetrics();
-      full =
+      budgetReached =
         payments.length >= limit ||
         visited >= SWEEP_SCAN_LIMIT ||
         bytesRead.remaining < SWEEP_READ_RESERVE_BYTES;
