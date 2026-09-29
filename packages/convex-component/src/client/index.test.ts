@@ -1390,15 +1390,13 @@ describe("api()", () => {
     const wompi = mockWompi([MERCHANT, PAYMENT_SOURCE, chargeWith("APPROVED")]);
     const api = makeWompi(authedConfig).api();
 
-    const result = (await t
-      .withIdentity(BOB)
-      .action(
-        async (ctx) =>
-          await handlerOf(api.subscribe)(ctx, {
-            productKey: "pro-monthly",
-            token: "tok_card",
-          }),
-      )) as Record<string, { userId: string; status: string }>;
+    const result = (await t.withIdentity(BOB).action(
+      async (ctx) =>
+        await handlerOf(api.subscribe)(ctx, {
+          productKey: "pro-monthly",
+          token: "tok_card",
+        }),
+    )) as Record<string, { userId: string; status: string }>;
 
     // The internal charge outcome stays on the server.
     expect(result).not.toHaveProperty("outcome");
@@ -1422,15 +1420,13 @@ describe("api()", () => {
     mockWompi([MERCHANT, PAYMENT_SOURCE, chargeWith("APPROVED")]);
     const api = makeWompi(authedConfig).api();
 
-    const created = (await t
-      .withIdentity(ADA)
-      .action(
-        async (ctx) =>
-          await handlerOf(api.subscribe)(ctx, {
-            productKey: "pro-monthly",
-            token: "tok_card",
-          }),
-      )) as { payment: { reference: string } };
+    const created = (await t.withIdentity(ADA).action(
+      async (ctx) =>
+        await handlerOf(api.subscribe)(ctx, {
+          productKey: "pro-monthly",
+          token: "tok_card",
+        }),
+    )) as { payment: { reference: string } };
     const reference = created.payment.reference;
 
     const asAda = t.withIdentity(ADA);
@@ -1465,15 +1461,13 @@ describe("api()", () => {
     mockWompi([MERCHANT, PAYMENT_SOURCE, chargeWith("APPROVED")]);
     const api = makeWompi(authedConfig).api();
 
-    const created = (await t
-      .withIdentity(ADA)
-      .action(
-        async (ctx) =>
-          await handlerOf(api.subscribe)(ctx, {
-            productKey: "pro-monthly",
-            token: "tok_card",
-          }),
-      )) as { subscription: { _id: string } };
+    const created = (await t.withIdentity(ADA).action(
+      async (ctx) =>
+        await handlerOf(api.subscribe)(ctx, {
+          productKey: "pro-monthly",
+          token: "tok_card",
+        }),
+    )) as { subscription: { _id: string } };
     const subscriptionId = created.subscription._id;
 
     const asBob = t.withIdentity(BOB);
