@@ -114,7 +114,7 @@ await wompi.transactions.createTransaction({
 
 ### Get a transaction by ID
 
-`getTransaction` requires `privateKey`. Call it from your server. Wompi returns `404 Not Found` for a lookup that has no private key.
+`getTransaction` requires `privateKey`. Call it from your server. Wompi returns `404 Not Found` for a lookup that has no private key, so the SDK returns a `WompiError` and sends no request when the client has no `privateKey`.
 
 ```typescript
 const [error, transaction] = await wompi.transactions.getTransaction('txn-123');
