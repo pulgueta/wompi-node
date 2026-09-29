@@ -122,6 +122,8 @@ type NequiTokenOutcome = {
   subscription: SubscriptionDoc | null;
   /** Set when the approval started the charge of a subscription. */
   charge: ChargeOutcome | null;
+  /** The payment that a refusal ended. */
+  payment?: PaymentDoc | null;
 };
 
 export type ChargeOutcome = {
@@ -520,6 +522,7 @@ export class Wompi {
         outcome: string;
         subscriptionChanged: boolean;
         subscription: SubscriptionDoc | null;
+        payment: PaymentDoc | null;
       };
       if (declined.subscriptionChanged && declined.subscription) {
         await this.dispatch(ctx, {
@@ -530,7 +533,12 @@ export class Wompi {
           subscription: declined.subscription,
         });
       }
-      return { outcome: declined.outcome, subscription: declined.subscription, charge: null };
+      return {
+        outcome: declined.outcome,
+        subscription: declined.subscription,
+        charge: null,
+        payment: declined.payment,
+      };
     }
 
     const waiting = (await ctx.runMutation(this.component.paymentSources.claimActivation, {
@@ -855,7 +863,7 @@ export class Wompi {
       const settled = await this.settleNequiToken(ctx, args.token);
       return {
         subscription: settled?.subscription ?? subscription,
-        payment: settled?.charge?.payment ?? payment,
+        payment: settled?.charge?.payment ?? settled?.payment ?? payment,
         outcome: settled?.charge ?? null,
         awaitingApproval: settled === null,
       };

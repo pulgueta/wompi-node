@@ -394,6 +394,22 @@ describe("Nequi subscriptions", () => {
     expect(api.charges).toHaveLength(1);
   });
 
+  test("subscribe returns the payment of a refusal that arrived before the source was saved", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    // The token is PENDING at the first read and DECLINED at the second.
+    api.tokenStatuses = ["PENDING", "DECLINED"];
+
+    const result = await subscribeWithNequi(t, makeWompi());
+
+    expect(result.awaitingApproval).toBe(false);
+    expect(result.outcome).toBeNull();
+    expect(result.subscription.status).toBe("canceled");
+    expect(result.payment?.status).toBe("error");
+    expect(result.payment?.failureReason).toBe("The customer declined the Nequi token");
+    expect((await paymentsOf(t)).map((p) => p.status)).toEqual(["error"]);
+  });
+
   test("a token that is approved at subscribe time charges immediately", async () => {
     const t = initConvexTest();
     await seed(t);
