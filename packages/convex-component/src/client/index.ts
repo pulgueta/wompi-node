@@ -34,6 +34,7 @@ import type {
   CreatePayoutInput,
   CreatePayoutResult,
   Merchant,
+  NequiToken,
   Payout,
   PayoutPage,
   Result,
@@ -42,6 +43,7 @@ import type {
   WompiErrorResult,
 } from "@pulgueta/wompi/schemas";
 import {
+  NequiTokenUpdatedEventSchema,
   WompiNotFoundError,
   WompiPayoutApiError,
   WompiRequestError,
@@ -51,6 +53,7 @@ import type { ComponentApi } from "../component/_generated/component.js";
 import {
   dispersionDoc,
   dispersionTransactionDoc,
+  ENTITLED_STATUSES,
   paymentChangeValidator,
   paymentDoc,
   paymentSourceInputValidator,
@@ -87,6 +90,11 @@ export type SubscriptionDoc = Infer<typeof subscriptionDoc>;
 export type SubscriptionWithProduct = Infer<typeof subscriptionWithProduct>;
 export type WompiProductConfig = Infer<typeof productInputValidator>;
 export type PaymentSourceInput = Infer<typeof paymentSourceInputValidator>;
+/** Card details shown to the customer; the component never sees the card. */
+export type PaymentMethodDetails = Omit<
+  PaymentSourceInput,
+  "wompiSourceId" | "type" | "status" | "tokenId"
+>;
 
 type RunQueryCtx = { runQuery: GenericQueryCtx<GenericDataModel>["runQuery"] };
 type RunMutationCtx = RunQueryCtx & {
@@ -106,6 +114,14 @@ export type WompiUserInfo = {
   phoneNumber?: string;
   legalId?: string;
   legalIdType?: string;
+};
+
+/** What the state of a Nequi token did to the source that waits for it. */
+type NequiTokenOutcome = {
+  outcome: string;
+  subscription: SubscriptionDoc | null;
+  /** Set when the approval started the charge of a subscription. */
+  charge: ChargeOutcome | null;
 };
 
 export type ChargeOutcome = {
@@ -235,6 +251,14 @@ export type ProcessBillingSummary = {
   expired: number;
   errors: string[];
 };
+
+const paymentMethodValidator = v.object({
+  brand: v.optional(v.string()),
+  lastFour: v.optional(v.string()),
+  expMonth: v.optional(v.string()),
+  expYear: v.optional(v.string()),
+  cardHolder: v.optional(v.string()),
+});
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -402,6 +426,193 @@ export class Wompi {
     }
   }
 
+  /** Both acceptance tokens, fetched for each use: Wompi's tokens expire. */
+  private async acceptanceTokens(): Promise<AcceptanceTokens> {
+    const [merchantError, merchant] = await this.client.merchants.getMerchant();
+    if (merchantError) throw merchantError;
+    const tokens = acceptanceTokensFrom(merchant);
+    if (!tokens) {
+      throw new Error("Could not fetch the merchant acceptance tokens from Wompi");
+    }
+    return tokens;
+  }
+
+  /**
+   * Turn a browser token into the payment source the component stores. A
+   * Nequi token that the customer did not approve yet cannot become a Wompi
+   * payment source, so it is stored with its `tokenId` only and waits for
+   * the `nequi_token.updated` event.
+   */
+  private async resolvePaymentSource(args: {
+    token: string;
+    type?: "CARD" | "NEQUI";
+    customerEmail: string;
+    tokens: AcceptanceTokens;
+    paymentMethod?: PaymentMethodDetails;
+  }): Promise<PaymentSourceInput> {
+    const type = args.type ?? "CARD";
+
+    if (type === "NEQUI") {
+      const [tokenError, nequiToken] = await this.client.tokens.getNequiToken(args.token);
+      if (tokenError) throw tokenError;
+      if (nequiToken.status === "DECLINED") {
+        throw new Error("The customer declined the Nequi token");
+      }
+      if (nequiToken.status === "PENDING") {
+        return { type, status: "PENDING", tokenId: args.token, ...args.paymentMethod };
+      }
+    }
+
+    return {
+      ...(await this.createWompiSource({ ...args, type })),
+      ...(type === "NEQUI" ? { tokenId: args.token } : {}),
+      ...args.paymentMethod,
+    };
+  }
+
+  private async createWompiSource(args: {
+    token: string;
+    type: "CARD" | "NEQUI";
+    customerEmail: string;
+    tokens: AcceptanceTokens;
+  }): Promise<{ wompiSourceId: number; type: string; status: string }> {
+    const [sourceError, source] = await this.client.paymentSources.createPaymentSource({
+      type: args.type,
+      token: args.token,
+      acceptance_token: args.tokens.acceptanceToken,
+      accept_personal_auth: args.tokens.personalAuthToken,
+      customer_email: args.customerEmail,
+    });
+    if (sourceError) throw sourceError;
+
+    return { wompiSourceId: source.id, type: source.type ?? args.type, status: source.status };
+  }
+
+  /**
+   * Apply the state of a Nequi token to the source that waits for it. Shared
+   * by the `nequi_token.updated` webhook and by `subscribe` /
+   * `updateSubscriptionPaymentSource`, which read the token again after they
+   * save the source: an approval that arrived before the source existed is
+   * not lost.
+   *
+   * Safe to repeat. A source that already has its Wompi payment source is not
+   * created again, and the charge has a deterministic reference.
+   */
+  private async applyNequiToken(
+    ctx: RunMutationCtx,
+    token: Pick<NequiToken, "id" | "status">,
+  ): Promise<NequiTokenOutcome> {
+    if (token.status === "PENDING") {
+      return { outcome: "noop", subscription: null, charge: null };
+    }
+
+    if (token.status === "DECLINED") {
+      const declined = (await ctx.runMutation(this.component.paymentSources.decline, {
+        tokenId: token.id,
+        reason: "The customer declined the Nequi token",
+        config: this.billingConfig,
+        callbackHandle: await this.paymentCallbackHandle(),
+      })) as {
+        outcome: string;
+        subscriptionChanged: boolean;
+        subscription: SubscriptionDoc | null;
+      };
+      if (declined.subscriptionChanged && declined.subscription) {
+        await this.dispatch(ctx, {
+          outcome: "applied",
+          paymentChanged: false,
+          subscriptionChanged: true,
+          payment: null,
+          subscription: declined.subscription,
+        });
+      }
+      return { outcome: declined.outcome, subscription: declined.subscription, charge: null };
+    }
+
+    const waiting = (await ctx.runQuery(this.component.paymentSources.getByTokenId, {
+      tokenId: token.id,
+    })) as {
+      source: { wompiSourceId?: number; status: string };
+      customerEmail: string;
+    } | null;
+    if (!waiting) return { outcome: "unknown_token", subscription: null, charge: null };
+
+    this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
+    const tokens = await this.acceptanceTokens();
+    let { wompiSourceId, status } = waiting.source;
+
+    if (wompiSourceId === undefined) {
+      // A declined token never becomes a payment source.
+      if (status !== "PENDING") return { outcome: "noop", subscription: null, charge: null };
+
+      // The event (or the token read) reported the approval; do not read
+      // the token again, its state could be older than the event.
+      const created = await this.createWompiSource({
+        token: token.id,
+        type: "NEQUI",
+        customerEmail: waiting.customerEmail,
+        tokens,
+      });
+      wompiSourceId = created.wompiSourceId;
+      status = created.status;
+    }
+
+    const activated = (await ctx.runMutation(this.component.paymentSources.activate, {
+      tokenId: token.id,
+      wompiSourceId,
+      status,
+    })) as {
+      outcome: string;
+      subscriptionChanged: boolean;
+      subscription: SubscriptionDoc | null;
+      payment: PaymentDoc | null;
+    };
+
+    if (activated.subscriptionChanged && activated.subscription) {
+      await this.dispatch(ctx, {
+        outcome: "applied",
+        paymentChanged: false,
+        subscriptionChanged: true,
+        payment: null,
+        subscription: activated.subscription,
+      });
+    }
+
+    if (!activated.payment) {
+      return { outcome: activated.outcome, subscription: activated.subscription, charge: null };
+    }
+
+    const charge = await this.chargeClaimedPayment(ctx, {
+      payment: activated.payment,
+      customerEmail: waiting.customerEmail,
+      wompiSourceId,
+      tokens,
+      integrityKey: this.requireKey(this.integrityKey, "integrity key", "WOMPI_INTEGRITY_KEY"),
+      // Not interactive: poll less, let webhooks/sweeps finish.
+      pollAttempts: 2,
+    });
+
+    return {
+      outcome: activated.outcome,
+      subscription: charge.subscription ?? activated.subscription,
+      charge,
+    };
+  }
+
+  /**
+   * Read a Nequi token again after its source was saved, and apply an
+   * approval or a refusal that arrived in the meantime.
+   */
+  private async settleNequiToken(
+    ctx: RunMutationCtx,
+    tokenId: string,
+  ): Promise<NequiTokenOutcome | null> {
+    const [tokenError, nequiToken] = await this.client.tokens.getNequiToken(tokenId);
+    // The webhook applies the token later; this read is only a shortcut.
+    if (tokenError || nequiToken.status === "PENDING") return null;
+    return await this.applyNequiToken(ctx, nequiToken);
+  }
+
   // -------------------------------------------------------------------------
   // Catalog
   // -------------------------------------------------------------------------
@@ -561,6 +772,11 @@ export class Wompi {
    * Creates the Wompi payment source, the subscription row, and — unless the
    * product has a trial — charges the first period immediately, polling
    * briefly for the final status.
+   *
+   * A Nequi token that the customer did not approve yet gives
+   * `awaitingApproval: true`: the subscription waits as `incomplete` (or
+   * `trialing`), and the `nequi_token.updated` webhook creates the payment
+   * source and charges the first period when the customer approves.
    */
   async subscribe(
     ctx: ActionCtx,
@@ -568,7 +784,7 @@ export class Wompi {
       productKey: string;
       token: string;
       type?: "CARD" | "NEQUI";
-      paymentMethod?: Omit<PaymentSourceInput, "wompiSourceId" | "type" | "status">;
+      paymentMethod?: PaymentMethodDetails;
       /** Card installments for the initial charge (renewals always use 1). */
       installments?: number;
       metadata?: Record<string, unknown>;
@@ -577,6 +793,7 @@ export class Wompi {
     subscription: SubscriptionDoc;
     payment: PaymentDoc | null;
     outcome: ChargeOutcome | null;
+    awaitingApproval: boolean;
   }> {
     this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
     const integrityKey = this.requireKey(
@@ -587,21 +804,15 @@ export class Wompi {
 
     const { user, customer } = await this.ensureCustomer(ctx);
 
-    const [merchantError, merchant] = await this.client.merchants.getMerchant();
-    if (merchantError) throw merchantError;
-    const tokens = acceptanceTokensFrom(merchant);
-    if (!tokens) {
-      throw new Error("Could not fetch the merchant acceptance tokens from Wompi");
-    }
-
-    const [sourceError, source] = await this.client.paymentSources.createPaymentSource({
-      type: args.type ?? "CARD",
+    const tokens = await this.acceptanceTokens();
+    const paymentSource = await this.resolvePaymentSource({
       token: args.token,
-      acceptance_token: tokens.acceptanceToken,
-      accept_personal_auth: tokens.personalAuthToken,
-      customer_email: user.email,
+      type: args.type,
+      customerEmail: user.email,
+      tokens,
+      paymentMethod: args.paymentMethod,
     });
-    if (sourceError) throw sourceError;
+    const { wompiSourceId } = paymentSource;
 
     const { subscription, payment } = (await ctx.runMutation(
       this.component.subscriptions.create,
@@ -609,18 +820,14 @@ export class Wompi {
         customerId: customer._id,
         userId: user.userId,
         productKey: args.productKey,
-        paymentSource: {
-          wompiSourceId: source.id,
-          type: source.type ?? args.type ?? "CARD",
-          status: source.status,
-          ...args.paymentMethod,
-        },
+        paymentSource,
         metadata: args.metadata,
       },
     )) as { subscription: SubscriptionDoc; payment: PaymentDoc | null };
 
-    if (!payment) {
-      // Trial: no initial charge. Surface the new subscription to callbacks.
+    if (!payment || wompiSourceId === undefined) {
+      // Trial, or a Nequi token that waits for approval: no charge now.
+      // Surface the new subscription to callbacks.
       await this.dispatch(ctx, {
         outcome: "applied",
         paymentChanged: false,
@@ -628,13 +835,26 @@ export class Wompi {
         payment: null,
         subscription,
       });
-      return { subscription, payment: null, outcome: null };
+    }
+
+    if (wompiSourceId === undefined) {
+      const settled = await this.settleNequiToken(ctx, args.token);
+      return {
+        subscription: settled?.subscription ?? subscription,
+        payment: settled?.charge?.payment ?? payment,
+        outcome: settled?.charge ?? null,
+        awaitingApproval: settled === null,
+      };
+    }
+
+    if (!payment) {
+      return { subscription, payment: null, outcome: null, awaitingApproval: false };
     }
 
     const outcome = await this.chargeClaimedPayment(ctx, {
       payment,
       customerEmail: user.email,
-      wompiSourceId: source.id,
+      wompiSourceId,
       tokens,
       integrityKey,
       pollAttempts: this.billingOptions.pollAttempts,
@@ -645,7 +865,97 @@ export class Wompi {
       subscription: (outcome.subscription as SubscriptionDoc) ?? subscription,
       payment: outcome.payment ?? payment,
       outcome,
+      awaitingApproval: false,
     };
+  }
+
+  /**
+   * Replace the payment source of a live subscription with a new token from
+   * the browser (card expiry, reissued card, change to Nequi). The period the
+   * customer paid for, the trial and the dunning state do not change. A
+   * `past_due` subscription becomes due immediately, so the next billing run
+   * charges the new source.
+   *
+   * A Nequi token that the customer did not approve yet gives
+   * `awaitingApproval: true`: the subscription keeps its current source
+   * until the `nequi_token.updated` webhook reports the approval.
+   */
+  async updateSubscriptionPaymentSource(
+    ctx: ActionCtx,
+    args: {
+      subscriptionId: string;
+      token: string;
+      type?: "CARD" | "NEQUI";
+      paymentMethod?: PaymentMethodDetails;
+    },
+  ): Promise<{ subscription: SubscriptionDoc; awaitingApproval: boolean }> {
+    this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
+    const user = await this.config.getUserInfo(ctx);
+
+    // Do the checks of the mutation first: a Wompi payment source that no
+    // subscription uses cannot be removed through the SDK.
+    const current = (await ctx.runQuery(this.component.subscriptions.get, {
+      subscriptionId: args.subscriptionId as never,
+    })) as SubscriptionDoc | null;
+    if (!current || current.userId !== user.userId) {
+      throw new Error("Subscription not found");
+    }
+    if (!ENTITLED_STATUSES.includes(current.status)) {
+      throw new Error(
+        "Only live subscriptions can replace the payment source; subscribe again to recover an incomplete or unpaid subscription",
+      );
+    }
+
+    const paymentSource = await this.resolvePaymentSource({
+      token: args.token,
+      type: args.type,
+      customerEmail: user.email,
+      tokens: await this.acceptanceTokens(),
+      paymentMethod: args.paymentMethod,
+    });
+
+    const { subscription, changed } = (await ctx.runMutation(
+      this.component.subscriptions.replacePaymentSource,
+      {
+        subscriptionId: args.subscriptionId as never,
+        userId: user.userId,
+        paymentSource,
+      },
+    )) as { subscription: SubscriptionDoc; changed: boolean };
+
+    if (changed) {
+      await this.dispatch(ctx, {
+        outcome: "applied",
+        paymentChanged: false,
+        subscriptionChanged: true,
+        payment: null,
+        subscription,
+      });
+    }
+
+    if (paymentSource.wompiSourceId !== undefined) {
+      return { subscription, awaitingApproval: false };
+    }
+
+    const settled = await this.settleNequiToken(ctx, args.token);
+    return {
+      subscription: settled?.subscription ?? subscription,
+      awaitingApproval: settled === null,
+    };
+  }
+
+  /**
+   * The state of the source that a Nequi token of this user waits for:
+   * `PENDING`, `AVAILABLE` or `DECLINED`. Null for an unknown token.
+   */
+  async getNequiTokenStatus(
+    ctx: RunQueryCtx,
+    args: { userId: string; tokenId: string },
+  ): Promise<string | null> {
+    return (await ctx.runQuery(this.component.paymentSources.getStatusByTokenId, {
+      tokenId: args.tokenId,
+      userId: args.userId,
+    })) as string | null;
   }
 
   /**
@@ -1413,9 +1723,20 @@ export class Wompi {
 
           alreadyApplied = delivery.duplicate && delivery.outcome !== undefined;
           if (!alreadyApplied) {
+            // Creating the Wompi payment source needs the API, so this path
+            // is not one transaction. A failure here leaves the delivery
+            // without an outcome, and Wompi's retry applies it again.
+            const nequiEvent =
+              event.event === "nequi_token.updated"
+                ? NequiTokenUpdatedEventSchema.safeParse(event)
+                : null;
+            const outcome = nequiEvent?.success
+              ? (await this.applyNequiToken(ctx, nequiEvent.data.data.nequi_token)).outcome
+              : "ignored";
+
             await ctx.runMutation(this.component.webhooks.markOutcome, {
               eventId: delivery.eventId as never,
-              outcome: "ignored",
+              outcome,
             });
           }
           duplicate = delivery.duplicate;
@@ -1546,7 +1867,8 @@ export class Wompi {
    * // convex/wompi.ts
    * export const {
    *   getConfig, listProducts, getCurrentSubscription, listPayments,
-   *   getPayment, checkout, confirmTransaction, subscribe,
+   *   getPayment, getNequiTokenStatus, checkout, confirmTransaction,
+   *   subscribe, updateSubscriptionPaymentSource,
    *   cancelSubscription, resumeSubscription, changeSubscription,
    * } = wompi.api();
    * ```
@@ -1613,6 +1935,23 @@ export class Wompi {
       }),
 
       /**
+       * Reactive state of the source that a Nequi token waits for, for an
+       * "approve in your Nequi app" screen: `PENDING`, `AVAILABLE` or
+       * `DECLINED`. Null for a token that is not of the signed-in user.
+       */
+      getNequiTokenStatus: queryGeneric({
+        args: { tokenId: v.string() },
+        returns: v.union(v.string(), v.null()),
+        handler: async (ctx, args) => {
+          const user = await getUser(ctx);
+          return await this.getNequiTokenStatus(ctx, {
+            userId: user.userId,
+            tokenId: args.tokenId,
+          });
+        },
+      }),
+
+      /**
        * Client-facing checkout: the amount always comes from the catalog
        * (`productKey`), never from the browser. Use `wompi.checkout(ctx, …)`
        * in your own server function for custom amounts or metadata.
@@ -1661,21 +2000,23 @@ export class Wompi {
           token: v.string(),
           installments: v.optional(v.number()),
           type: v.optional(v.union(v.literal("CARD"), v.literal("NEQUI"))),
-          paymentMethod: v.optional(
-            v.object({
-              brand: v.optional(v.string()),
-              lastFour: v.optional(v.string()),
-              expMonth: v.optional(v.string()),
-              expYear: v.optional(v.string()),
-              cardHolder: v.optional(v.string()),
-            }),
-          ),
+          paymentMethod: v.optional(paymentMethodValidator),
           metadata: v.optional(v.record(v.string(), v.any())),
         },
         handler: async (ctx, args) => {
-          const { subscription, payment } = await this.subscribe(ctx, args);
-          return { subscription, payment };
+          const { subscription, payment, awaitingApproval } = await this.subscribe(ctx, args);
+          return { subscription, payment, awaitingApproval };
         },
+      }),
+
+      updateSubscriptionPaymentSource: actionGeneric({
+        args: {
+          subscriptionId: v.string(),
+          token: v.string(),
+          type: v.optional(v.union(v.literal("CARD"), v.literal("NEQUI"))),
+          paymentMethod: v.optional(paymentMethodValidator),
+        },
+        handler: async (ctx, args) => await this.updateSubscriptionPaymentSource(ctx, args),
       }),
 
       cancelSubscription: mutationGeneric({
