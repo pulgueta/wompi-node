@@ -728,6 +728,33 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         },
         Name
       >;
+      getByTokenId: FunctionReference<
+        "query",
+        "internal",
+        { tokenId: string },
+        {
+          customerEmail: string;
+          source: {
+            _creationTime: number;
+            _id: string;
+            activationClaimedAt?: number;
+            brand?: string;
+            cardHolder?: string;
+            customerId: string;
+            expMonth?: string;
+            expYear?: string;
+            lastFour?: string;
+            status: string;
+            subscriptionId?: string;
+            termsAcceptedAt?: number;
+            tokenId?: string;
+            type: string;
+            userId: string;
+            wompiSourceId?: number;
+          };
+        } | null,
+        Name
+      >;
       getStatusByTokenId: FunctionReference<
         "query",
         "internal",

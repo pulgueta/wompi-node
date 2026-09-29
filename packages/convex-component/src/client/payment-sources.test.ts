@@ -625,6 +625,37 @@ describe("the creation of the Wompi payment source", () => {
     }
   });
 
+  test("a delivery that fails before the creation request leaves no claim", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = withLease();
+    const { subscription } = await subscribeWithNequi(t, wompi);
+
+    // The request for the acceptance tokens fails one time.
+    const original = api.fetch.getMockImplementation()!;
+    let failOnce = true;
+    api.fetch.mockImplementation(async (input, init) => {
+      if (failOnce && /\/merchants\//.test(String(input))) {
+        failOnce = false;
+        throw new TypeError("fetch failed");
+      }
+      return await original(input, init);
+    });
+
+    const approved = await nequiEvent("APPROVED");
+    await expect(deliver(t, wompi, approved)).rejects.toThrow();
+    expect(api.createdSources).toEqual([]);
+
+    // Wompi sends the delivery again during the time of a claim.
+    const retry = await deliver(t, wompi, approved);
+
+    expect(retry.status).toBe(200);
+    expect(api.createdSources).toHaveLength(1);
+    expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678]);
+    expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");
+    expect(await tokenStatus(t)).toBe("AVAILABLE");
+  });
+
   test("the charge uses the payment source that the row stores", async () => {
     const t = initConvexTest();
     await seed(t);

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { applyChargeOutcome } from "./billing.js";
-import { billingConfigValidator, paymentDoc, subscriptionDoc } from "./shared.js";
+import { billingConfigValidator, paymentDoc, paymentSourceDoc, subscriptionDoc } from "./shared.js";
 import { claimResumePayment, findTokenSource, swapPaymentSource } from "./subscriptions.js";
 
 const tokenOutcome = v.object({
@@ -21,6 +21,28 @@ const UNKNOWN_TOKEN = {
   subscription: null,
   payment: null,
 };
+
+/**
+ * The source a Nequi token belongs to, with the email its Wompi payment
+ * source must be created for. Null for tokens the component does not own —
+ * merchants can tokenize Nequi accounts outside the component.
+ */
+export const getByTokenId = query({
+  args: { tokenId: v.string() },
+  returns: v.union(
+    v.object({ source: paymentSourceDoc, customerEmail: v.string() }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const source = await findTokenSource(ctx, args.tokenId);
+    if (!source) return null;
+
+    const customer = await ctx.db.get("customers", source.customerId);
+    if (!customer) return null;
+
+    return { source, customerEmail: customer.email };
+  },
+});
 
 /**
  * Claim the creation of the Wompi payment source of an approved Nequi token.

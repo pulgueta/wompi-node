@@ -541,30 +541,36 @@ export class Wompi {
       };
     }
 
-    const waiting = (await ctx.runMutation(this.component.paymentSources.claimActivation, {
+    const waiting = (await ctx.runQuery(this.component.paymentSources.getByTokenId, {
       tokenId: token.id,
-      leaseMs: this.billingConfig.leaseMs,
     })) as {
-      claimed: boolean;
-      status: string;
-      wompiSourceId?: number;
+      source: { wompiSourceId?: number; status: string };
       customerEmail: string;
     } | null;
     if (!waiting) return { outcome: "unknown_token", subscription: null, charge: null };
 
-    let { wompiSourceId, status } = waiting;
-
-    if (wompiSourceId === undefined) {
-      // A declined or superseded token never becomes a payment source.
-      if (status !== "PENDING") return { outcome: "noop", subscription: null, charge: null };
-      // Another run creates the payment source now.
-      if (!waiting.claimed) return { outcome: "in_progress", subscription: null, charge: null };
+    // A declined or superseded token never becomes a payment source.
+    if (waiting.source.wompiSourceId === undefined && waiting.source.status !== "PENDING") {
+      return { outcome: "noop", subscription: null, charge: null };
     }
 
+    // A failure here leaves no claim: only the creation request has one.
     this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
     const tokens = await this.acceptanceTokens();
 
+    const claim = (await ctx.runMutation(this.component.paymentSources.claimActivation, {
+      tokenId: token.id,
+      leaseMs: this.billingConfig.leaseMs,
+    })) as { claimed: boolean; status: string; wompiSourceId?: number } | null;
+    if (!claim) return { outcome: "unknown_token", subscription: null, charge: null };
+
+    let { wompiSourceId, status } = claim;
+
     if (wompiSourceId === undefined) {
+      if (status !== "PENDING") return { outcome: "noop", subscription: null, charge: null };
+      // Another run creates the payment source now.
+      if (!claim.claimed) return { outcome: "in_progress", subscription: null, charge: null };
+
       // The event (or the token read) reported the approval; do not read
       // the token again, its state could be older than the event.
       const created = await this.createWompiSource({
