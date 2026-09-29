@@ -106,7 +106,12 @@ export const activate = mutation({
     let payment: Doc<"payments"> | null = null;
 
     if (subscription && subscription.status !== "canceled") {
-      if (activated && subscription.paymentSourceId !== source._id) {
+      // A trial that ended before the approval is `past_due` with this
+      // source: it becomes due now, as with a replacement.
+      if (
+        activated &&
+        (subscription.paymentSourceId !== source._id || subscription.status === "past_due")
+      ) {
         subscription = await swapPaymentSource(ctx, subscription, source._id);
         subscriptionChanged = true;
       }

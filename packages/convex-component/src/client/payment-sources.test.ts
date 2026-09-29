@@ -415,6 +415,38 @@ describe("Nequi subscriptions", () => {
     expect(await tokenStatus(t)).toBe("AVAILABLE");
   });
 
+  test("an approval after the trial ended makes the subscription due immediately", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    const { subscription } = await subscribeWithNequi(t, wompi, "pro-trial");
+
+    // The trial ends before the customer approves the token.
+    await t.mutation(components.wompi.subscriptions.setNextChargeAt, {
+      subscriptionId: subscription._id as never,
+      at: Date.now() - 1_000,
+    });
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    const pastDue = await subscriptionOf(t, subscription._id);
+    expect(pastDue?.status).toBe("past_due");
+    // The dunning retry is a day away.
+    expect(pastDue!.nextChargeAt!).toBeGreaterThan(Date.now() + 60_000);
+    expect(api.charges).toEqual([]);
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    const due = await subscriptionOf(t, subscription._id);
+    expect(due?.status).toBe("past_due");
+    expect(due!.nextChargeAt!).toBeLessThanOrEqual(Date.now());
+
+    const run = await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    expect(run.approved).toBe(1);
+    expect(api.charges.map((c) => c.payment_source_id)).toEqual([5678]);
+    expect((await subscriptionOf(t, subscription._id))?.status).toBe("active");
+  });
+
   test("subscribe applies an approval that arrived before the source was saved", async () => {
     const t = initConvexTest();
     await seed(t);
