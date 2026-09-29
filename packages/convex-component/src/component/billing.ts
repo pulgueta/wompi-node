@@ -194,6 +194,8 @@ export const claimValidator = v.object({
   payment: paymentDoc,
   customerEmail: v.string(),
   wompiSourceId: v.number(),
+  /** Credential-on-File flag: false when the amount differs from the last approved charge. */
+  recurrent: v.boolean(),
   action: v.union(v.literal("charge"), v.literal("reconcile")),
 });
 
@@ -357,6 +359,21 @@ export const claimDue = mutation({
         payment = (await ctx.db.get("payments", paymentId))!;
       }
 
+      // COF: `recurrent` means the same amount as before. A changed amount
+      // (plan change, including its dunning retries) is a stored-card charge
+      // with a different amount, so `recurrent` is false.
+      const lastApproved = await ctx.db
+        .query("payments")
+        .withIndex("by_subscription_id_status", (q) =>
+          q.eq("subscriptionId", subscription._id).eq("status", "approved"),
+        )
+        .order("desc")
+        .first();
+      const recurrent =
+        !lastApproved ||
+        (lastApproved.amountInCents === payment.amountInCents &&
+          lastApproved.currency === payment.currency);
+
       await ctx.db.patch("subscriptions", subscription._id, { nextChargeAt: now + args.config.leaseMs });
 
       claims.push({
@@ -364,6 +381,7 @@ export const claimDue = mutation({
         payment,
         customerEmail: customer.email,
         wompiSourceId: paymentSource.wompiSourceId,
+        recurrent,
         action: payment.wompiTransactionId ? ("reconcile" as const) : ("charge" as const),
       });
     }

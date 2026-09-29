@@ -153,6 +153,54 @@ describe("Credential-on-File flag on subscription charges", () => {
     expect(new Set(charges.map((charge) => charge.reference)).size).toBe(3);
   });
 
+  test("a renewal after a plan change to a different amount sends recurrent: false, then true again", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    // Initial approved, changed-amount renewal declined, its retry approved,
+    // next renewal approved.
+    const charges = mockWompi(["APPROVED", "DECLINED", "APPROVED", "APPROVED"]);
+
+    const { subscription } = await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, {
+          productKey: "pro-monthly",
+          token: "tok_card",
+        }),
+    );
+    await t.mutation(components.wompi.products.sync, {
+      products: [
+        {
+          key: "pro-plus",
+          name: "Pro Plus",
+          type: "subscription" as const,
+          amountInCents: 4_990_000,
+          interval: "month" as const,
+        },
+      ],
+    });
+    await t.mutation(components.wompi.subscriptions.changeProduct, {
+      subscriptionId: subscription._id as never,
+      userId: "user_1",
+      productKey: "pro-plus",
+    });
+
+    // First renewal at the new amount: declined.
+    await makeDue(t, subscription._id);
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+    // Dunning retry of that same period: approved.
+    await makeDue(t, subscription._id);
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+    // Renewal after an approved charge at the new amount.
+    await makeDue(t, subscription._id);
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    expect(charges.map((charge) => charge.amount_in_cents)).toEqual([
+      2_990_000, 4_990_000, 4_990_000, 4_990_000,
+    ]);
+    expect(charges.map((charge) => charge.recurrent)).toEqual([true, false, false, true]);
+  });
+
   test("a one-time checkout creates no server-side charge, so it sends no flag", async () => {
     const t = initConvexTest();
     await seed(t);

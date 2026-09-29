@@ -223,8 +223,10 @@ Wompi has no subscription engine, so the component is one:
 3. Charges run against the saved payment source
    (`payment_source_id` + `payment_method.installments`) and carry Wompi's
    Credential-on-File flag (`recurrent: true`), which raises the approval rate
-   of stored-card charges. Wompi processes the charge without the flag when
-   the card franchise or the processor does not support it. Results — from the
+   of stored-card charges. A charge whose amount differs from the last
+   approved charge (for example after a plan change) sends `recurrent: false`.
+   Wompi processes the charge without the flag when the card franchise or the
+   processor does not support it. Results — from the
    charge response, a webhook, or redirect confirmation — all flow through one
    idempotent `applyTransaction` state machine. A charge whose response never
    arrives (timeout, 5xx, network) is left pending rather than marked failed:

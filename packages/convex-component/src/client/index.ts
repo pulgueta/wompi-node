@@ -639,6 +639,8 @@ export class Wompi {
       integrityKey,
       pollAttempts: this.billingOptions.pollAttempts,
       installments: args.installments,
+      // The initial charge has no earlier approved charge to differ from.
+      recurrent: true,
     });
 
     return {
@@ -663,6 +665,7 @@ export class Wompi {
       integrityKey: string;
       pollAttempts: number;
       installments?: number;
+      recurrent: boolean;
     },
   ): Promise<ChargeOutcome> {
     const { payment } = args;
@@ -685,10 +688,11 @@ export class Wompi {
       // Wompi requires installments when charging a saved card source.
       payment_method: { installments: args.installments ?? 1 },
       reference: payment.reference,
-      // Credential-on-File: a periodic charge of the same amount on a stored
-      // source. Wompi processes the charge without COF when the franchise or
+      // Credential-on-File: true is a periodic charge of the same amount on a
+      // stored source; false is a stored-source charge with a different
+      // amount. Wompi processes the charge without COF when the franchise or
       // the processor does not support it.
-      recurrent: true,
+      recurrent: args.recurrent,
     });
 
     if (chargeError) {
@@ -902,6 +906,7 @@ export class Wompi {
         subscription: SubscriptionDoc;
         customerEmail: string;
         wompiSourceId: number;
+        recurrent: boolean;
         action: "charge" | "reconcile";
       }[];
       finalized: SubscriptionDoc[];
@@ -962,6 +967,7 @@ export class Wompi {
             ),
             // Renewals are non-interactive: poll less, let webhooks/sweeps finish.
             pollAttempts: 2,
+            recurrent: claim.recurrent,
           });
         }
 
