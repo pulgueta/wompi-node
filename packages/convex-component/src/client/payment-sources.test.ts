@@ -349,6 +349,42 @@ describe("Nequi subscriptions", () => {
     expect((await subscriptionOf(t, subscription._id))?.status).toBe("canceled");
   });
 
+  test("a refusal does not cancel while an earlier charge is in progress", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+
+    // The charge of a card stays PENDING at Wompi.
+    api.transactionStatuses = ["PENDING"];
+    const withCard = await t.action(
+      async (ctx) =>
+        await wompi.subscribe(ctx, { productKey: "pro-monthly", token: "tok_card_1" }),
+    );
+    expect(withCard.subscription.status).toBe("incomplete");
+    expect(withCard.payment).toMatchObject({ status: "pending", wompiTransactionId: "tx_1" });
+
+    // The customer tries again with Nequi, and then refuses the token.
+    await subscribeWithNequi(t, wompi);
+    await deliver(t, wompi, await nequiEvent("DECLINED"));
+
+    const waiting = await subscriptionOf(t, withCard.subscription._id);
+    expect(waiting?.status).toBe("incomplete");
+    expect(waiting?.lastError).toBe("The customer declined the Nequi token");
+    expect(await tokenStatus(t)).toBe("DECLINED");
+    expect((await paymentsOf(t)).map((p) => p.status)).toEqual(["pending"]);
+
+    // Wompi approves the charge of the card.
+    await t.mutation(components.wompi.billing.applyTransaction, {
+      reference: withCard.payment!.reference,
+      wompiTransactionId: "tx_1",
+      wompiStatus: "APPROVED",
+      config: { maxRetries: 3, retryScheduleMs: [1_000], onExhausted: "mark_unpaid", leaseMs: 0 },
+    });
+
+    expect((await subscriptionOf(t, withCard.subscription._id))?.status).toBe("active");
+    expect((await paymentsOf(t)).map((p) => p.status)).toEqual(["approved"]);
+  });
+
   test("a refusal cancels a trial, which has no payment", async () => {
     const t = initConvexTest();
     await seed(t);

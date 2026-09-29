@@ -136,6 +136,9 @@ export const activate = mutation({
  * never had a payment method that works (`incomplete`, `trialing`) is
  * canceled with `lastError`, and its payment that waits for the approval ends
  * as `error`. A declined replacement leaves the subscription as it is.
+ *
+ * A subscription with a payment that is already at Wompi is not canceled:
+ * Wompi can still approve that transaction.
  */
 export const decline = mutation({
   args: {
@@ -184,7 +187,11 @@ export const decline = mutation({
       );
     }
 
-    if (subscription.status === "incomplete" || subscription.status === "trialing") {
+    const inFlight = waiting?.wompiTransactionId !== undefined;
+    if (
+      !inFlight &&
+      (subscription.status === "incomplete" || subscription.status === "trialing")
+    ) {
       const now = Date.now();
       await ctx.db.patch("subscriptions", subscription._id, {
         status: "canceled",

@@ -241,7 +241,7 @@ const onSubmit = async (phoneNumber: string) => {
 | --- | --- |
 | `PENDING` | The subscription waits as `incomplete` (or `trialing` for a product with a trial). Nothing is charged. `awaitingApproval` is `true`. |
 | `APPROVED` | The component creates the Wompi payment source and charges the first period. A trial charges nothing until it ends. |
-| `DECLINED` | The subscription is canceled and `lastError` has the cause. The payment that waited ends as `error`. |
+| `DECLINED` | The subscription is canceled and `lastError` has the cause. The payment that waited ends as `error`. If an earlier charge is in progress at Wompi, the subscription is not canceled. |
 
 The `nequi_token.updated` webhook applies the approval or the refusal, so
 polling is not necessary. `subscribe` also reads the token again after it
