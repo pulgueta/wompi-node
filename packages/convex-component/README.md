@@ -82,9 +82,11 @@ export const {
   listSubscriptions,
   listPayments,
   getPayment,
+  getNequiTokenStatus,
   checkout,
   confirmTransaction,
   subscribe,
+  updateSubscriptionPaymentSource,
   cancelSubscription,
   resumeSubscription,
   changeSubscription,
@@ -206,6 +208,74 @@ Server-side gating uses the same call through the instance:
 ```ts
 const subscription = await wompi.getCurrentSubscription(ctx, { userId });
 ```
+
+### Nequi
+
+A Nequi token starts as `PENDING`. The customer must approve it in the Nequi
+app before Wompi can create a payment source from it. `subscribe` accepts the
+token in this state and tells you that the approval is necessary:
+
+```tsx
+const { tokenizeNequi } = useWompiTokenizer(api.wompi.getConfig);
+const subscribe = useAction(api.wompi.subscribe);
+const [tokenId, setTokenId] = useState<string | null>(null);
+
+// "PENDING" | "AVAILABLE" | "DECLINED" | null — a reactive query
+const tokenStatus = useQuery(
+  api.wompi.getNequiTokenStatus,
+  tokenId ? { tokenId } : "skip",
+);
+
+const onSubmit = async (phoneNumber: string) => {
+  const token = await tokenizeNequi(phoneNumber);
+  const { awaitingApproval } = await subscribe({
+    productKey: "pro",
+    token: token.id,
+    type: "NEQUI",
+  });
+  if (awaitingApproval) setTokenId(token.id); // show "Approve in your Nequi app"
+};
+```
+
+| Token state | Result |
+| --- | --- |
+| `PENDING` | The subscription waits as `incomplete` (or `trialing` for a product with a trial). Nothing is charged. `awaitingApproval` is `true`. |
+| `APPROVED` | The component creates the Wompi payment source and charges the first period. A trial charges nothing until it ends. |
+| `DECLINED` | The subscription is canceled and `lastError` has the cause. The payment that waited ends as `error`. |
+
+The `nequi_token.updated` webhook applies the approval or the refusal, so
+polling is not necessary. `subscribe` also reads the token again after it
+saves the subscription: an approval that arrives during the call is not lost.
+A redelivery of the event does not create a second payment source and does
+not charge again.
+
+### Update the payment source
+
+Cards expire, and customers change their payment method. Replace the source
+of a live subscription (`active`, `trialing` or `past_due`) with a new token:
+
+```tsx
+const updateSource = useAction(api.wompi.updateSubscriptionPaymentSource);
+
+const token = await tokenizeCard(card);
+await updateSource({
+  subscriptionId: subscription._id,
+  token: token.id,
+  paymentMethod: { brand: token.brand, lastFour: token.last_four },
+});
+```
+
+- The period that the customer paid for, the trial and the dunning counters
+  do not change.
+- A `past_due` subscription becomes due immediately. The next billing run
+  charges the new source and does not wait for the dunning delay.
+- With `type: "NEQUI"` and a token that is not approved, the result has
+  `awaitingApproval: true`. The subscription keeps its current source until
+  the customer approves the token. A refusal leaves the subscription as it is.
+- An `incomplete` or `unpaid` subscription is not live. Call `subscribe`
+  again to recover it.
+- The previous Wompi payment source is not voided. The component does not
+  charge it again.
 
 ## How billing works
 
@@ -470,7 +540,7 @@ back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
 | --- | --- |
 | `customers` | Your users in the billing domain (`userId` ↔ email). |
 | `products` | The catalog you define (`one_time` or `subscription` with interval/trial). |
-| `paymentSources` | Saved Wompi payment sources (brand/last four for display, `termsAcceptedAt`). |
+| `paymentSources` | Saved Wompi payment sources (brand/last four for display, `termsAcceptedAt`), and Nequi tokens that wait for approval (`tokenId`). |
 | `subscriptions` | The state machine: status, period, `nextChargeAt`, dunning counters. |
 | `payments` | One row per charge attempt, keyed by unique Wompi reference. |
 | `dispersions` | Payout batches (Pagos a Terceros), keyed by Wompi payout id. |
@@ -479,8 +549,6 @@ back and Wompi's retry can safely replay it; completed redeliveries are no-ops.
 
 ## Current limitations
 
-- Cards only for subscriptions today. Nequi sources are accepted but
-  `nequi_token.updated` events are recorded without activating the source.
 - No proration on plan changes (they apply at the next renewal).
 - Refunds/voids update payment rows and surface a note, but never mutate
   subscription periods — handle refund policy in `onPaymentChange`.
