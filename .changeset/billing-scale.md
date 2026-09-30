@@ -26,6 +26,10 @@ Remove the scale limits of the billing engine and document the ones that stay.
   read limit of the transaction remains. Payments with large `metadata` cannot
   make the run fail.
 
+**Removed:** the component query `payments.listStalePending`. The mutation
+`payments.claimStalePending` replaces it. A host app that calls the query
+directly must change the call.
+
 The component has a new table, `sweepCursors`, with one row: the position of
 the sweep. The sweep writes no payment row. The `payments` table and its indexes
 do not change. No data migration is necessary.
