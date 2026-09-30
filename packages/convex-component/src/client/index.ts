@@ -911,7 +911,7 @@ export class Wompi {
       errors: [],
     };
 
-    const { claims, finalized, hasMore } = (await ctx.runMutation(
+    const { claims, finalized, transitioned, hasMore } = (await ctx.runMutation(
       this.component.billing.claimDue,
       {
         batchSize: options?.batchSize,
@@ -927,6 +927,7 @@ export class Wompi {
         action: "charge" | "reconcile";
       }[];
       finalized: SubscriptionDoc[];
+      transitioned: SubscriptionDoc[];
       hasMore: boolean;
     };
 
@@ -934,7 +935,7 @@ export class Wompi {
     summary.remaining = hasMore;
     summary.finalizedCancellations = finalized.length;
 
-    for (const subscription of finalized) {
+    for (const subscription of [...finalized, ...transitioned]) {
       await this.dispatch(ctx, {
         outcome: "applied",
         paymentChanged: false,

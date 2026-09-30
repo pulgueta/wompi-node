@@ -213,6 +213,8 @@ export const claimDue = mutation({
   returns: v.object({
     claims: v.array(claimValidator),
     finalized: v.array(subscriptionDoc),
+    /** Subscriptions whose state this call changed without a charge. */
+    transitioned: v.array(subscriptionDoc),
     /** True when more subscriptions are due than this batch holds. */
     hasMore: v.boolean(),
   }),
@@ -230,6 +232,7 @@ export const claimDue = mutation({
 
     const claims = [];
     const finalized = [];
+    const transitioned = [];
 
     for (let subscription of due) {
       if (!CHARGEABLE_STATUSES.includes(subscription.status)) {
@@ -309,13 +312,16 @@ export const claimDue = mutation({
           }));
 
         const payment = (await ctx.db.get("payments", paymentId))!;
-        await applyChargeOutcome(
+        const outcome = await applyChargeOutcome(
           ctx,
           payment,
           { nextStatus: "error", failureReason: "Payment source unavailable" },
           args.config,
           args.callbackHandle,
         );
+        if (outcome.subscriptionChanged && outcome.subscription) {
+          transitioned.push(outcome.subscription);
+        }
         continue;
       }
 
@@ -373,7 +379,7 @@ export const claimDue = mutation({
       });
     }
 
-    return { claims, finalized, hasMore: dueRows.length > batchSize };
+    return { claims, finalized, transitioned, hasMore: dueRows.length > batchSize };
   },
 });
 

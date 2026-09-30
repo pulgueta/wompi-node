@@ -423,6 +423,55 @@ describe("renewal charge idempotency", () => {
   });
 });
 
+describe("unavailable payment source", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  test("a due renewal without an available source runs onSubscriptionChange", async () => {
+    const t = initConvexTest();
+    const { customer } = await seed(t);
+    const created = await t.mutation(components.wompi.subscriptions.create, {
+      customerId: customer._id,
+      userId: "user_1",
+      productKey: "pro-monthly",
+      paymentSource: { ...CARD, status: "ERROR" },
+    });
+    await t.mutation(components.wompi.billing.recordChargeResult, {
+      paymentId: created.payment!._id,
+      nextStatus: "approved",
+      wompiTransactionId: "tx_init",
+      config: {
+        maxRetries: 3,
+        retryScheduleMs: [1_000],
+        onExhausted: "mark_unpaid",
+        leaseMs: 0,
+      },
+    });
+    await t.mutation(components.wompi.subscriptions.setNextChargeAt, {
+      subscriptionId: created.subscription._id,
+      at: Date.now() - 1_000,
+    });
+    vi.stubGlobal("fetch", routeFetch([]));
+    const changes: string[] = [];
+    const wompi = makeWompi({
+      events: {
+        onSubscriptionChange: async (_ctx, subscription) => {
+          changes.push(subscription.status);
+        },
+      },
+    });
+
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    expect(changes).toEqual(["past_due"]);
+    expect(await subscriptionOf(t, created.subscription._id)).toMatchObject({
+      status: "past_due",
+    });
+  });
+});
+
 describe("payments webhook", () => {
   const routes = new Map<
     string,

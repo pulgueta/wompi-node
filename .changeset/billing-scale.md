@@ -25,6 +25,9 @@ Remove the scale limits of the billing engine and document the ones that stay.
 - **The stale sweep has a read limit.** It stops when less than 4 MiB of the
   read limit of the transaction remains. Payments with large `metadata` cannot
   make the run fail.
+- **Fix: `onSubscriptionChange` runs for a subscription with no available
+  payment source.** Before, a billing run could move such a subscription to
+  `past_due` or to a final status and not run the callback.
 
 **Removed:** the component query `payments.listStalePending`. The mutation
 `payments.claimStalePending` replaces it. A host app that calls the query
