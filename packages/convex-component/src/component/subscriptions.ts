@@ -1,8 +1,10 @@
 import { v } from "convex/values";
+import type { Infer } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
-import type { QueryCtx } from "./_generated/server.js";
-import type { Doc } from "./_generated/dataModel.js";
+import type { MutationCtx, QueryCtx } from "./_generated/server.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import {
+  assertPaymentSourceInput,
   ENTITLED_STATUSES,
   paymentDoc,
   paymentSourceInputValidator,
@@ -23,6 +25,186 @@ const joinProduct = async (ctx: QueryCtx, subscription: Doc<"subscriptions">) =>
 });
 
 /**
+ * The charge a resumed (`incomplete`/`unpaid`) subscription must run: the
+ * pending payment when one is in flight, otherwise a new one.
+ */
+export const claimResumePayment = async (
+  ctx: MutationCtx,
+  subscription: Doc<"subscriptions">,
+): Promise<Doc<"payments">> => {
+  // Never mint a second charge while one is in flight. A retried call
+  // (action retry, double submit, a previous attempt that never settled)
+  // gets the same pending row back, so the caller lands on the same Wompi
+  // reference — Wompi rejects the duplicate and the existing transaction
+  // is reconciled instead of charged twice. The row is left untouched:
+  // it may already be at Wompi with these very amounts.
+  const inFlight = await ctx.db
+    .query("payments")
+    .withIndex("by_subscription_id_status", (q) =>
+      q.eq("subscriptionId", subscription._id).eq("status", "pending"),
+    )
+    .first();
+  if (inFlight) return inFlight;
+
+  // Resume references must be fresh per settled attempt: a counter on the
+  // subscription numbers them, so each declined attempt gets a new
+  // reference while a crashed one is retried under its own (above).
+  // Subscriptions from before the counter numbered resumes by row count;
+  // skip any reference such a row already holds.
+  let attempt = (subscription.resumeAttempts ?? 0) + 1;
+  let reference = subscriptionChargeReference(subscription._id, "resume", attempt);
+  while (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_reference", (q) => q.eq("reference", reference))
+      .first()
+  ) {
+    attempt += 1;
+    reference = subscriptionChargeReference(subscription._id, "resume", attempt);
+  }
+  await ctx.db.patch("subscriptions", subscription._id, { resumeAttempts: attempt });
+
+  const product = await ctx.db.get("products", subscription.productId);
+  const paymentId = await ctx.db.insert("payments", {
+    reference,
+    kind: "subscription",
+    status: "pending",
+    customerId: subscription.customerId,
+    userId: subscription.userId,
+    productId: subscription.productId,
+    productKey: subscription.productKey,
+    subscriptionId: subscription._id,
+    amountInCents: subscription.amountInCents,
+    currency: subscription.currency,
+    description: product?.name ?? subscription.productKey,
+    attempt,
+  });
+
+  return (await ctx.db.get("payments", paymentId))!;
+};
+
+/**
+ * Mark the sources of the subscription that wait for approval as
+ * `SUPERSEDED`, except `keep`. The approval of a source that another source
+ * replaced arrives late, and must not make it the current source again.
+ */
+const supersedePendingSources = async (
+  ctx: MutationCtx,
+  subscription: Doc<"subscriptions">,
+  keep: Id<"paymentSources">[],
+): Promise<void> => {
+  // Only the source of a Nequi token can wait for approval.
+  const tokens = ctx.db
+    .query("nequiTokens")
+    .withIndex("by_subscription_id", (q) => q.eq("subscriptionId", subscription._id));
+
+  for await (const token of tokens) {
+    const source = await ctx.db.get("paymentSources", token.paymentSourceId);
+    if (
+      source &&
+      source.wompiSourceId === undefined &&
+      source.status === "PENDING" &&
+      !keep.includes(source._id)
+    ) {
+      await ctx.db.patch("paymentSources", source._id, { status: "SUPERSEDED" });
+    }
+  }
+};
+
+/**
+ * Make a saved source the one the subscription charges. Period, trial and
+ * dunning state stay as they are; a `past_due` subscription becomes due now,
+ * so the next billing run charges the new source and does not wait for the
+ * dunning delay.
+ */
+export const swapPaymentSource = async (
+  ctx: MutationCtx,
+  subscription: Doc<"subscriptions">,
+  paymentSourceId: Id<"paymentSources">,
+): Promise<Doc<"subscriptions">> => {
+  await ctx.db.patch("subscriptions", subscription._id, {
+    paymentSourceId,
+    ...(subscription.status === "past_due" ? { nextChargeAt: Date.now() } : {}),
+  });
+  await supersedePendingSources(ctx, subscription, [paymentSourceId]);
+  return (await ctx.db.get("subscriptions", subscription._id))!;
+};
+
+/** The payment source a Nequi token belongs to. */
+export const findTokenSource = async (
+  ctx: QueryCtx,
+  tokenId: string,
+): Promise<Doc<"paymentSources"> | null> => {
+  const token = await ctx.db
+    .query("nequiTokens")
+    .withIndex("by_token_id", (q) => q.eq("tokenId", tokenId))
+    .unique();
+  return token ? await ctx.db.get("paymentSources", token.paymentSourceId) : null;
+};
+
+/**
+ * Save the payment source of a subscription. A Nequi token has one row: a
+ * token that is submitted again (double submit, action retry) gets the row
+ * it already has.
+ */
+const savePaymentSource = async (
+  ctx: MutationCtx,
+  args: {
+    customerId: Id<"customers">;
+    userId: string;
+    paymentSource: Infer<typeof paymentSourceInputValidator>;
+    subscriptionId?: Id<"subscriptions">;
+  },
+): Promise<Id<"paymentSources">> => {
+  const { tokenId } = args.paymentSource;
+  const known = tokenId === undefined ? null : await findTokenSource(ctx, tokenId);
+
+  if (known) {
+    if (known.userId !== args.userId || known.subscriptionId !== args.subscriptionId) {
+      throw new Error("This Nequi token is already in use for another subscription");
+    }
+    // A token read that is older than the approval must not undo it.
+    if (known.wompiSourceId === undefined || args.paymentSource.wompiSourceId !== undefined) {
+      await ctx.db.patch("paymentSources", known._id, args.paymentSource);
+    }
+    return known._id;
+  }
+
+  const paymentSourceId = await ctx.db.insert("paymentSources", {
+    customerId: args.customerId,
+    userId: args.userId,
+    ...args.paymentSource,
+    subscriptionId: args.subscriptionId,
+    termsAcceptedAt: Date.now(),
+  });
+  if (tokenId !== undefined) {
+    await ctx.db.insert("nequiTokens", {
+      tokenId,
+      paymentSourceId,
+      subscriptionId: args.subscriptionId,
+    });
+  }
+  return paymentSourceId;
+};
+
+/** Give the source of a new subscription, and its Nequi token, the subscription. */
+const assignSubscription = async (
+  ctx: MutationCtx,
+  paymentSourceId: Id<"paymentSources">,
+  tokenId: string | undefined,
+  subscriptionId: Id<"subscriptions">,
+): Promise<void> => {
+  await ctx.db.patch("paymentSources", paymentSourceId, { subscriptionId });
+  if (tokenId === undefined) return;
+
+  const token = await ctx.db
+    .query("nequiTokens")
+    .withIndex("by_token_id", (q) => q.eq("tokenId", tokenId))
+    .unique();
+  if (token) await ctx.db.patch("nequiTokens", token._id, { subscriptionId });
+};
+
+/**
  * Create (or resume) a subscription for a saved payment source.
  *
  * - Fresh subscription with a trial: starts `trialing` immediately, no
@@ -30,7 +212,12 @@ const joinProduct = async (ctx: QueryCtx, subscription: Doc<"subscriptions">) =>
  * - Fresh subscription without a trial: starts `incomplete` and claims the
  *   initial payment row the caller must charge.
  * - Existing `incomplete`/`unpaid` subscription for the same product: reused
- *   with the new payment source and a fresh charge attempt.
+ *   with the new payment source and a fresh charge attempt. A token that
+ *   waits for approval does not replace the source of a charge in progress.
+ *
+ * A source without a `wompiSourceId` is a Nequi token that waits for the
+ * customer's approval. The rows are the same, but the caller must not charge
+ * the payment until `paymentSources.activate` returns it.
  */
 export const create = mutation({
   args: {
@@ -43,6 +230,8 @@ export const create = mutation({
   returns: v.object({
     subscription: subscriptionDoc,
     payment: v.union(paymentDoc, v.null()),
+    /** False when a call with the same token changed nothing. */
+    changed: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const product = await ctx.db
@@ -58,6 +247,7 @@ export const create = mutation({
     if (!product.interval) {
       throw new Error(`Product "${args.productKey}" has no billing interval`);
     }
+    assertPaymentSourceInput(args.paymentSource);
 
     const now = Date.now();
 
@@ -74,27 +264,34 @@ export const create = mutation({
       );
     }
 
-    const paymentSourceId = await ctx.db.insert("paymentSources", {
-      customerId: args.customerId,
-      userId: args.userId,
-      ...args.paymentSource,
-      termsAcceptedAt: now,
-    });
-
     const resumable = sameProduct.find(
       (s) => s.status === "incomplete" || s.status === "unpaid",
     );
 
+    const paymentSourceId = await savePaymentSource(ctx, {
+      customerId: args.customerId,
+      userId: args.userId,
+      paymentSource: args.paymentSource,
+      subscriptionId: resumable?._id,
+    });
+
     if (resumable) {
+      // A charge in progress can still be approved on the current source. A
+      // token that waits does not replace that source: the approval does.
       const inFlight = await ctx.db
         .query("payments")
         .withIndex("by_subscription_id_status", (q) =>
           q.eq("subscriptionId", resumable._id).eq("status", "pending"),
         )
         .first();
+      const current = await ctx.db.get("paymentSources", resumable.paymentSourceId);
+      const waits =
+        args.paymentSource.wompiSourceId === undefined &&
+        inFlight !== null &&
+        current?.wompiSourceId !== undefined;
 
       await ctx.db.patch("subscriptions", resumable._id, {
-        paymentSourceId,
+        paymentSourceId: waits ? resumable.paymentSourceId : paymentSourceId,
         amountInCents: product.amountInCents,
         currency: product.currency,
         interval: product.interval,
@@ -102,57 +299,28 @@ export const create = mutation({
         productId: product._id,
         lastError: undefined,
       });
+      await supersedePendingSources(ctx, resumable, [paymentSourceId]);
 
-      // Never mint a second charge while one is in flight. A retried call
-      // (action retry, double submit, a previous attempt that never settled)
-      // gets the same pending row back, so the caller lands on the same Wompi
-      // reference — Wompi rejects the duplicate and the existing transaction
-      // is reconciled instead of charged twice. The row is left untouched:
-      // it may already be at Wompi with these very amounts.
-      if (inFlight) {
-        return {
-          subscription: (await ctx.db.get("subscriptions", resumable._id))!,
-          payment: inFlight,
-        };
-      }
+      const payment = await claimResumePayment(
+        ctx,
+        (await ctx.db.get("subscriptions", resumable._id))!,
+      );
 
-      // Resume references must be fresh per settled attempt: a counter on the
-      // subscription numbers them, so each declined attempt gets a new
-      // reference while a crashed one is retried under its own (above).
-      // Subscriptions from before the counter numbered resumes by row count;
-      // skip any reference such a row already holds.
-      let attempt = (resumable.resumeAttempts ?? 0) + 1;
-      let reference = subscriptionChargeReference(resumable._id, "resume", attempt);
-      while (
-        await ctx.db
-          .query("payments")
-          .withIndex("by_reference", (q) => q.eq("reference", reference))
-          .first()
-      ) {
-        attempt += 1;
-        reference = subscriptionChargeReference(resumable._id, "resume", attempt);
-      }
-      await ctx.db.patch("subscriptions", resumable._id, { resumeAttempts: attempt });
+      const subscription = (await ctx.db.get("subscriptions", resumable._id))!;
+      const changed = (
+        [
+          "paymentSourceId",
+          "productId",
+          "amountInCents",
+          "currency",
+          "interval",
+          "intervalCount",
+          "lastError",
+          "resumeAttempts",
+        ] as const
+      ).some((field) => subscription[field] !== resumable[field]);
 
-      const paymentId = await ctx.db.insert("payments", {
-        reference,
-        kind: "subscription",
-        status: "pending",
-        customerId: args.customerId,
-        userId: args.userId,
-        productId: product._id,
-        productKey: product.key,
-        subscriptionId: resumable._id,
-        amountInCents: product.amountInCents,
-        currency: product.currency,
-        description: product.name,
-        attempt,
-      });
-
-      return {
-        subscription: (await ctx.db.get("subscriptions", resumable._id))!,
-        payment: (await ctx.db.get("payments", paymentId))!,
-      };
+      return { subscription, payment, changed };
     }
 
     const trialDays = product.trialDays ?? 0;
@@ -180,8 +348,13 @@ export const create = mutation({
         failedAttempts: 0,
         metadata: args.metadata,
       });
+      await assignSubscription(ctx, paymentSourceId, args.paymentSource.tokenId, subscriptionId);
 
-      return { subscription: (await ctx.db.get("subscriptions", subscriptionId))!, payment: null };
+      return {
+        subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
+        payment: null,
+        changed: true,
+      };
     }
 
     const subscriptionId = await ctx.db.insert("subscriptions", {
@@ -201,6 +374,7 @@ export const create = mutation({
       failedAttempts: 0,
       metadata: args.metadata,
     });
+    await assignSubscription(ctx, paymentSourceId, args.paymentSource.tokenId, subscriptionId);
 
     const paymentId = await ctx.db.insert("payments", {
       reference: subscriptionChargeReference(subscriptionId, "init", 0),
@@ -220,6 +394,7 @@ export const create = mutation({
     return {
       subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
       payment: (await ctx.db.get("payments", paymentId))!,
+      changed: true,
     };
   },
 });
@@ -396,6 +571,57 @@ export const changeProduct = mutation({
 
     return {
       subscription: (await ctx.db.get("subscriptions", subscription._id))!,
+      changed: true,
+    };
+  },
+});
+
+/**
+ * Replace the payment source of a live subscription (card expiry, reissued
+ * card, or a change of payment method) and keep the period the customer paid
+ * for.
+ *
+ * A source without a `wompiSourceId` is a Nequi token that waits for the
+ * customer's approval: the row is saved, and `paymentSources.activate` does
+ * the replacement when Wompi reports the approval. `changed` is false then.
+ */
+export const replacePaymentSource = mutation({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    userId: v.string(),
+    paymentSource: paymentSourceInputValidator,
+  },
+  returns: v.object({ subscription: subscriptionDoc, changed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const subscription = await ctx.db.get("subscriptions", args.subscriptionId);
+    if (!subscription || subscription.userId !== args.userId) {
+      throw new Error("Subscription not found");
+    }
+    if (!ENTITLED_STATUSES.includes(subscription.status)) {
+      throw new Error(
+        "Only live subscriptions can replace the payment source; subscribe again to recover an incomplete or unpaid subscription",
+      );
+    }
+    assertPaymentSourceInput(args.paymentSource);
+
+    const paymentSourceId = await savePaymentSource(ctx, {
+      customerId: subscription.customerId,
+      userId: subscription.userId,
+      paymentSource: args.paymentSource,
+      subscriptionId: subscription._id,
+    });
+
+    if (args.paymentSource.wompiSourceId === undefined) {
+      // The newest token is the replacement that waits.
+      await supersedePendingSources(ctx, subscription, [
+        paymentSourceId,
+        subscription.paymentSourceId,
+      ]);
+      return { subscription, changed: false };
+    }
+
+    return {
+      subscription: await swapPaymentSource(ctx, subscription, paymentSourceId),
       changed: true,
     };
   },

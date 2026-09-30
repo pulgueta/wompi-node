@@ -79,9 +79,22 @@ export default defineSchema({
   paymentSources: defineTable({
     customerId: v.id("customers"),
     userId: v.string(),
-    wompiSourceId: v.number(),
+    // Absent while a Nequi token waits for the customer's approval: Wompi
+    // creates a payment source only from an approved token.
+    wompiSourceId: v.optional(v.number()),
     type: v.string(),
+    // Wompi's payment source status, or the token status (`PENDING`,
+    // `DECLINED`) while there is no Wompi payment source. `SUPERSEDED` is a
+    // token that waited when another source replaced it.
     status: v.string(),
+    // The Nequi token this source comes from; `nequiTokens` finds the row.
+    tokenId: v.optional(v.string()),
+    // When a run claimed the creation of the Wompi payment source. The claim
+    // is a lease: a run that crashed can be done again after it expires.
+    activationClaimedAt: v.optional(v.number()),
+    // The subscription this source is for. A replacement source that waits
+    // for approval is not the subscription's current source yet.
+    subscriptionId: v.optional(v.id("subscriptions")),
     brand: v.optional(v.string()),
     lastFour: v.optional(v.string()),
     expMonth: v.optional(v.string()),
@@ -94,6 +107,18 @@ export default defineSchema({
     .index("by_customer_id", ["customerId"])
     .index("by_user_id", ["userId"])
     .index("by_wompi_source_id", ["wompiSourceId"]),
+
+  // The payment source of each Nequi token; `nequi_token.updated` events
+  // find the source through it. A table of its own, because a new index on
+  // `paymentSources` must backfill the rows of each installation.
+  nequiTokens: defineTable({
+    tokenId: v.string(),
+    paymentSourceId: v.id("paymentSources"),
+    // Finds each source of a subscription that can wait for approval.
+    subscriptionId: v.optional(v.id("subscriptions")),
+  })
+    .index("by_token_id", ["tokenId"])
+    .index("by_subscription_id", ["subscriptionId"]),
 
   // The billing engine's state machine. Wompi has no native subscriptions:
   // periods, renewals and dunning are computed here.

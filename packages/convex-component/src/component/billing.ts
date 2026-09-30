@@ -44,7 +44,7 @@ type ChargeOutcomeInput = {
  * transaction. A callback that throws therefore rolls the payment change back
  * with it, so the delivery (or cron claim) that produced it can be replayed.
  */
-const applyChargeOutcome = async (
+export const applyChargeOutcome = async (
   ctx: MutationCtx,
   payment: Doc<"payments">,
   input: ChargeOutcomeInput,
@@ -268,7 +268,14 @@ export const claimDue = mutation({
       const customer = await ctx.db.get("customers", subscription.customerId);
       const paymentSource = await ctx.db.get("paymentSources", subscription.paymentSourceId);
 
-      if (!customer || !paymentSource || paymentSource.status !== "AVAILABLE") {
+      const wompiSourceId = paymentSource?.wompiSourceId;
+
+      if (
+        !customer ||
+        !paymentSource ||
+        paymentSource.status !== "AVAILABLE" ||
+        wompiSourceId === undefined
+      ) {
         // Nothing to charge against: run the failure path directly so
         // dunning (and eventually expiry) still progresses.
         const reference = subscriptionChargeReference(
@@ -363,7 +370,7 @@ export const claimDue = mutation({
         subscription: (await ctx.db.get("subscriptions", subscription._id))!,
         payment,
         customerEmail: customer.email,
-        wompiSourceId: paymentSource.wompiSourceId,
+        wompiSourceId,
         action: payment.wompiTransactionId ? ("reconcile" as const) : ("charge" as const),
       });
     }
