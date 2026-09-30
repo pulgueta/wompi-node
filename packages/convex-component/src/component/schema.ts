@@ -251,4 +251,14 @@ export default defineSchema({
   })
     .index("by_checksum", ["checksum"])
     .index("by_timestamp", ["timestamp"]),
+
+  // Position of the stale-pending sweep: one row at most. `cursor` is the
+  // `_creationTime` of the last stale payment that the sweep visited, or 0 at
+  // the start of a pass. `passStartedAt` is when the current or last pass
+  // started. It is kept out of the payment rows so that the sweep writes no
+  // payment.
+  sweepCursors: defineTable({
+    cursor: v.number(),
+    passStartedAt: v.number(),
+  }),
 });

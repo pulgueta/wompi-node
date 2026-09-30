@@ -224,6 +224,39 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             trialEndsAt?: number;
             userId: string;
           }>;
+          hasMore: boolean;
+          transitioned: Array<{
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          }>;
         },
         Name
       >;
@@ -764,6 +797,44 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     payments: {
+      claimStalePending: FunctionReference<
+        "mutation",
+        "internal",
+        { expireAfterMs: number; limit?: number; olderThanMs: number },
+        {
+          hasMore: boolean;
+          payments: Array<{
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            attempt?: number;
+            currency: string;
+            customerId?: string;
+            description?: string;
+            failureReason?: string;
+            finalizedAt?: number;
+            kind: "checkout" | "subscription";
+            metadata?: Record<string, any>;
+            paymentMethodType?: string;
+            periodEnd?: number;
+            periodStart?: number;
+            productId?: string;
+            productKey?: string;
+            reference: string;
+            status:
+              | "pending"
+              | "approved"
+              | "declined"
+              | "voided"
+              | "error"
+              | "expired";
+            subscriptionId?: string;
+            userId: string;
+            wompiTransactionId?: string;
+          }>;
+        },
+        Name
+      >;
       createCheckout: FunctionReference<
         "mutation",
         "internal",
@@ -846,41 +917,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         { limit?: number; userId: string },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          amountInCents: number;
-          attempt?: number;
-          currency: string;
-          customerId?: string;
-          description?: string;
-          failureReason?: string;
-          finalizedAt?: number;
-          kind: "checkout" | "subscription";
-          metadata?: Record<string, any>;
-          paymentMethodType?: string;
-          periodEnd?: number;
-          periodStart?: number;
-          productId?: string;
-          productKey?: string;
-          reference: string;
-          status:
-            | "pending"
-            | "approved"
-            | "declined"
-            | "voided"
-            | "error"
-            | "expired";
-          subscriptionId?: string;
-          userId: string;
-          wompiTransactionId?: string;
-        }>,
-        Name
-      >;
-      listStalePending: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number; olderThanMs: number },
         Array<{
           _creationTime: number;
           _id: string;

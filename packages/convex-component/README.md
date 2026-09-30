@@ -322,7 +322,9 @@ Wompi has no subscription engine, so the component is one:
    (server-side charges every run, checkouts once before expiring) so a
    payment that reached Wompi without a webhook is still recorded; abandoned
    checkouts expire after ~26h. A late `APPROVED` still reopens an expired or
-   declined row.
+   declined row. The sweep rotates: each run continues after the last payment
+   that the previous run visited, oldest first, so a payment that stays
+   pending cannot keep another one out of reach.
 
 Defaults are tunable:
 
@@ -345,6 +347,88 @@ new Wompi(components.wompi, {
 
 Callbacks fire once per state change, whether the change arrived via webhook,
 cron, or confirmation: redeliveries and repeated confirmations are no-ops.
+
+### Scale and limits
+
+One billing run has these limits:
+
+| Limit                                  | Value                        |
+| -------------------------------------- | ---------------------------- |
+| Subscriptions claimed                  | `batchSize`: 25, maximum 100 |
+| Wompi requests in flight               | 5                            |
+| Stale payments the sweep works on      | 50 (see below)               |
+| Stale payments the sweep reads         | 500 (see below)              |
+| Read space the sweep keeps free        | 4 MiB (see below)            |
+| Webhook events removed after retention | 100                          |
+
+With the 15-minute cron from the wiring example, the engine does 96 runs each
+day. That is 2,400 renewals each day with the default `batchSize`, and 9,600
+with `batchSize: 100`. Renewals above that number are charged late, not lost.
+
+To remove the limit of the cron interval, read `remaining` from the summary.
+It is `true` when the run left due subscriptions or stale payments for an
+immediate next run. Replace `wompi.billing()` with an action that schedules
+itself:
+
+```ts
+// convex/billing.ts
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+import { wompi } from "./wompi";
+
+export const run = internalAction({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const summary = await wompi.processBilling(ctx, { batchSize: 100 });
+    // After a run with errors, wait for the cron. Thus an outage of Wompi
+    // does not use the full backlog in a loop.
+    if (summary.remaining && summary.errors.length === 0) {
+      await ctx.scheduler.runAfter(0, internal.billing.run, {});
+    }
+    return null;
+  },
+});
+```
+
+The next run always gets different work. A claimed subscription has a lease
+(`billing.leaseMs`, default 10 minutes). Do not set this option to `0` in
+production: the action would schedule itself without end.
+
+The sweep rotates through the stale payments, oldest first. Each run continues
+after the last payment that the previous run visited. When a run gets to the
+end of the stale payments, the pass is complete and `remaining` is `false` for
+the sweep. Thus payments that stay pending for a long time cannot keep a later
+payment out of reach. The sweep keeps its position in one row of the
+`sweepCursors` table. It does not write to the payment rows.
+
+The sweep waits between passes. A new pass starts only when
+`billing.pendingSweepAfterMs` (default 10 minutes) has passed since the start
+of the last pass. Before that, the sweep does no work. Thus the sweep asks
+Wompi about a payment one time in each pass, not one time in each run. Two
+runs that start a pass at the same time do not get the same payments: Convex
+runs them one after the other, and the second run waits. A pass that needs more
+than one run does not wait between its runs. If you set this option to `0`,
+there is no wait, and each run can ask Wompi about the same payments again.
+
+The sweep also stops when less than 4 MiB of the read limit of the transaction
+remains. Thus large `metadata` does not make the run fail. The payments that it
+did not read go to the next run.
+
+The sweep limits in the table are not exact. Payments with the same creation
+time stay together in one run. Thus a run can go above each sweep limit by the
+number of payments in that group. This also applies to the read limit.
+
+The sweep moves its cursor when it claims a batch. If a run stops before it
+finishes that batch, those payments wait for the next pass. The next pass
+starts when the current pass ends and `billing.pendingSweepAfterMs` has passed
+since the current pass started.
+
+The cron sends the charges five at a time and does not wait for a result. A
+renewal that Wompi keeps `PENDING` keeps its transaction id and resolves with
+the webhook. Without the webhook, it resolves in the first run after the lease
+ends.
 
 `registerRoutes(http, { onEvent })` is different: it runs for every verified
 delivery that was not already applied. Two deliveries of the same event that
