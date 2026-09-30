@@ -193,7 +193,7 @@ export const claimStalePending = mutation({
       const waitsToExpire =
         payment.kind === "checkout" &&
         payment.wompiTransactionId === undefined &&
-        payment._creationTime > expirableBefore;
+        payment._creationTime >= expirableBefore;
       if (!waitsToExpire) payments.push(payment);
 
       const { bytesRead } = await ctx.meta.getTransactionMetrics();
