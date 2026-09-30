@@ -1,3 +1,34 @@
+## 3.4.0
+
+### Minor Changes
+
+- [#49](https://github.com/pulgueta/wompi-node/pull/49) [`9a30116`](https://github.com/pulgueta/wompi-node/commit/9a3011675c5025046810aa49ad2be3816a19ec35) Thanks [@pulgueta](https://github.com/pulgueta)! - Add a typed error for gateway and availability failures.
+
+  A `502`, `503` or `504` response, or a `5xx` response with a body that is not
+  JSON (an HTML error page), now returns a `WompiServiceUnavailableError`. It has
+  `type: "SERVICE_UNAVAILABLE_ERROR"`, `statusCode` and `retryable: true`.
+
+  The new `isGatewayError(error)` guard from `@pulgueta/wompi/schemas` is true for
+  this error, and for a `WompiRequestError` or `WompiPayoutApiError` with a `502`,
+  `503` or `504` status code.
+
+  `WompiServiceUnavailableError` extends `WompiRequestError`, so code that reads
+  `statusCode` from a `WompiRequestError` continues to operate. A structured
+  Payouts API error stays a `WompiPayoutApiError`.
+
+### Patch Changes
+
+- [#48](https://github.com/pulgueta/wompi-node/pull/48) [`a686f41`](https://github.com/pulgueta/wompi-node/commit/a686f41fbdf6e92c005a46abf0a5ac8a7c9e9b78) Thanks [@pulgueta](https://github.com/pulgueta)! - Send the private key on `getTransaction`, as the Wompi API now requires.
+
+  Wompi accepts `GET /transactions/{id}` only with the private key. A lookup
+  without it returns `404 Not Found`, so the SDK reported a `WompiNotFoundError`
+  for transactions that exist.
+
+  `getTransaction` now sends `Authorization: Bearer <privateKey>`. A client
+  without `privateKey` gets `[WompiError("Private key is required for this
+operation"), null]` and sends no request. Call `getTransaction` from your
+  server.
+
 ## 3.3.0
 
 ### Minor Changes
