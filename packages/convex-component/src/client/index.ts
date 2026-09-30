@@ -632,6 +632,7 @@ export class Wompi {
       subscription: SubscriptionDoc | null;
       payment: PaymentDoc | null;
       wompiSourceId?: number;
+      recurrent?: boolean;
     };
 
     if (activated.subscriptionChanged && activated.subscription) {
@@ -657,6 +658,8 @@ export class Wompi {
       integrityKey: this.requireKey(this.integrityKey, "integrity key", "WOMPI_INTEGRITY_KEY"),
       // Not interactive: poll less, let webhooks/sweeps finish.
       pollAttempts: 2,
+      // `activate` sets it with `payment`; a subscription payment always has one.
+      recurrent: activated.recurrent ?? true,
     });
 
     return {
