@@ -935,7 +935,8 @@ export class Wompi {
     },
   ): Promise<{ subscription: SubscriptionDoc; awaitingApproval: boolean }> {
     this.requireKey(this.privateKey, "private key", "WOMPI_PRIVATE_KEY");
-    const user = await this.config.getUserInfo(ctx);
+    // The renewals charge with the email of the customer row: keep it current.
+    const { user } = await this.ensureCustomer(ctx);
 
     // Do the checks of the mutation first: a Wompi payment source that no
     // subscription uses cannot be removed through the SDK.

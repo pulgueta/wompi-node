@@ -1156,6 +1156,29 @@ describe("payment source replacement", () => {
     expect(api.charges.map((c) => c.payment_source_id)).toEqual([1234, 1234, 1235, 1235]);
   });
 
+  test("a replacement refreshes the customer, so the renewal uses the new email", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    let email = "ada@example.com";
+    const wompi = makeWompi({ getUserInfo: async () => ({ userId: "user_1", email }) });
+    const before = await activeSubscription(t, wompi, api);
+
+    email = "ada@new.example.com";
+    await replaceWith(t, wompi, before._id);
+
+    expect(api.createdSources[1]).toMatchObject({ customer_email: email });
+    expect(
+      await t.query(components.wompi.customers.getByUserId, { userId: "user_1" }),
+    ).toMatchObject({ email });
+
+    await t.mutation(components.wompi.subscriptions.setNextChargeAt, {
+      subscriptionId: before._id as never,
+      at: Date.now() - 1_000,
+    });
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+    expect(api.charges[1]).toMatchObject({ customer_email: email });
+  });
+
   test("a subscription of another user is rejected before Wompi creates a source", async () => {
     const t = initConvexTest();
     await seed(t);
