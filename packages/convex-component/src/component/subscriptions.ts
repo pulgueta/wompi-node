@@ -230,6 +230,8 @@ export const create = mutation({
   returns: v.object({
     subscription: subscriptionDoc,
     payment: v.union(paymentDoc, v.null()),
+    /** False when a call with the same token changed nothing. */
+    changed: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const product = await ctx.db
@@ -304,10 +306,21 @@ export const create = mutation({
         (await ctx.db.get("subscriptions", resumable._id))!,
       );
 
-      return {
-        subscription: (await ctx.db.get("subscriptions", resumable._id))!,
-        payment,
-      };
+      const subscription = (await ctx.db.get("subscriptions", resumable._id))!;
+      const changed = (
+        [
+          "paymentSourceId",
+          "productId",
+          "amountInCents",
+          "currency",
+          "interval",
+          "intervalCount",
+          "lastError",
+          "resumeAttempts",
+        ] as const
+      ).some((field) => subscription[field] !== resumable[field]);
+
+      return { subscription, payment, changed };
     }
 
     const trialDays = product.trialDays ?? 0;
@@ -337,7 +350,11 @@ export const create = mutation({
       });
       await assignSubscription(ctx, paymentSourceId, args.paymentSource.tokenId, subscriptionId);
 
-      return { subscription: (await ctx.db.get("subscriptions", subscriptionId))!, payment: null };
+      return {
+        subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
+        payment: null,
+        changed: true,
+      };
     }
 
     const subscriptionId = await ctx.db.insert("subscriptions", {
@@ -377,6 +394,7 @@ export const create = mutation({
     return {
       subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
       payment: (await ctx.db.get("payments", paymentId))!,
+      changed: true,
     };
   },
 });

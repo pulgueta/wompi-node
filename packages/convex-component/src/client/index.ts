@@ -859,7 +859,7 @@ export class Wompi {
     });
     const { wompiSourceId } = paymentSource;
 
-    const { subscription, payment } = (await ctx.runMutation(
+    const { subscription, payment, changed } = (await ctx.runMutation(
       this.component.subscriptions.create,
       {
         customerId: customer._id,
@@ -868,9 +868,9 @@ export class Wompi {
         paymentSource,
         metadata: args.metadata,
       },
-    )) as { subscription: SubscriptionDoc; payment: PaymentDoc | null };
+    )) as { subscription: SubscriptionDoc; payment: PaymentDoc | null; changed: boolean };
 
-    if (!payment || wompiSourceId === undefined) {
+    if (changed && (!payment || wompiSourceId === undefined)) {
       // Trial, or a Nequi token that waits for approval: no charge now.
       // Surface the new subscription to callbacks.
       await this.dispatch(ctx, {

@@ -784,6 +784,29 @@ describe("a Nequi token that is submitted again", () => {
     expect(await tokenStatus(t)).toBe("AVAILABLE");
   });
 
+  test("a second subscribe with the same token does not run the subscription callback again", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const changes: string[] = [];
+    const wompi = makeWompi({
+      events: {
+        onPaymentChange: paymentCallback,
+        onSubscriptionChange: async (_ctx, subscription) => {
+          changes.push(subscription.status);
+        },
+      },
+    });
+
+    await subscribeWithNequi(t, wompi);
+    expect(changes).toEqual(["incomplete"]);
+
+    await subscribeWithNequi(t, wompi);
+    expect(changes).toEqual(["incomplete"]);
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+    expect(changes).toEqual(["incomplete", "active"]);
+  });
+
   test("a second replacement with the same token keeps one source", async () => {
     const t = initConvexTest();
     await seed(t);

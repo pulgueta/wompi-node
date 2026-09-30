@@ -1107,6 +1107,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           userId: string;
         },
         {
+          changed: boolean;
           payment: {
             _creationTime: number;
             _id: string;
