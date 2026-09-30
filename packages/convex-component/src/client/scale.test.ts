@@ -518,6 +518,45 @@ describe("processBilling: stale sweep", () => {
     expect(wompi.to("GET", /\/transactions\?reference=/)).toEqual([]);
   });
 
+  test("a failed transaction lookup in the sweep is an error of the run", async () => {
+    const t = initConvexTest();
+    await seedProducts(t);
+    const customer = await t.mutation(components.wompi.customers.upsert, {
+      userId: "user_1",
+      email: "ada@example.com",
+    });
+    await t.mutation(components.wompi.payments.createCheckout, {
+      reference: "wmpk_down",
+      customerId: customer._id,
+      userId: "user_1",
+      productKey: "sticker-pack",
+    });
+    await t.mutation(components.wompi.billing.applyTransaction, {
+      reference: "wmpk_down",
+      wompiTransactionId: "tx_down",
+      wompiStatus: "PENDING",
+      config: CRON_CONFIG,
+    });
+    // Wompi is down for the lookup.
+    mockWompi([
+      {
+        method: "GET",
+        path: /\/transactions\/tx_down$/,
+        respond: () => json({ error: "unavailable" }, 503),
+      },
+    ]);
+
+    const summary = await t.action(
+      async (ctx) => await makeWompi().processBilling(ctx),
+    );
+
+    // The self-scheduling action in the README stops after a run with
+    // errors, so a lookup that fails must be one.
+    expect(summary.sweptPending).toBe(0);
+    expect(summary.errors).toHaveLength(1);
+    expect(summary.errors[0]).toContain("wmpk_down");
+  });
+
   test("a run right after a complete pass does not ask Wompi about the same payment again", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

@@ -1023,10 +1023,12 @@ export class Wompi {
           const [error, transaction] = await this.client.transactions.getTransaction(
             payment.wompiTransactionId,
           );
-          if (!error) {
-            const outcome = await this.applyWompiTransaction(ctx, transaction);
-            if (outcome.paymentChanged) summary.sweptPending++;
+          if (error) {
+            summary.errors.push(`sweep ${payment.reference}: ${error.message}`);
+            return;
           }
+          const outcome = await this.applyWompiTransaction(ctx, transaction);
+          if (outcome.paymentChanged) summary.sweptPending++;
           return;
         }
 
