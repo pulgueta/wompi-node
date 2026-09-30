@@ -286,6 +286,19 @@ describe("Nequi subscriptions", () => {
     expect((await paymentsOf(t)).map((p) => p.status)).toEqual(["approved"]);
   });
 
+  test("the approval charge sends the Credential-on-File flag", async () => {
+    const t = initConvexTest();
+    await seed(t);
+    const wompi = makeWompi();
+    await subscribeWithNequi(t, wompi);
+
+    await deliver(t, wompi, await nequiEvent("APPROVED"));
+
+    // The first charge of the subscription: no earlier approved charge.
+    expect(api.charges).toHaveLength(1);
+    expect(api.charges[0]).toMatchObject({ payment_source_id: 5678, recurrent: true });
+  });
+
   test("a delivery that fails after the source was created charges once on the retry", async () => {
     const t = initConvexTest();
     await seed(t);

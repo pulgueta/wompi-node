@@ -6,6 +6,7 @@ import {
   addInterval,
   billingConfigValidator,
   CHARGEABLE_STATUSES,
+  isRecurrentCharge,
   paymentChange,
   paymentDoc,
   retryDelayMs,
@@ -194,6 +195,8 @@ export const claimValidator = v.object({
   payment: paymentDoc,
   customerEmail: v.string(),
   wompiSourceId: v.number(),
+  /** Credential-on-File flag: false when the amount differs from the last approved charge. */
+  recurrent: v.boolean(),
   action: v.union(v.literal("charge"), v.literal("reconcile")),
 });
 
@@ -375,6 +378,8 @@ export const claimDue = mutation({
         payment = (await ctx.db.get("payments", paymentId))!;
       }
 
+      const recurrent = await isRecurrentCharge(ctx, subscription._id, payment);
+
       await ctx.db.patch("subscriptions", subscription._id, { nextChargeAt: now + args.config.leaseMs });
 
       claims.push({
@@ -382,6 +387,7 @@ export const claimDue = mutation({
         payment,
         customerEmail: customer.email,
         wompiSourceId,
+        recurrent,
         action: payment.wompiTransactionId ? ("reconcile" as const) : ("charge" as const),
       });
     }

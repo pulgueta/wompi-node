@@ -2,6 +2,7 @@ import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
+import type { QueryCtx } from "./_generated/server.js";
 import schema from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -277,6 +278,42 @@ export const subscriptionChargeReference = (
   periodKey: string | number,
   attempt: number,
 ): string => `wmps_${subscriptionId}_${periodKey}_a${attempt}`;
+
+/**
+ * Credential-on-File flag for a subscription charge. `recurrent` means the
+ * same amount as before, so it is false only when the subscription's last
+ * approved payment has a different amount or currency (for example after a
+ * plan or price change). With no approved payment it is true.
+ *
+ * A `voided` payment counts as approved: Wompi voids only an approved
+ * transaction, and the row does not keep its earlier status.
+ */
+export const isRecurrentCharge = async (
+  ctx: QueryCtx,
+  subscriptionId: Doc<"subscriptions">["_id"],
+  payment: Pick<Doc<"payments">, "amountInCents" | "currency">,
+): Promise<boolean> => {
+  const [approved, voided] = await Promise.all(
+    (["approved", "voided"] as const).map((status) =>
+      ctx.db
+        .query("payments")
+        .withIndex("by_subscription_id_status", (q) =>
+          q.eq("subscriptionId", subscriptionId).eq("status", status),
+        )
+        .order("desc")
+        .first(),
+    ),
+  );
+  const last =
+    approved && voided
+      ? voided._creationTime > approved._creationTime
+        ? voided
+        : approved
+      : (approved ?? voided);
+  return (
+    !last || (last.amountInCents === payment.amountInCents && last.currency === payment.currency)
+  );
+};
 
 export const retryDelayMs = (config: BillingConfig, failedAttempts: number): number => {
   const schedule = config.retryScheduleMs;

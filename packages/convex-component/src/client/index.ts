@@ -632,6 +632,7 @@ export class Wompi {
       subscription: SubscriptionDoc | null;
       payment: PaymentDoc | null;
       wompiSourceId?: number;
+      recurrent?: boolean;
     };
 
     if (activated.subscriptionChanged && activated.subscription) {
@@ -657,6 +658,8 @@ export class Wompi {
       integrityKey: this.requireKey(this.integrityKey, "integrity key", "WOMPI_INTEGRITY_KEY"),
       // Not interactive: poll less, let webhooks/sweeps finish.
       pollAttempts: 2,
+      // `activate` sets it with `payment`; a subscription payment always has one.
+      recurrent: activated.recurrent ?? true,
     });
 
     return {
@@ -881,7 +884,7 @@ export class Wompi {
     });
     const { wompiSourceId } = paymentSource;
 
-    const { subscription, payment, changed } = (await ctx.runMutation(
+    const { subscription, payment, changed, recurrent } = (await ctx.runMutation(
       this.component.subscriptions.create,
       {
         customerId: customer._id,
@@ -890,7 +893,12 @@ export class Wompi {
         paymentSource,
         metadata: args.metadata,
       },
-    )) as { subscription: SubscriptionDoc; payment: PaymentDoc | null; changed: boolean };
+    )) as {
+      subscription: SubscriptionDoc;
+      payment: PaymentDoc | null;
+      changed: boolean;
+      recurrent: boolean;
+    };
 
     if (changed && (!payment || wompiSourceId === undefined)) {
       // Trial, or a Nequi token that waits for approval: no charge now.
@@ -926,6 +934,7 @@ export class Wompi {
       integrityKey,
       pollAttempts: this.billingOptions.pollAttempts,
       installments: args.installments,
+      recurrent,
     });
 
     return {
@@ -1042,6 +1051,7 @@ export class Wompi {
       integrityKey: string;
       pollAttempts: number;
       installments?: number;
+      recurrent: boolean;
     },
   ): Promise<ChargeOutcome> {
     const { payment } = args;
@@ -1064,6 +1074,11 @@ export class Wompi {
       // Wompi requires installments when charging a saved card source.
       payment_method: { installments: args.installments ?? 1 },
       reference: payment.reference,
+      // Credential-on-File: true is a periodic charge of the same amount on a
+      // stored source; false is a stored-source charge with a different
+      // amount. Wompi processes the charge without COF when the franchise or
+      // the processor does not support it.
+      recurrent: args.recurrent,
     });
 
     if (chargeError) {
@@ -1281,6 +1296,7 @@ export class Wompi {
         subscription: SubscriptionDoc;
         customerEmail: string;
         wompiSourceId: number;
+        recurrent: boolean;
         action: "charge" | "reconcile";
       }[];
       finalized: SubscriptionDoc[];
@@ -1346,6 +1362,7 @@ export class Wompi {
             // pending charge keeps its transaction id, and the webhook or the
             // next run resolves it.
             pollAttempts: 0,
+            recurrent: claim.recurrent,
           });
         }
 

@@ -2,7 +2,13 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { applyChargeOutcome } from "./billing.js";
-import { billingConfigValidator, paymentDoc, paymentSourceDoc, subscriptionDoc } from "./shared.js";
+import {
+  billingConfigValidator,
+  isRecurrentCharge,
+  paymentDoc,
+  paymentSourceDoc,
+  subscriptionDoc,
+} from "./shared.js";
 import { claimResumePayment, findTokenSource, swapPaymentSource } from "./subscriptions.js";
 
 const tokenOutcome = v.object({
@@ -13,6 +19,8 @@ const tokenOutcome = v.object({
   payment: v.union(paymentDoc, v.null()),
   /** The Wompi payment source that the row stores, to charge `payment`. */
   wompiSourceId: v.optional(v.number()),
+  /** Credential-on-File flag for `payment`. Set when `payment` is set. */
+  recurrent: v.optional(v.boolean()),
 });
 
 const UNKNOWN_TOKEN = {
@@ -154,6 +162,11 @@ export const activate = mutation({
       subscription,
       payment,
       wompiSourceId: source.wompiSourceId ?? args.wompiSourceId,
+      // A resumed subscription may have approved payments at an older price.
+      recurrent:
+        payment?.subscriptionId !== undefined
+          ? await isRecurrentCharge(ctx, payment.subscriptionId, payment)
+          : undefined,
     };
   },
 });

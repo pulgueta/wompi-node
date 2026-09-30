@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import {
   assertPaymentSourceInput,
   ENTITLED_STATUSES,
+  isRecurrentCharge,
   paymentDoc,
   paymentSourceInputValidator,
   subscriptionChargeReference,
@@ -232,6 +233,8 @@ export const create = mutation({
     payment: v.union(paymentDoc, v.null()),
     /** False when a call with the same token changed nothing. */
     changed: v.boolean(),
+    /** Credential-on-File flag for the returned payment. */
+    recurrent: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const product = await ctx.db
@@ -320,7 +323,9 @@ export const create = mutation({
         ] as const
       ).some((field) => subscription[field] !== resumable[field]);
 
-      return { subscription, payment, changed };
+      // A resumed subscription may have approved payments at an older price.
+      const recurrent = await isRecurrentCharge(ctx, resumable._id, payment);
+      return { subscription, payment, changed, recurrent };
     }
 
     const trialDays = product.trialDays ?? 0;
@@ -354,6 +359,7 @@ export const create = mutation({
         subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
         payment: null,
         changed: true,
+        recurrent: true,
       };
     }
 
@@ -395,6 +401,8 @@ export const create = mutation({
       subscription: (await ctx.db.get("subscriptions", subscriptionId))!,
       payment: (await ctx.db.get("payments", paymentId))!,
       changed: true,
+      // A new subscription has no approved payment yet.
+      recurrent: true,
     };
   },
 });
