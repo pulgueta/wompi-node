@@ -43,6 +43,9 @@ import {
   WompiPayoutApiError,
   WompiValidationError,
   WompiRequestError,
+  WompiServiceUnavailableError,
+  // Guard for 502, 503, 504 and non-JSON 5xx responses.
+  isGatewayError,
 } from "@pulgueta/wompi/schemas";
 
 import type {

@@ -52,7 +52,7 @@ console.log(merchant.name);
 
 ### Narrow error types without instanceof
 
-`WompiNotFoundError` and `WompiValidationError` carry a `.type` discriminant. `WompiRequestError` carries `.statusCode`. Use these to branch without `instanceof`.
+`WompiNotFoundError`, `WompiValidationError` and `WompiServiceUnavailableError` carry a `.type` discriminant. `WompiRequestError` carries `.statusCode`. Use these to branch without `instanceof`. `WompiServiceUnavailableError` (502, 503, 504, or a 5xx that is not JSON) has `retryable: true`; use `isGatewayError(error)` from `@pulgueta/wompi/schemas` to find it, then try again after a delay.
 
 ```typescript
 import type { WompiErrorResult } from '@pulgueta/wompi/schemas';

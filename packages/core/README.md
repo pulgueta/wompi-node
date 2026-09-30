@@ -61,7 +61,7 @@ const [error, response] = await wompi.transactions.getTransaction("txn-id");
 
 if (error) {
   // `error` is a `WompiError`, or one of its subclasses: `WompiNotFoundError`,
-  // `WompiValidationError`, `WompiRequestError`.
+  // `WompiValidationError`, `WompiRequestError`, `WompiServiceUnavailableError`.
   console.error(error.message);
   return;
 }

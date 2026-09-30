@@ -4,6 +4,8 @@ import {
   WompiNotFoundError,
   WompiValidationError,
   WompiRequestError,
+  WompiServiceUnavailableError,
+  isGatewayError,
 } from "../src/schemas";
 
 describe("WompiError", () => {
@@ -78,5 +80,35 @@ describe("WompiRequestError", () => {
 
     expect(error.statusCode).toBe(503);
     expect(error.body).toBeNull();
+  });
+});
+
+describe("WompiServiceUnavailableError", () => {
+  it("should create with a status code and a retry signal", () => {
+    const error = new WompiServiceUnavailableError(503, null);
+
+    expect(error).toBeInstanceOf(WompiError);
+    expect(error).toBeInstanceOf(WompiRequestError);
+    expect(error.name).toBe("WompiServiceUnavailableError");
+    expect(error.type).toBe("SERVICE_UNAVAILABLE_ERROR");
+    expect(error.statusCode).toBe(503);
+    expect(error.retryable).toBe(true);
+    expect(error.body).toBeNull();
+    expect(error.message).toBe("Wompi is temporarily unavailable (status 503)");
+  });
+});
+
+describe("isGatewayError", () => {
+  it("should accept gateway status codes on a plain request error", () => {
+    expect(isGatewayError(new WompiRequestError(502, null))).toBe(true);
+    expect(isGatewayError(new WompiRequestError(504, null))).toBe(true);
+  });
+
+  it("should reject other errors and values", () => {
+    expect(isGatewayError(new WompiRequestError(500, { error: "x" }))).toBe(false);
+    expect(isGatewayError(new WompiRequestError(0, "Network error"))).toBe(false);
+    expect(isGatewayError(new WompiError("Invalid input"))).toBe(false);
+    expect(isGatewayError(new Error("boom"))).toBe(false);
+    expect(isGatewayError(null)).toBe(false);
   });
 });
