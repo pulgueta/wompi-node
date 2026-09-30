@@ -377,6 +377,27 @@ describe("claimDue", () => {
     expect(second.hasMore).toBe(false);
   });
 
+  test("claims one subscription when the batch size is zero or less", async () => {
+    const t = initConvexTest();
+    await dueSubscriptions(t, 2);
+
+    // A batch of zero would report more work and claim nothing, so a caller
+    // that reads `hasMore` would schedule itself without end.
+    const first = await t.mutation(api.billing.claimDue, {
+      batchSize: 0,
+      config: CONFIG,
+    });
+    expect(first.claims).toHaveLength(1);
+    expect(first.hasMore).toBe(true);
+
+    const second = await t.mutation(api.billing.claimDue, {
+      batchSize: -5,
+      config: CONFIG,
+    });
+    expect(second.claims).toHaveLength(1);
+    expect(second.hasMore).toBe(false);
+  });
+
   test("reports no more work when the batch holds each due subscription", async () => {
     const t = initConvexTest();
     await dueSubscriptions(t, 2);

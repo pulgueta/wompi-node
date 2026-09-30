@@ -218,7 +218,8 @@ export const claimDue = mutation({
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const batchSize = Math.min(args.batchSize ?? 25, 100);
+    // At least one: a batch of zero claims nothing and still reports more work.
+    const batchSize = Math.max(1, Math.min(args.batchSize ?? 25, 100));
 
     // One row more than the batch tells if work remains after it.
     const dueRows = await ctx.db
