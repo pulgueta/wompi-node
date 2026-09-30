@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- [#53](https://github.com/pulgueta/wompi-node/pull/53)
+  [`f731ada`](https://github.com/pulgueta/wompi-node/commit/f731ada28d51d7a50bdfe7241ff31495bb010183)
+  Thanks [@pulgueta](https://github.com/pulgueta)! - Remove the scale limits of
+  the billing engine and document the ones that stay.
+  - **Charges run in parallel.** `processBilling` keeps five Wompi requests in
+    flight at the same time. Before, it charged one subscription at a time.
+  - **The cron does not wait for a result.** A renewal that Wompi keeps
+    `PENDING` keeps its transaction id. The webhook or the next run resolves it.
+    Before, each pending renewal added two waits of `pollIntervalMs` to the run.
+    `subscribe` and `confirmTransaction` continue to poll.
+  - **`ProcessBillingSummary.remaining`.** It is `true` when the run left due
+    subscriptions or stale payments for an immediate next run. The README shows
+    an action that schedules itself with it.
+  - **The stale sweep rotates.** Each run continues after the last payment that
+    the previous run visited, oldest first. At the end of the stale payments,
+    the pass is complete. Before, it read the 50 oldest pending payments in each
+    run, so payments that stayed pending kept all later ones out of reach. An
+    abandoned checkout that cannot expire yet does not use a place in the batch.
+  - **The stale sweep waits between passes.** A new pass starts only when
+    `pendingSweepAfterMs` has passed since the start of the last pass. Thus runs
+    that schedule themselves do not ask Wompi about the same payments again and
+    again. Two runs at the same time do not get the same payments.
+  - **The stale sweep has a read limit.** It stops when less than 4 MiB of the
+    read limit of the transaction remains. Thus large `metadata` does not make
+    the run fail. The limit is not exact for payments with the same creation
+    time.
+  - **Fix: `onSubscriptionChange` runs for a subscription with no available
+    payment source.** Before, a billing run could move such a subscription to
+    `past_due` or to a final status and not run the callback.
+
+  **Removed:** the component query `payments.listStalePending`. The mutation
+  `payments.claimStalePending` replaces it. A host app that calls the query
+  directly must change the call.
+
+  The component has a new table, `sweepCursors`, with one row: the position of
+  the sweep. The sweep writes no payment row. The `payments` table and its
+  indexes do not change. No data migration is necessary.
+
+- [#52](https://github.com/pulgueta/wompi-node/pull/52)
+  [`881c382`](https://github.com/pulgueta/wompi-node/commit/881c382b3b5d99559fd08e605fc2f2f3a07045c9)
+  Thanks [@pulgueta](https://github.com/pulgueta)! - Add Nequi subscriptions and
+  payment source replacement.
+
+  **Nequi subscriptions.** `subscribe({ type: "NEQUI" })` now accepts a token
+  that the customer did not approve yet. The subscription waits as `incomplete`
+  (or `trialing`), nothing is charged, and the result has
+  `awaitingApproval: true`. The payments webhook now applies
+  `nequi_token.updated`: an approval creates the Wompi payment source and
+  charges the first period, and a refusal cancels the subscription with
+  `lastError`. Before, the event was ignored and the charge failed.
+
+  **Payment source replacement.** The new
+  `wompi.updateSubscriptionPaymentSource(ctx, { subscriptionId, token, type?, paymentMethod? })`
+  replaces the source of a live subscription. The period, the trial and the
+  dunning counters do not change. A `past_due` subscription becomes due
+  immediately, so the next billing run charges the new source.
+
+  New in `api()`: `updateSubscriptionPaymentSource` and `getNequiTokenStatus` (a
+  reactive query for an "approve in your Nequi app" screen). New in
+  `useWompiTokenizer`: `tokenizeNequi(phoneNumber)`.
+
+  The results of `subscribe` have a new `awaitingApproval` field.
+
+  **Schema.** The `paymentSources` table has three new optional fields,
+  `tokenId`, `subscriptionId` and `activationClaimedAt`. `wompiSourceId` is now
+  optional. The new `nequiTokens` table finds the payment source of a Nequi
+  token. No table that exists has a new index, and rows that exist stay valid,
+  so no migration is necessary.
+
+### Patch Changes
+
+- [#50](https://github.com/pulgueta/wompi-node/pull/50)
+  [`5077436`](https://github.com/pulgueta/wompi-node/commit/5077436471c215815ba5613e74b426ab3cd496e6)
+  Thanks [@pulgueta](https://github.com/pulgueta)! - Send the Credential-on-File
+  flag on subscription charges.
+
+  The initial charge, each renewal and each dunning retry now send the
+  `recurrent` flag to Wompi together with the `payment_source_id`. The flag is
+  `true` when the amount matches the last approved charge. It is `false` when
+  the amount changes, for example after a plan change.
+
+  For MasterCard and VISA cards on the RBM processor, Wompi marks the charge as
+  a stored-credential transaction, which raises the approval rate. Wompi
+  processes the charge without the flag when the franchise or the processor does
+  not support it.
+
+  One-time checkouts do not change.
+
+- Updated dependencies
+  [[`9a30116`](https://github.com/pulgueta/wompi-node/commit/9a3011675c5025046810aa49ad2be3816a19ec35),
+  [`a686f41`](https://github.com/pulgueta/wompi-node/commit/a686f41fbdf6e92c005a46abf0a5ac8a7c9e9b78)]:
+  - @pulgueta/wompi@3.4.0
+
 ## 0.4.0
 
 ### Minor Changes
