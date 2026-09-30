@@ -45,7 +45,7 @@ type ChargeOutcomeInput = {
  * transaction. A callback that throws therefore rolls the payment change back
  * with it, so the delivery (or cron claim) that produced it can be replayed.
  */
-const applyChargeOutcome = async (
+export const applyChargeOutcome = async (
   ctx: MutationCtx,
   payment: Doc<"payments">,
   input: ChargeOutcomeInput,
@@ -216,18 +216,26 @@ export const claimDue = mutation({
   returns: v.object({
     claims: v.array(claimValidator),
     finalized: v.array(subscriptionDoc),
+    /** Subscriptions whose state this call changed without a charge. */
+    transitioned: v.array(subscriptionDoc),
+    /** True when more subscriptions are due than this batch holds. */
+    hasMore: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const batchSize = Math.min(args.batchSize ?? 25, 100);
+    // At least one: a batch of zero claims nothing and still reports more work.
+    const batchSize = Math.max(1, Math.min(args.batchSize ?? 25, 100));
 
-    const due = await ctx.db
+    // One row more than the batch tells if work remains after it.
+    const dueRows = await ctx.db
       .query("subscriptions")
       .withIndex("by_next_charge_at", (q) => q.gt("nextChargeAt", 0).lte("nextChargeAt", now))
-      .take(batchSize);
+      .take(batchSize + 1);
+    const due = dueRows.slice(0, batchSize);
 
     const claims = [];
     const finalized = [];
+    const transitioned = [];
 
     for (let subscription of due) {
       if (!CHARGEABLE_STATUSES.includes(subscription.status)) {
@@ -271,7 +279,14 @@ export const claimDue = mutation({
       const customer = await ctx.db.get("customers", subscription.customerId);
       const paymentSource = await ctx.db.get("paymentSources", subscription.paymentSourceId);
 
-      if (!customer || !paymentSource || paymentSource.status !== "AVAILABLE") {
+      const wompiSourceId = paymentSource?.wompiSourceId;
+
+      if (
+        !customer ||
+        !paymentSource ||
+        paymentSource.status !== "AVAILABLE" ||
+        wompiSourceId === undefined
+      ) {
         // Nothing to charge against: run the failure path directly so
         // dunning (and eventually expiry) still progresses.
         const reference = subscriptionChargeReference(
@@ -307,13 +322,16 @@ export const claimDue = mutation({
           }));
 
         const payment = (await ctx.db.get("payments", paymentId))!;
-        await applyChargeOutcome(
+        const outcome = await applyChargeOutcome(
           ctx,
           payment,
           { nextStatus: "error", failureReason: "Payment source unavailable" },
           args.config,
           args.callbackHandle,
         );
+        if (outcome.subscriptionChanged && outcome.subscription) {
+          transitioned.push(outcome.subscription);
+        }
         continue;
       }
 
@@ -368,13 +386,13 @@ export const claimDue = mutation({
         subscription: (await ctx.db.get("subscriptions", subscription._id))!,
         payment,
         customerEmail: customer.email,
-        wompiSourceId: paymentSource.wompiSourceId,
+        wompiSourceId,
         recurrent,
         action: payment.wompiTransactionId ? ("reconcile" as const) : ("charge" as const),
       });
     }
 
-    return { claims, finalized };
+    return { claims, finalized, transitioned, hasMore: dueRows.length > batchSize };
   },
 });
 

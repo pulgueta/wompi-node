@@ -40,14 +40,15 @@ narrowing on every access — the tuple gets it for free.
 Every SDK error extends the base `WompiError`. The response source determines
 which subclass you receive:
 
-| Class                           | Discriminant                                                    | Returned when                                                        |
-| ------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `WompiError`                    | —                                                               | Local validation, missing key, or another pre-request failure.       |
-| `WompiValidationError`          | `type === "INPUT_VALIDATION_ERROR"`                             | The Payments API rejects the body with HTTP 422.                     |
-| `WompiNotFoundError`            | `type === "NOT_FOUND_ERROR"`                                    | The Payments API answers HTTP 404.                                   |
-| `WompiRequestError`             | `statusCode` and `body`                                         | Another Payments API response has a non-2xx status.                  |
-| `WompiPayoutApiError`           | `type === "PAYOUT_API_ERROR"`; `code`, `statusCode`, and `body` | The Payouts API returns a structured error.                          |
-| `WompiWebhookVerificationError` | `type === "WEBHOOK_VERIFICATION_ERROR"`                         | A payment or payout webhook fails parsing or signature verification. |
+| Class                           | Discriminant                                                    | Returned when                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `WompiError`                    | —                                                               | Local validation, a missing key, a different pre-request failure, or a 2xx response that does not agree with the expected schema.                                  |
+| `WompiValidationError`          | `type === "INPUT_VALIDATION_ERROR"`                             | An HTTP 422 response whose body is a Payments API validation error.                                                                                                |
+| `WompiNotFoundError`            | `type === "NOT_FOUND_ERROR"`                                    | An HTTP 404 response whose body is a Payments API not-found error.                                                                                                 |
+| `WompiRequestError`             | `statusCode` and `body`                                         | A network failure or a timeout (`statusCode` is `0`), a 2xx response that is not JSON, or a different non-2xx response that is not a structured Payouts API error. |
+| `WompiServiceUnavailableError`  | `type === "SERVICE_UNAVAILABLE_ERROR"`; `retryable === true`    | Wompi or its gateway answers 502, 503 or 504, or a 5xx that is not JSON, and the response is not a structured Payouts API error.                                   |
+| `WompiPayoutApiError`           | `type === "PAYOUT_API_ERROR"`; `code`, `statusCode`, and `body` | The Payouts API returns a structured error.                                                                                                                        |
+| `WompiWebhookVerificationError` | `type === "WEBHOOK_VERIFICATION_ERROR"`                         | A payment or payout webhook fails parsing or signature verification.                                                                                               |
 
 ## Branching on `type`
 
@@ -65,6 +66,11 @@ if (error) {
 
   if ("type" in error && error.type === "PAYOUT_API_ERROR") {
     return ctx.json({ statusCode: error.statusCode, code: error.code }, 502);
+  }
+
+  if ("type" in error && error.type === "SERVICE_UNAVAILABLE_ERROR") {
+    // Wompi is not available at this time. Try again after a delay.
+    return ctx.text("Payment provider unavailable", 503);
   }
 
   if ("statusCode" in error && "body" in error) {
@@ -87,6 +93,7 @@ import {
   WompiNotFoundError,
   WompiPayoutApiError,
   WompiRequestError,
+  WompiServiceUnavailableError,
   WompiValidationError,
   WompiWebhookVerificationError,
 } from "@pulgueta/wompi/schemas";
@@ -100,6 +107,9 @@ if (error instanceof WompiNotFoundError) {
 if (error instanceof WompiPayoutApiError) {
   // error.code and error.statusCode identify it; error.body keeps diagnostics
 }
+if (error instanceof WompiServiceUnavailableError) {
+  // error.statusCode and error.retryable; do this check before WompiRequestError
+}
 if (error instanceof WompiRequestError) {
   // error.statusCode and error.body
 }
@@ -110,6 +120,33 @@ if (error instanceof WompiError) {
   // base class — every error above is also a WompiError
 }
 ```
+
+## Gateway and availability errors
+
+When Wompi or a gateway in front of it cannot serve a request, the response is a `502`, `503` or `504`, frequently with an HTML page as the body. The SDK returns a `WompiServiceUnavailableError` for these responses, and for each other `5xx` response that is not JSON.
+
+This error is different from a rejection. The request did not fail because of its content, so the correct action is to try again after a delay. Do not record it as a declined payment.
+
+```ts
+import { isGatewayError } from "@pulgueta/wompi/schemas";
+
+const [error, payout] = await payouts.createPayout(input, { idempotencyKey });
+
+if (error && isGatewayError(error)) {
+  // Try again with the same idempotency key, before the key expires.
+  return scheduleRetry();
+}
+```
+
+`isGatewayError(error)` is true for a `WompiServiceUnavailableError`. It is also true for a `WompiRequestError` or a `WompiPayoutApiError` that has a `502`, `503` or `504` status code.
+
+`WompiServiceUnavailableError` extends `WompiRequestError`. Code that reads `statusCode` from a `WompiRequestError` continues to operate. The `body` is `null` when the response was not JSON.
+
+:::caution[A write request can be complete]
+A gateway error does not prove that Wompi ignored the request. Use the same `reference` or idempotency key when you try a write again, so Wompi rejects the duplicate.
+
+Wompi remembers a Payouts idempotency key for 24 hours. After that time, the same key can create a second batch. If the retry can run later than that, first make sure that the batch does not exist. For a bank batch, `listTransactionsByReference` gives the transactions of a batch `reference`.
+:::
 
 ## Pre-flight input validation
 

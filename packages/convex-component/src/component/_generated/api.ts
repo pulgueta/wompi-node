@@ -11,6 +11,7 @@
 import type * as billing from "../billing.js";
 import type * as customers from "../customers.js";
 import type * as dispersions from "../dispersions.js";
+import type * as paymentSources from "../paymentSources.js";
 import type * as payments from "../payments.js";
 import type * as products from "../products.js";
 import type * as shared from "../shared.js";
@@ -28,6 +29,7 @@ const fullApi: ApiFromModules<{
   billing: typeof billing;
   customers: typeof customers;
   dispersions: typeof dispersions;
+  paymentSources: typeof paymentSources;
   payments: typeof payments;
   products: typeof products;
   shared: typeof shared;

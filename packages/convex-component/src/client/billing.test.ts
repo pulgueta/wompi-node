@@ -274,6 +274,72 @@ describe("renewal charge idempotency", () => {
     expect(sub?.failedAttempts).toBe(1);
   });
 
+  test("a gateway outage (HTML 503) does not consume a dunning attempt and the next run retries", async () => {
+    const t = initConvexTest();
+    const subscription = await dueRenewal(t);
+    const wompi = makeWompi();
+
+    const posted: string[] = [];
+    let available = false;
+    vi.stubGlobal(
+      "fetch",
+      routeFetch([
+        { method: "GET", path: /\/merchants\//, respond: () => merchant() },
+        {
+          method: "POST",
+          path: /\/transactions$/,
+          respond: (init) => {
+            const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+            posted.push(body.reference as string);
+            if (!available) {
+              return new Response("<html><body>503 Service Unavailable</body></html>", {
+                status: 503,
+                headers: { "Content-Type": "text/html" },
+              });
+            }
+            return json({
+              data: transaction("tx_renewal", "APPROVED", body.reference as string),
+            });
+          },
+        },
+        {
+          method: "GET",
+          path: /\/transactions\?reference=/,
+          respond: () => json({ data: [] }),
+        },
+      ]),
+    );
+
+    const first = await t.action(async (ctx) => await wompi.processBilling(ctx));
+    expect(first.claimed).toBe(1);
+    expect(first.stillPending).toBe(1);
+    expect(first.declined).toBe(0);
+    expect(first.errors).toHaveLength(1);
+    expect(first.errors[0]).toContain("temporarily unavailable (status 503)");
+
+    let payments = await paymentsOf(t, subscription._id);
+    const renewal = payments.find((p) => p.periodStart);
+    expect(renewal?.status).toBe("pending");
+
+    let sub = await subscriptionOf(t, subscription._id);
+    expect(sub?.status).toBe("active");
+    expect(sub?.failedAttempts).toBe(0);
+
+    available = true;
+    const second = await t.action(async (ctx) => await wompi.processBilling(ctx));
+    expect(second.claimed).toBe(1);
+    expect(second.approved).toBe(1);
+    expect(second.errors).toEqual([]);
+
+    payments = await paymentsOf(t, subscription._id);
+    expect(payments.find((p) => p._id === renewal!._id)?.status).toBe("approved");
+    expect(posted).toEqual([renewal!.reference, renewal!.reference]);
+
+    sub = await subscriptionOf(t, subscription._id);
+    expect(sub?.status).toBe("active");
+    expect(sub?.failedAttempts).toBe(0);
+  });
+
   test("a duplicate-reference rejection whose lookup fails leaves the payment pending", async () => {
     const t = initConvexTest();
     const subscription = await dueRenewal(t);
@@ -420,6 +486,55 @@ describe("renewal charge idempotency", () => {
       reference: "wmpk_abandoned",
     });
     expect(abandoned?.status).toBe("expired");
+  });
+});
+
+describe("unavailable payment source", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  test("a due renewal without an available source runs onSubscriptionChange", async () => {
+    const t = initConvexTest();
+    const { customer } = await seed(t);
+    const created = await t.mutation(components.wompi.subscriptions.create, {
+      customerId: customer._id,
+      userId: "user_1",
+      productKey: "pro-monthly",
+      paymentSource: { ...CARD, status: "ERROR" },
+    });
+    await t.mutation(components.wompi.billing.recordChargeResult, {
+      paymentId: created.payment!._id,
+      nextStatus: "approved",
+      wompiTransactionId: "tx_init",
+      config: {
+        maxRetries: 3,
+        retryScheduleMs: [1_000],
+        onExhausted: "mark_unpaid",
+        leaseMs: 0,
+      },
+    });
+    await t.mutation(components.wompi.subscriptions.setNextChargeAt, {
+      subscriptionId: created.subscription._id,
+      at: Date.now() - 1_000,
+    });
+    vi.stubGlobal("fetch", routeFetch([]));
+    const changes: string[] = [];
+    const wompi = makeWompi({
+      events: {
+        onSubscriptionChange: async (_ctx, subscription) => {
+          changes.push(subscription.status);
+        },
+      },
+    });
+
+    await t.action(async (ctx) => await wompi.processBilling(ctx));
+
+    expect(changes).toEqual(["past_due"]);
+    expect(await subscriptionOf(t, created.subscription._id)).toMatchObject({
+      status: "past_due",
+    });
   });
 });
 

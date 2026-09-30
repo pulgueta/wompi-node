@@ -225,6 +225,39 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             trialEndsAt?: number;
             userId: string;
           }>;
+          hasMore: boolean;
+          transitioned: Array<{
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          }>;
         },
         Name
       >;
@@ -562,7 +595,247 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Name
       >;
     };
+    paymentSources: {
+      activate: FunctionReference<
+        "mutation",
+        "internal",
+        { status: string; tokenId: string; wompiSourceId: number },
+        {
+          outcome: string;
+          payment: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            attempt?: number;
+            currency: string;
+            customerId?: string;
+            description?: string;
+            failureReason?: string;
+            finalizedAt?: number;
+            kind: "checkout" | "subscription";
+            metadata?: Record<string, any>;
+            paymentMethodType?: string;
+            periodEnd?: number;
+            periodStart?: number;
+            productId?: string;
+            productKey?: string;
+            reference: string;
+            status:
+              | "pending"
+              | "approved"
+              | "declined"
+              | "voided"
+              | "error"
+              | "expired";
+            subscriptionId?: string;
+            userId: string;
+            wompiTransactionId?: string;
+          } | null;
+          subscription: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          } | null;
+          subscriptionChanged: boolean;
+          wompiSourceId?: number;
+        },
+        Name
+      >;
+      claimActivation: FunctionReference<
+        "mutation",
+        "internal",
+        { leaseMs: number; tokenId: string },
+        {
+          claimed: boolean;
+          customerEmail: string;
+          status: string;
+          wompiSourceId?: number;
+        } | null,
+        Name
+      >;
+      decline: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callbackHandle?: string;
+          config: {
+            leaseMs: number;
+            maxRetries: number;
+            onExhausted: "mark_unpaid" | "cancel";
+            retryScheduleMs: Array<number>;
+          };
+          reason: string;
+          tokenId: string;
+        },
+        {
+          outcome: string;
+          payment: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            attempt?: number;
+            currency: string;
+            customerId?: string;
+            description?: string;
+            failureReason?: string;
+            finalizedAt?: number;
+            kind: "checkout" | "subscription";
+            metadata?: Record<string, any>;
+            paymentMethodType?: string;
+            periodEnd?: number;
+            periodStart?: number;
+            productId?: string;
+            productKey?: string;
+            reference: string;
+            status:
+              | "pending"
+              | "approved"
+              | "declined"
+              | "voided"
+              | "error"
+              | "expired";
+            subscriptionId?: string;
+            userId: string;
+            wompiTransactionId?: string;
+          } | null;
+          subscription: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          } | null;
+          subscriptionChanged: boolean;
+          wompiSourceId?: number;
+        },
+        Name
+      >;
+      getByTokenId: FunctionReference<
+        "query",
+        "internal",
+        { tokenId: string },
+        {
+          customerEmail: string;
+          source: {
+            _creationTime: number;
+            _id: string;
+            activationClaimedAt?: number;
+            brand?: string;
+            cardHolder?: string;
+            customerId: string;
+            expMonth?: string;
+            expYear?: string;
+            lastFour?: string;
+            status: string;
+            subscriptionId?: string;
+            termsAcceptedAt?: number;
+            tokenId?: string;
+            type: string;
+            userId: string;
+            wompiSourceId?: number;
+          };
+        } | null,
+        Name
+      >;
+      getStatusByTokenId: FunctionReference<
+        "query",
+        "internal",
+        { tokenId: string; userId: string },
+        string | null,
+        Name
+      >;
+    };
     payments: {
+      claimStalePending: FunctionReference<
+        "mutation",
+        "internal",
+        { expireAfterMs: number; limit?: number; olderThanMs: number },
+        {
+          hasMore: boolean;
+          payments: Array<{
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            attempt?: number;
+            currency: string;
+            customerId?: string;
+            description?: string;
+            failureReason?: string;
+            finalizedAt?: number;
+            kind: "checkout" | "subscription";
+            metadata?: Record<string, any>;
+            paymentMethodType?: string;
+            periodEnd?: number;
+            periodStart?: number;
+            productId?: string;
+            productKey?: string;
+            reference: string;
+            status:
+              | "pending"
+              | "approved"
+              | "declined"
+              | "voided"
+              | "error"
+              | "expired";
+            subscriptionId?: string;
+            userId: string;
+            wompiTransactionId?: string;
+          }>;
+        },
+        Name
+      >;
       createCheckout: FunctionReference<
         "mutation",
         "internal",
@@ -645,41 +918,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         { limit?: number; userId: string },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          amountInCents: number;
-          attempt?: number;
-          currency: string;
-          customerId?: string;
-          description?: string;
-          failureReason?: string;
-          finalizedAt?: number;
-          kind: "checkout" | "subscription";
-          metadata?: Record<string, any>;
-          paymentMethodType?: string;
-          periodEnd?: number;
-          periodStart?: number;
-          productId?: string;
-          productKey?: string;
-          reference: string;
-          status:
-            | "pending"
-            | "approved"
-            | "declined"
-            | "voided"
-            | "error"
-            | "expired";
-          subscriptionId?: string;
-          userId: string;
-          wompiTransactionId?: string;
-        }>,
-        Name
-      >;
-      listStalePending: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number; olderThanMs: number },
         Array<{
           _creationTime: number;
           _id: string;
@@ -898,13 +1136,15 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             expYear?: string;
             lastFour?: string;
             status: string;
+            tokenId?: string;
             type: string;
-            wompiSourceId: number;
+            wompiSourceId?: number;
           };
           productKey: string;
           userId: string;
         },
         {
+          changed: boolean;
           payment: {
             _creationTime: number;
             _id: string;
@@ -1130,6 +1370,61 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           trialEndsAt?: number;
           userId: string;
         }>,
+        Name
+      >;
+      replacePaymentSource: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          paymentSource: {
+            brand?: string;
+            cardHolder?: string;
+            expMonth?: string;
+            expYear?: string;
+            lastFour?: string;
+            status: string;
+            tokenId?: string;
+            type: string;
+            wompiSourceId?: number;
+          };
+          subscriptionId: string;
+          userId: string;
+        },
+        {
+          changed: boolean;
+          subscription: {
+            _creationTime: number;
+            _id: string;
+            amountInCents: number;
+            cancelAtPeriodEnd: boolean;
+            canceledAt?: number;
+            currency: string;
+            currentPeriodEnd: number;
+            currentPeriodStart: number;
+            customerId: string;
+            endedAt?: number;
+            failedAttempts: number;
+            interval: "day" | "week" | "month" | "year";
+            intervalCount: number;
+            lastError?: string;
+            metadata?: Record<string, any>;
+            nextChargeAt?: number;
+            paymentSourceId: string;
+            pendingProductId?: string;
+            pendingProductKey?: string;
+            productId: string;
+            productKey: string;
+            status:
+              | "incomplete"
+              | "trialing"
+              | "active"
+              | "past_due"
+              | "unpaid"
+              | "canceled";
+            trialEndsAt?: number;
+            userId: string;
+          };
+        },
         Name
       >;
       resume: FunctionReference<

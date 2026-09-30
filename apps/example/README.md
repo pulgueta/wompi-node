@@ -14,7 +14,7 @@ Secrets never reach the browser: checkout signing, payout credentials, and webho
 cp apps/example/.env.example apps/example/.env.local
 ```
 
-- `WOMPI_PUBLIC_KEY`, `WOMPI_INTEGRITY_KEY`, and `WOMPI_EVENTS_KEY` come from the regular Payments integration.
+- `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_INTEGRITY_KEY`, and `WOMPI_EVENTS_KEY` come from the regular Payments integration.
 - `WOMPI_PAYOUTS_API_KEY`, `WOMPI_PAYOUTS_USER_PRINCIPAL_ID`, and `WOMPI_PAYOUTS_EVENTS_KEY` come from **Pagos a Terceros**.
 - `CONVEX_DEPLOYMENT` / `VITE_CONVEX_URL` bind the AI assistant to its Convex deployment (`npx convex dev` creates one if you start fresh). The store works without them — the chat widget just stays hidden.
 

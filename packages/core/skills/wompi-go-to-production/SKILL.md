@@ -74,7 +74,7 @@ const wompi = new WompiClient({
 });
 ```
 
-Fail condition: `privateKey` is omitted and your code calls `listTransactions`, `voidTransaction`, `paymentSources.*`, `paymentLinks.createPaymentLink`, or `paymentLinks.updatePaymentLink`.
+Fail condition: `privateKey` is omitted and your code calls `getTransaction`, `listTransactions`, `voidTransaction`, `paymentSources.*`, `paymentLinks.createPaymentLink`, or `paymentLinks.updatePaymentLink`.
 
 Fix: Provide `privateKey`. Without it these methods return `[WompiError, null]` silently — no throw.
 
@@ -325,7 +325,7 @@ Source: `packages/core/src/schemas.ts` — `MAX_AMOUNT_IN_CENTS`, README
 - [ ] All three keys (`WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_INTEGRITY_KEY`) loaded from environment variables — no hardcoded strings
 - [ ] `sandbox: process.env.NODE_ENV !== 'production'` (not hardcoded `true` or `false`)
 - [ ] Sandbox and production key sets are confirmed in Wompi dashboard
-- [ ] `privateKey` provided if using `listTransactions`, `voidTransaction`, payment sources, or payment link writes
+- [ ] `privateKey` provided if using `getTransaction`, `listTransactions`, `voidTransaction`, payment sources, or payment link writes
 - [ ] `amountInCents` is a positive integer in cents — never a float, never divided from pesos
 - [ ] Every transaction uses a unique `reference` (order ID + timestamp or UUID)
 - [ ] `expirationTime` in `getSignatureKey` matches `expiration_time` in `createTransaction` (or both omitted)

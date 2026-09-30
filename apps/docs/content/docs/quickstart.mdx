@@ -81,7 +81,7 @@ Read [Integrity signature](/docs/integrity-signature) for the full rules — inc
 
 ## 5. Create the transaction
 
-Stitch it together: the two acceptance tokens, the signed amount, the card token, the reference and a customer email. The response status starts at `PENDING` — poll `getTransaction(id)` until it resolves.
+Stitch it together: the two acceptance tokens, the signed amount, the card token, the reference and a customer email. The response status starts at `PENDING` — poll `getTransaction(id)` until it resolves. The poll must run on your server, because `getTransaction` requires the private key.
 
 ```ts
 const [transactionError, transaction] =
@@ -97,7 +97,7 @@ const [transactionError, transaction] =
   });
 if (transactionError) throw transactionError;
 
-transaction.status; // "PENDING" — poll wompi.transactions.getTransaction(id)
+transaction.status; // "PENDING" — poll wompi.transactions.getTransaction(id) on the server
 ```
 
 ## What next

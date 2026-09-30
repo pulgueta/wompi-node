@@ -159,15 +159,26 @@ export const productInputValidator = v.object({
 });
 
 export const paymentSourceInputValidator = v.object({
-  wompiSourceId: v.number(),
+  /** Omit it, and give `tokenId`, for a Nequi token that waits for approval. */
+  wompiSourceId: v.optional(v.number()),
   type: v.string(),
   status: v.string(),
+  tokenId: v.optional(v.string()),
   brand: v.optional(v.string()),
   lastFour: v.optional(v.string()),
   expMonth: v.optional(v.string()),
   expYear: v.optional(v.string()),
   cardHolder: v.optional(v.string()),
 });
+
+/** A source with no Wompi payment source must carry the token it waits for. */
+export const assertPaymentSourceInput = (
+  source: Infer<typeof paymentSourceInputValidator>,
+): void => {
+  if (source.wompiSourceId === undefined && source.tokenId === undefined) {
+    throw new Error("A payment source needs a wompiSourceId or a tokenId");
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Status helpers

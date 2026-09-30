@@ -74,6 +74,29 @@ describe("Transactions", () => {
       expect(data!.id).toBe("txn-789");
       expect(data!.payment_method).toBeUndefined();
     });
+
+    it("should send the private key as a bearer token", async () => {
+      const transactions = makeClient(PRIVATE_KEY);
+
+      mockFetch.mockResolvedValueOnce(okJson(TRANSACTION_RESPONSE));
+
+      await transactions.getTransaction("txn-123");
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://sandbox.wompi.co/v1/transactions/txn-123");
+      expect(new Headers(init.headers).get("Authorization")).toBe(`Bearer ${PRIVATE_KEY}`);
+    });
+
+    it("should return [error, null] when private key is missing", async () => {
+      const transactions = makeClient(undefined);
+
+      const [error, data] = await transactions.getTransaction("txn-123");
+
+      expect(data).toBeNull();
+      expect(error).toBeInstanceOf(WompiError);
+      expect(error!.message).toContain("Private key is required");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
 
   describe("listTransactions", () => {

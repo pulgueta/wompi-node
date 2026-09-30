@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { WompiClient } from "@pulgueta/wompi";
-import type { CardToken } from "@pulgueta/wompi/schemas";
+import type { CardToken, NequiToken } from "@pulgueta/wompi/schemas";
 
 export type WompiCheckoutConfig = {
   publicKey: string;
@@ -32,6 +32,11 @@ type GetConfigRef = FunctionReference<
  * from the browser to Wompi's API with your public key and never touches
  * your backend (the PCI-friendly path). Pass the resulting token id to the
  * `subscribe` action.
+ *
+ * `tokenizeNequi` does the same for a Nequi account. Its token starts as
+ * `PENDING` until the customer approves it in the Nequi app: pass the token
+ * id to `subscribe` with `type: "NEQUI"`, and read `getNequiTokenStatus` to
+ * show the customer that the approval is necessary.
  *
  * ```tsx
  * const { tokenizeCard, acceptancePermalink, personalDataAuthPermalink, ready } =
@@ -101,6 +106,22 @@ export function useWompiTokenizer(getConfig: GetConfigRef) {
     [client],
   );
 
+  const tokenizeNequi = useCallback(
+    async (phoneNumber: string): Promise<NequiToken> => {
+      if (!client) {
+        throw new Error("Wompi configuration has not loaded yet");
+      }
+
+      const [error, token] = await client.tokens.tokenizeNequi({
+        phone_number: phoneNumber.replaceAll(" ", ""),
+      });
+
+      if (error) throw error;
+      return token;
+    },
+    [client],
+  );
+
   return {
     /** False until the public config has loaded from Convex. */
     ready: client !== null,
@@ -113,5 +134,6 @@ export function useWompiTokenizer(getConfig: GetConfigRef) {
      */
     personalDataAuthPermalink,
     tokenizeCard,
+    tokenizeNequi,
   };
 }

@@ -52,7 +52,7 @@ console.log(merchant.name);
 
 ### Narrow error types without instanceof
 
-`WompiNotFoundError` and `WompiValidationError` carry a `.type` discriminant. `WompiRequestError` carries `.statusCode`. Use these to branch without `instanceof`.
+`WompiNotFoundError`, `WompiValidationError` and `WompiServiceUnavailableError` carry a `.type` discriminant. `WompiRequestError` carries `.statusCode`. Use these to branch without `instanceof`. `WompiServiceUnavailableError` (502, 503, 504, or a 5xx that is not JSON) has `retryable: true`; use `isGatewayError(error)` from `@pulgueta/wompi/schemas` to find it, then try again after a delay.
 
 ```typescript
 import type { WompiErrorResult } from '@pulgueta/wompi/schemas';
@@ -84,9 +84,9 @@ import type { Transaction } from '@pulgueta/wompi/schemas'; // TypeScript types
 import { CreateTransactionInputSchema } from '@pulgueta/wompi/schemas'; // Zod schemas
 ```
 
-### Public-key-only client (read-only use cases)
+### Public-key-only client (browser-safe operations)
 
-When you only need public operations (get transaction, tokenize, PSE lookup), omit `privateKey`. Methods that require it will return `[WompiError, null]` rather than throw.
+When you only need public operations (tokenize, merchant lookup, PSE lookup), omit `privateKey`. Methods that require it will return `[WompiError, null]` rather than throw.
 
 ```typescript
 const wompi = new WompiClient({
@@ -95,9 +95,11 @@ const wompi = new WompiClient({
 });
 
 // Public operations work fine
-const [error, txn] = await wompi.transactions.getTransaction('txn-123');
+const [error, merchant] = await wompi.merchants.getMerchant();
 
 // Private operations return an error tuple — they do not throw
+const [txnError, txn] = await wompi.transactions.getTransaction('txn-123');
+// txnError.message === "Private key is required for this operation"
 const [listError, list] = await wompi.transactions.listTransactions();
 // listError.message === "Private key is required for this operation"
 ```

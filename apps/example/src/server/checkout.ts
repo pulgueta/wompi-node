@@ -95,6 +95,17 @@ function getSandboxCheckoutCredentials() {
   return { publicKey, integrityKey };
 }
 
+function getSandboxPrivateKey() {
+  const privateKey = process.env.WOMPI_PRIVATE_KEY?.trim();
+  if (!privateKey?.startsWith("prv_test_")) {
+    throw new CheckoutConfigurationError(
+      "Set WOMPI_PRIVATE_KEY to a Wompi sandbox private key (prv_test_...).",
+    );
+  }
+
+  return privateKey;
+}
+
 function getStatusCode(error: unknown) {
   if (
     typeof error === "object" &&
@@ -409,7 +420,11 @@ export const getCheckoutTransaction = createServerFn({ method: "POST" })
           };
         }
 
-        const client = new WompiClient({ publicKey, sandbox: true });
+        const client = new WompiClient({
+          publicKey,
+          privateKey: getSandboxPrivateKey(),
+          sandbox: true,
+        });
         const [error, transaction] =
           await client.transactions.getTransaction(transactionId);
         if (error) throw error;
