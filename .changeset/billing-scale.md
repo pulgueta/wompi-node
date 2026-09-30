@@ -23,8 +23,8 @@ Remove the scale limits of the billing engine and document the ones that stay.
   that schedule themselves do not ask Wompi about the same payments again and
   again. Two runs at the same time do not get the same payments.
 - **The stale sweep has a read limit.** It stops when less than 4 MiB of the
-  read limit of the transaction remains. Payments with large `metadata` cannot
-  make the run fail.
+  read limit of the transaction remains. Thus large `metadata` does not make the
+  run fail. The limit is not exact for payments with the same creation time.
 - **Fix: `onSubscriptionChange` runs for a subscription with no available
   payment source.** Before, a billing run could move such a subscription to
   `past_due` or to a final status and not run the callback.

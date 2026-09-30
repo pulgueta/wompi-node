@@ -1037,6 +1037,10 @@ export class Wompi {
         const neverCharged =
           payment.kind === "checkout" ||
           (payment.kind === "subscription" && payment.periodStart === undefined);
+        // The other side of this rule is `waitsToExpire` in
+        // `claimStalePending` (src/component/payments.ts), which does not
+        // return an abandoned checkout until it can expire. Keep the two in
+        // agreement.
         const shouldExpire = neverCharged && age > this.billingOptions.expirePendingAfterMs;
 
         // No transaction id here does not mean no transaction at Wompi: a

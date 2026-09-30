@@ -188,6 +188,8 @@ export const claimStalePending = mutation({
       cursor = payment._creationTime;
       visited++;
 
+      // The other side of this rule is `shouldExpire` in the sweep loop of
+      // `processBilling` (src/client/index.ts). Keep the two in agreement.
       const waitsToExpire =
         payment.kind === "checkout" &&
         payment.wompiTransactionId === undefined &&

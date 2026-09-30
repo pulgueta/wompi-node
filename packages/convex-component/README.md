@@ -330,12 +330,17 @@ than one run does not wait between its runs. If you set this option to `0`,
 there is no wait, and each run can ask Wompi about the same payments again.
 
 The sweep also stops when less than 4 MiB of the read limit of the transaction
-remains. Thus payments with large `metadata` cannot make the run fail. The
-payments that it did not read go to the next run.
+remains. Thus large `metadata` does not make the run fail. The payments that it
+did not read go to the next run.
 
 The sweep limits in the table are not exact. Payments with the same creation
 time stay together in one run. Thus a run can go above each sweep limit by the
-number of payments in that group.
+number of payments in that group. This also applies to the read limit.
+
+The sweep moves its cursor when it claims a batch. If a run stops before it
+finishes that batch, those payments wait for the next pass. The next pass
+starts when the current pass ends and `billing.pendingSweepAfterMs` has passed
+since the current pass started.
 
 The cron sends the charges five at a time and does not wait for a result. A
 renewal that Wompi keeps `PENDING` keeps its transaction id and resolves with
